@@ -100,6 +100,14 @@ export class OverduePaymentService {
         return /airbnb/.test(s);
     }
 
+    // Channels where the platform collects payment itself, so guests can never
+    // be "overdue" — excluded from the list by default and never raise payment
+    // emergencies. Currently Airbnb and HVMB.
+    static isPaymentExempt(source?: string | null, channelName?: string | null): boolean {
+        const s = `${source || ""} ${channelName || ""}`.toLowerCase();
+        return /airbnb|hvmb/.test(s);
+    }
+
     private toNum(v: any): number | null {
         if (v === null || v === undefined || v === "") return null;
         const n = Number(v);
@@ -154,11 +162,15 @@ export class OverduePaymentService {
             .createQueryBuilder("r")
             .where("r.status NOT IN (:...excluded)", { excluded: this.excludedStatus });
 
-        // Non-Airbnb by default; a specific channel filter overrides that.
+        // Airbnb and HVMB collect payment themselves, so they're excluded by
+        // default; a specific channel filter overrides that.
         if (filters.channel) {
             qb.andWhere("(r.channelName = :ch OR r.source = :ch)", { ch: filters.channel });
         } else if (!filters.includeAirbnb) {
-            qb.andWhere("(COALESCE(r.source,'') NOT LIKE '%airbnb%' AND COALESCE(r.channelName,'') NOT LIKE '%airbnb%')");
+            qb.andWhere(
+                "(COALESCE(r.source,'') NOT LIKE '%airbnb%' AND COALESCE(r.channelName,'') NOT LIKE '%airbnb%'" +
+                " AND COALESCE(r.source,'') NOT LIKE '%hvmb%' AND COALESCE(r.channelName,'') NOT LIKE '%hvmb%')"
+            );
         }
 
         // Hide calendar-block pseudo-reservations and $0 bookings by default —
@@ -333,7 +345,10 @@ export class OverduePaymentService {
         const qb = this.reservationRepo
             .createQueryBuilder("r")
             .where("r.status NOT IN (:...excluded)", { excluded: this.excludedStatus })
-            .andWhere("(COALESCE(r.source,'') NOT LIKE '%airbnb%' AND COALESCE(r.channelName,'') NOT LIKE '%airbnb%')")
+            .andWhere(
+                "(COALESCE(r.source,'') NOT LIKE '%airbnb%' AND COALESCE(r.channelName,'') NOT LIKE '%airbnb%'" +
+                " AND COALESCE(r.source,'') NOT LIKE '%hvmb%' AND COALESCE(r.channelName,'') NOT LIKE '%hvmb%')"
+            )
             .andWhere("(r.departureDate IS NULL OR r.departureDate >= :fromStr)", { fromStr })
             .andWhere("(r.arrivalDate IS NULL OR r.arrivalDate <= :toStr)", { toStr })
             .orderBy("r.arrivalDate", "ASC")
@@ -429,7 +444,7 @@ export class OverduePaymentService {
     }> {
         try {
             if (!conversation?.reservationId || !this.apiKey) return { isEmergency: false, reason: null };
-            if (OverduePaymentService.isAirbnb(null, conversation.channel)) return { isEmergency: false, reason: null };
+            if (OverduePaymentService.isPaymentExempt(null, conversation.channel)) return { isEmergency: false, reason: null };
 
             const reservationId = Number(conversation.reservationId);
             const data: any = await this.hostify.getReservationInfo(this.apiKey, reservationId);
@@ -441,7 +456,7 @@ export class OverduePaymentService {
                 return { isEmergency: false, reason: null };
             }
             // Double-check channel/source from the live record too.
-            if (OverduePaymentService.isAirbnb(r.source, r.channel_name || r.integration_name)) {
+            if (OverduePaymentService.isPaymentExempt(r.source, r.channel_name || r.integration_name)) {
                 return { isEmergency: false, reason: null };
             }
 
