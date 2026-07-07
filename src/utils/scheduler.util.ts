@@ -36,6 +36,8 @@ import OpenAI from "openai";
 import { InboxAIAuditService } from "../services/InboxAIAuditService";
 import { AutoMessageService } from "../services/AutoMessageService";
 import { OverduePaymentService } from "../services/OverduePaymentService";
+import { QuoInboxService } from "../services/QuoInboxService";
+import { QuoItemDetectionService } from "../services/QuoItemDetectionService";
 
 
 export function scheduleGetReservation() {
@@ -559,6 +561,34 @@ export function scheduleGetReservation() {
         logger.info(`[OverduePayment] Payment status sweep completed — checked=${result.checked}, updated=${result.updated}, emergenciesCleared=${result.emergenciesCleared}`);
       } catch (error) {
         logger.error("[OverduePayment] Error in payment status sweep:", error);
+      }
+    }
+  );
+
+  // Quo (OpenPhone) SMS inbox sync — every 3 minutes, PM/GR lines only.
+  // Polls conversations + messages into quo_conversations / quo_messages and
+  // runs action-item detection on threads with new incoming messages.
+  // Kill switch: QUO_INBOX_SYNC_ENABLED=false.
+  schedule.scheduleJob(
+    "1-59/3 * * * *",
+    async () => {
+      if (String(process.env.QUO_INBOX_SYNC_ENABLED || "true").toLowerCase() === "false") return;
+      if (!QuoInboxService.isConfigured()) return;
+      try {
+        const quoService = new QuoInboxService();
+        const result = await quoService.syncAll();
+        if (result.conversations || result.messages) {
+          logger.info(`[QuoInbox] Sync — lines=${result.lines}, conversations=${result.conversations}, messages=${result.messages}`);
+        }
+        if (result.newIncoming.length) {
+          const detector = new QuoItemDetectionService();
+          const detection = await detector.detectForConversations(result.newIncoming);
+          if (detection.created) {
+            logger.info(`[QuoInbox] Detection created ${detection.created} action item(s)`);
+          }
+        }
+      } catch (error) {
+        logger.error("[QuoInbox] Error in scheduled sync:", error);
       }
     }
   );

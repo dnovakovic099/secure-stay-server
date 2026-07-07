@@ -70,4 +70,11 @@ export class ActionItems {
 
     @Column({ nullable: true })
     mistakeResolvedOn: string;
+
+    /** Where the item came from: null/manual = standard, 'quo' = Quo SMS inbox AI. */
+    @Column({ length: 20, nullable: true })
+    source: string;
+
+    @Column({ length: 64, nullable: true })
+    quoConversationId: string;
 }

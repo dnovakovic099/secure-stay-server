@@ -286,6 +286,7 @@ export class InboxAIService {
                         role: "system",
                         content: this.systemPrompt(settings, {
                             airbnbSupport: this.isAirbnbSupportThread(conversation, messages),
+                            inquirySales: InboxAIService.isInquiryStatus(conversation.reservationStatus),
                         }),
                     },
                     { role: "user", content: context },
@@ -659,7 +660,12 @@ export class InboxAIService {
             temperature: 0.4,
             response_format: { type: "json_object" },
             messages: [
-                { role: "system", content: this.systemPrompt(settings) },
+                {
+                    role: "system",
+                    content: this.systemPrompt(settings, {
+                        inquirySales: opts.reservationStatus === "inquiry",
+                    }),
+                },
                 { role: "user", content: context },
             ],
         });
@@ -1051,9 +1057,19 @@ export class InboxAIService {
         };
     }
 
+    /**
+     * Pre-booking statuses where the guest hasn't committed yet — the reply is a
+     * sales conversation, so the prompt switches into inquiry sales mode.
+     */
+    static isInquiryStatus(status?: string | null): boolean {
+        const s = String(status || "").toLowerCase();
+        if (!s) return false;
+        return s.startsWith("inquiry") || s.startsWith("preapproved") || s.startsWith("offer") || s.startsWith("pending");
+    }
+
     private systemPrompt(
         settings?: AIMessagingSettingsEntity | null,
-        opts: { airbnbSupport?: boolean } = {}
+        opts: { airbnbSupport?: boolean; inquirySales?: boolean } = {}
     ): string {
         const toneLabel = (settings?.tone || "warm").trim();
         const customRules = (settings?.communicationRules || "").trim();
@@ -1080,6 +1096,20 @@ export class InboxAIService {
                 settingsBlock.push("AIRBNB SUPPORT RULES (follow these strictly for this conversation):");
                 settingsBlock.push(airbnbSupportRules);
             }
+        }
+        if (opts.inquirySales && !opts.airbnbSupport) {
+            settingsBlock.push(
+                [
+                    "NEW INQUIRY — SALES MODE (this guest has NOT booked yet; your reply is a sales conversation and its job is to win the booking):",
+                    "- Act like a smart, shrewd sales agent: confident, specific, warm but never gushing. Specifics sell; adjectives don't.",
+                    "- Answer their exact question first, directly and factually.",
+                    "- Then CROSS-SELL with real facts: mention 1-2 related things we actually offer, pulled from the listing context, that fit what they asked about (asked about kayaks → 'we also provide life vests and fishing poles'; asked about the kitchen → mention the grill or coffee setup). Concrete items only — NEVER invent amenities, and skip the cross-sell entirely if nothing in context relates.",
+                    "- BANNED: corny brochure talk — 'a wonderful way to experience...', 'perfect for relaxing and enjoying...', 'memories to last a lifetime', 'nestled', 'oasis', 'gem'. No exclamation-point pileups. At most one plain, warm sentence of enthusiasm.",
+                    "- CLOSE with a light, confident nudge toward booking: if live availability data shows their dates open, say so plainly ('those dates are open right now'). Otherwise note that if the platform lets them select the dates, they're available to book. Never manufacture urgency ('book fast before it's gone') and NEVER offer discounts.",
+                    "- Stay honest and shrewd: if we genuinely don't have what the guest needs, say so straight — trust wins more bookings than spin. Never imply they already have a confirmed reservation.",
+                    "- Sales mode may use up to 4 short sentences (answer + cross-sell + close); still no filler.",
+                ].join("\n")
+            );
         }
         settingsBlock.push("");
 
