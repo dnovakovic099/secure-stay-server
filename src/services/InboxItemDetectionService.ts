@@ -9,7 +9,7 @@ import { AIMessagingSettingsService } from "./AIMessagingSettingsService";
 // Mini is plenty for "extract tasks from a conversation" and keeps the
 // per-message cost at pennies; override with AI_ITEM_DETECTION_MODEL if needed.
 const DETECTION_MODEL = process.env.AI_ITEM_DETECTION_MODEL || "gpt-4.1-mini";
-const DETECTION_PROMPT_VERSION = "inbox-detect-v2";
+const DETECTION_PROMPT_VERSION = "inbox-detect-v3";
 
 // Guests send messages in bursts. Instead of scanning per message we wait for
 // the burst to settle and scan the thread once — fewer calls, better context,
@@ -127,6 +127,30 @@ export class InboxItemDetectionService {
         if (!(await InboxItemDetectionService.resolveEnabled())) {
             return { detected: 0, reason: "detection_disabled" };
         }
+        // Cross-worker guard: the burst debounce is per-process, so two PM2
+        // cluster workers can both arm timers for the same thread and scan it
+        // simultaneously — both see "no recent proposals" and both save,
+        // duplicating every item (observed July 7: full sets saved twice).
+        // A named MySQL lock makes one worker win; the loser skips entirely.
+        const runner = appDatabase.createQueryRunner();
+        const lockName = `ss_itemdetect_${threadId}`;
+        try {
+            await runner.connect();
+            const lockRows: any[] = await runner.query("SELECT GET_LOCK(?, 0) AS l", [lockName]);
+            if (!Number(lockRows?.[0]?.l)) {
+                return { detected: 0, reason: "scan_in_progress_elsewhere" };
+            }
+            return await this.detectForThreadLocked(threadId, messageId);
+        } finally {
+            await runner.query("SELECT RELEASE_LOCK(?)", [lockName]).catch(() => undefined);
+            await runner.release().catch(() => undefined);
+        }
+    }
+
+    private async detectForThreadLocked(
+        threadId: number,
+        messageId?: number | null
+    ): Promise<{ detected: number; reason?: string }> {
         try {
             const conversation = await this.conversationRepo.findOne({ where: { threadId } });
             if (!conversation) return { detected: 0, reason: "no_conversation" };
@@ -206,6 +230,12 @@ export class InboxItemDetectionService {
 
             if (!rows.length) return { detected: 0, reason: "nothing_detected" };
 
+            // Confidence floor: the prompt asks the model to omit anything below
+            // 0.6, but enforce it here too (audit: low-confidence items were
+            // overwhelmingly noise).
+            const confident = rows.filter((r) => r.confidence == null || Number(r.confidence) >= 60);
+            if (!confident.length) return { detected: 0, reason: "below_confidence_floor" };
+
             // Dedup: never re-raise a task we already proposed for this thread
             // recently (repeated scans of the same conversation see the same facts).
             const recent = await this.detectedRepo
@@ -213,17 +243,20 @@ export class InboxItemDetectionService {
                 .where("d.threadId = :tid", { tid: threadId })
                 .andWhere("d.createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)")
                 .getMany();
-            const fresh = rows.filter(
-                (r) =>
-                    !recent.some(
-                        (e) =>
-                            e.type === r.type &&
-                            InboxItemDetectionService.similar(
-                                `${e.title || ""} ${e.description || ""}`,
-                                `${r.title || ""} ${r.description || ""}`
-                            )
-                    )
-            );
+            const isDupOf = (r: AIDetectedItemEntity, e: { type?: string; title?: string | null; description?: string | null }) =>
+                e.type === r.type &&
+                (InboxItemDetectionService.similar(e.title || "", r.title || "") ||
+                    InboxItemDetectionService.similar(
+                        `${e.title || ""} ${e.description || ""}`,
+                        `${r.title || ""} ${r.description || ""}`
+                    ));
+            const fresh: AIDetectedItemEntity[] = [];
+            for (const r of confident) {
+                // Compare against recent DB rows AND items accepted earlier in this batch.
+                if (recent.some((e) => isDupOf(r, e))) continue;
+                if (fresh.some((e) => isDupOf(r, e))) continue;
+                fresh.push(r);
+            }
             if (!fresh.length) return { detected: 0, reason: "all_duplicates" };
             await this.detectedRepo.save(fresh);
             logger.info(
@@ -260,25 +293,31 @@ export class InboxItemDetectionService {
 
         return [
             "You analyze a short-term-rental guest conversation and extract structured operational items.",
-            "You produce two lists: action_items (tasks a HUMAN team member must do) and guest_issues (problems the guest is experiencing at the property).",
-            "Only extract items that are clearly supported by the conversation. Do NOT invent or speculate.",
-            "If nothing qualifies, return empty arrays.",
+            "You produce two lists: action_items (offline tasks a HUMAN team member must do) and guest_issues (physical/service problems at the property).",
+            "BE SELECTIVE. These become tracked tasks a manager reviews — a July audit found 55% of extracted items were noise. Fewer, higher-quality items beat completeness. If nothing TRULY needs a human, return empty arrays; that is the most common correct answer.",
             "",
-            "WHAT COUNTS AS AN ACTION ITEM (be thorough — these are commonly missed):",
-            "- Reservation changes: extension / early checkout / date change / cancellation intent ('our plans changed'), late checkout or early check-in requests, adding guests or pets (verify fees).",
-            "- Guest profile/ops updates: new phone number or contact info, completed forms needing confirmation, payment or refund questions needing human action.",
-            "- Promised follow-ups: guest says they'll send photos/documents — create a task to watch for and review them.",
-            "- Access problems: codes not working, lockbox confusion, can't find the unit — these are urgent.",
-            "- Listing errors the guest points out (wrong bathroom count, wrong amenity info) — task to fix the listing.",
-            "- Requests needing human confirmation: phone call requests, special arrangements, item locations nobody documented.",
+            "THE ONE TEST: would a competent operations manager, reading this conversation, assign this to a person as work that happens OUTSIDE the chat? Only then is it an item.",
             "",
-            "ESCALATION / SENTIMENT: if the guest sounds frustrated, angry, or reports being ignored, create an URGENT action item describing what they are upset about so a human takes over the conversation.",
+            "WHAT COUNTS AS AN ACTION ITEM:",
+            "- Reservation changes a human must execute: extension, date change, cancellation intent, adding guests/pets (fee handling), early check-in / late checkout that needs confirming.",
+            "- Access problems mid-arrival: codes not working, lockbox confusion, can't find the unit — urgent.",
+            "- Listing errors the guest points out (wrong amenity/bathroom count/photos) — task to fix the listing.",
+            "- Payment/refund matters requiring human action (failed payment, refund request).",
+            "- Genuine special arrangements needing human coordination or approval.",
             "",
-            "WHAT TO EXCLUDE (noise):",
-            "- Steps the messaging AI itself will do in its reply (answering a question is not a task).",
-            "- Generic filler like 'follow up with the guest' or 'monitor the situation' with no concrete action.",
-            "- Matters the conversation shows are already resolved.",
-            "- The same underlying task twice — one item per distinct task, even if the guest mentioned it in several messages.",
+            "ESCALATION: if the guest is frustrated, angry, or reports being ignored AND the conversation shows it is not already being handled, create ONE urgent action item describing what they're upset about.",
+            "",
+            "WHAT TO EXCLUDE (each rule below killed real noise in the audit):",
+            "1. RESOLVED: anything the conversation shows was already handled, answered, confirmed done, or that the team said is in motion. Read the WHOLE thread before proposing.",
+            "2. A CHAT REPLY IS THE FIX: if answering the guest's question fully resolves the matter (pricing clarification, policy question, information request), there is NO task. Answering is the messaging AI's job, not an item.",
+            "3. NO REAL ASK: pleasantries, musings, hypotheticals ('we might stay longer'), observations without a request, or anything the guest explicitly declined or dropped.",
+            "4. AUTOMATED FLOWS: check-in instructions, access codes before arrival, pre-check-in reminders, payment-link reminders are all SENT AUTOMATICALLY. Never create 'send check-in instructions/details' tasks.",
+            "5. TRIVIA: phone number / contact info updates, 'verify guest count' with no consequence, 'monitor' or 'follow up' filler with no concrete act.",
+            "6. ONE ITEM PER FACT: a property problem is ONE guest_issue — do NOT also emit an action_item that restates it ('Fix X' for issue X). Only add a separate action_item when the human work goes beyond fixing the reported problem.",
+            "",
+            "GUEST ISSUES are ONLY physical or service defects at the property (broken, missing, dirty, not working). Not questions, not requests, not reservation matters.",
+            "",
+            "CONFIDENCE: score how certain you are a manager would assign this task. OMIT anything you would score below 0.6.",
             "",
             'category MUST be one of: "reservation_change", "guest_request", "property_access", "maintenance", "cleanliness", "hvac", "pest_control", "pool_spa", "landscaping", "listing_error", "escalation", "other".',
             "",

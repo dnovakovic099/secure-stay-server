@@ -50,6 +50,7 @@ export class AIActionItemsTestingService {
                     c.listingName, c.guestName, c.channel
              FROM ai_detected_items d
              LEFT JOIN inbox_conversations c ON c.threadId = d.threadId
+             WHERE d.status NOT IN ('duplicate', 'dismissed')
              ORDER BY d.createdAt DESC
              LIMIT 2000`
         );
