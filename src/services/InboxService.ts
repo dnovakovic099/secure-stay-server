@@ -46,6 +46,15 @@ interface ListOptions {
     keyword?: string;
     channel?: string;
     unreadOnly?: boolean;
+    /** Quick day filters: guests checking in / checking out today. */
+    arrival?: "checkin_today" | "checkout_today" | string;
+    /** Check-in date window (YYYY-MM-DD). Same value in both = exact date. */
+    checkinFrom?: string;
+    checkinTo?: string;
+    /** Listing tag bucket: "PM" | "Arb" | "Own" (from listing_info tags). */
+    propertyType?: string;
+    /** Reservation status bucket: "inquiry" | "confirmed" | "cancelled". */
+    reservationStatus?: string;
 }
 
 const toNumberOrNull = (value: any): number | null => {
@@ -604,6 +613,45 @@ export class InboxService {
         if (options.unreadOnly) {
             qb.andWhere("c.unread = 1");
         }
+
+        // Day filters. "Today" is the portfolio's local day (guests check in on
+        // Chicago time), not UTC — otherwise the filter flips a day early each evening.
+        const today = new Intl.DateTimeFormat("en-CA", {
+            timeZone: process.env.PORTFOLIO_TIMEZONE || "America/Chicago",
+        }).format(new Date());
+        if (options.arrival === "checkin_today") {
+            qb.andWhere("c.checkin = :today", { today });
+        } else if (options.arrival === "checkout_today") {
+            qb.andWhere("c.checkout = :today", { today });
+        }
+        if (options.checkinFrom) qb.andWhere("c.checkin >= :cf", { cf: options.checkinFrom });
+        if (options.checkinTo) qb.andWhere("c.checkin <= :ct", { ct: options.checkinTo });
+
+        // Reservation status buckets (raw Hostify statuses grouped for the UI).
+        const statusBucket = String(options.reservationStatus || "").toLowerCase();
+        if (statusBucket === "inquiry") {
+            qb.andWhere("LOWER(COALESCE(c.reservationStatus, '')) LIKE 'inquiry%'");
+        } else if (statusBucket === "confirmed") {
+            qb.andWhere("LOWER(COALESCE(c.reservationStatus, '')) IN ('accepted', 'confirmed')");
+        } else if (statusBucket === "cancelled") {
+            qb.andWhere("LOWER(COALESCE(c.reservationStatus, '')) IN ('cancelled', 'canceled', 'denied', 'voided')");
+        }
+
+        // PM / Arb / Own from listing tags. Mirrors normalizePropertyTypeValue's
+        // priority (own > arb > pm) so filtering agrees with the badge shown.
+        const typeBucket = String(options.propertyType || "").toLowerCase();
+        if (typeBucket === "pm" || typeBucket === "arb" || typeBucket === "own") {
+            qb.leftJoin(Listing, "l", "l.id = c.listingId");
+            const raw = "LOWER(CONCAT(COALESCE(l.tags, ''), ' ', COALESCE(l.propertyType, '')))";
+            if (typeBucket === "own") {
+                qb.andWhere(`${raw} LIKE '%own%'`);
+            } else if (typeBucket === "arb") {
+                qb.andWhere(`${raw} LIKE '%arb%' AND ${raw} NOT LIKE '%own%'`);
+            } else {
+                qb.andWhere(`${raw} LIKE '%pm%' AND ${raw} NOT LIKE '%own%' AND ${raw} NOT LIKE '%arb%'`);
+            }
+        }
+
         if (options.keyword) {
             const kw = `%${options.keyword.trim()}%`;
             qb.andWhere(
@@ -648,7 +696,15 @@ export class InboxService {
             };
         });
 
-        return { conversations: enrichedConversations, total, page, perPage };
+        // Full channel list for the filter dropdown (independent of pagination).
+        const channelRows: { ch: string }[] = await this.conversationRepo
+            .createQueryBuilder("c")
+            .select("DISTINCT c.channel", "ch")
+            .where("c.channel IS NOT NULL AND c.channel != ''")
+            .getRawMany();
+        const channels = channelRows.map((r) => r.ch).filter(Boolean).sort();
+
+        return { conversations: enrichedConversations, total, page, perPage, channels };
     }
 
     async getConversation(threadId: number) {

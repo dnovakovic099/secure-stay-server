@@ -29,6 +29,11 @@ export class InboxV2Controller {
                 keyword: (request.query.keyword as string) || undefined,
                 channel: (request.query.channel as string) || undefined,
                 unreadOnly: request.query.unreadOnly === "true",
+                arrival: (request.query.arrival as string) || undefined,
+                checkinFrom: (request.query.checkinFrom as string) || undefined,
+                checkinTo: (request.query.checkinTo as string) || undefined,
+                propertyType: (request.query.propertyType as string) || undefined,
+                reservationStatus: (request.query.reservationStatus as string) || undefined,
             });
             return response.status(200).json({ status: true, data: result });
         } catch (error) {
