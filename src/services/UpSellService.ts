@@ -5,12 +5,14 @@ import { Request, Response } from "express";
 import { UpSellListing } from "../entity/UpSellListing";
 import { Listing } from "../entity/Listing";
 import { UpSellPropertyConfig } from "../entity/UpSellPropertyConfig";
+import { QuoteService } from "./QuoteService";
 
 export class UpSellServices {
   private upSellRepository = appDatabase.getRepository(UpSellEntity);
   private upSellListings = appDatabase.getRepository(UpSellListing);
   private listingInfoRepository = appDatabase.getRepository(Listing);
   private upSellPropertyConfigRepository = appDatabase.getRepository(UpSellPropertyConfig);
+  private quoteService = new QuoteService();
 
   private parseArrayField<T>(value: unknown): T[] {
     if (Array.isArray(value)) {
@@ -62,6 +64,7 @@ export class UpSellServices {
         rateConfiguration: this.normalizeNullableString(item?.rateConfiguration),
         pricingRules: this.normalizeNullableString(item?.pricingRules),
         upsellFee: this.normalizeNullableNumber(item?.upsellFee),
+        taxable: this.normalizeBoolean(item?.taxable),
         pairSyncStatus: this.normalizePairSyncStatus(item?.pairSyncStatus),
         pairSyncAction: this.normalizePairSyncAction(item?.pairSyncAction),
         source: this.normalizeSource(item?.source),
@@ -128,6 +131,7 @@ export class UpSellServices {
     propertyConfig.rateConfiguration = config.rateConfiguration;
     propertyConfig.pricingRules = config.pricingRules;
     propertyConfig.upsellFee = config.upsellFee;
+    propertyConfig.taxable = config.taxable;
     propertyConfig.pairSyncStatus = config.pairSyncStatus;
     propertyConfig.source = config.source;
     propertyConfig.sdto = config.sdto;
@@ -269,6 +273,7 @@ export class UpSellServices {
               propertyConfig.rateConfiguration = config.rateConfiguration;
               propertyConfig.pricingRules = config.pricingRules;
               propertyConfig.upsellFee = config.upsellFee;
+              propertyConfig.taxable = config.taxable;
               propertyConfig.pairSyncStatus = config.pairSyncStatus;
               propertyConfig.source = config.source;
               propertyConfig.sdto = config.sdto;
@@ -378,6 +383,7 @@ export class UpSellServices {
                 propertyConfig.rateConfiguration = config.rateConfiguration;
                 propertyConfig.pricingRules = config.pricingRules;
                 propertyConfig.upsellFee = config.upsellFee;
+                propertyConfig.taxable = config.taxable;
                 propertyConfig.pairSyncStatus = config.pairSyncStatus;
                 propertyConfig.source = config.source;
                 propertyConfig.sdto = config.sdto;
@@ -705,10 +711,23 @@ export class UpSellServices {
             });
           }
 
+          const taxByListingId = new Map<number, number>();
+          await Promise.all(
+            listingIds.map(async (listingId) => {
+              try {
+                const taxRate = await this.quoteService.getTaxRate(listingId);
+                taxByListingId.set(listingId, Number((taxRate * 100).toFixed(2)));
+              } catch {
+                taxByListingId.set(listingId, 0);
+              }
+            })
+          );
+
           listingData.forEach((row: any) => {
             const listingInfo = listingsById.get(Number(row.listingId));
             if (!listingInfo) return;
             const propertyConfig = propertyConfigMap.get(Number(row.listingId));
+            const listingTax = taxByListingId.get(Number(row.listingId)) ?? 0;
             listingInfo.status = 1;
             listingInfo.serviceType = propertyConfig?.serviceType ?? null;
             listingInfo.pmFee = propertyConfig?.pmFee ?? null;
@@ -718,6 +737,9 @@ export class UpSellServices {
             listingInfo.rateConfiguration = propertyConfig?.rateConfiguration ?? null;
             listingInfo.pricingRules = propertyConfig?.pricingRules ?? null;
             listingInfo.upsellFee = propertyConfig?.upsellFee ?? null;
+            listingInfo.tax = listingTax;
+            listingInfo.taxRate = listingTax;
+            listingInfo.taxable = propertyConfig?.taxable ?? false;
             listingInfo.pairSyncStatus = propertyConfig?.pairSyncStatus ?? null;
             listingInfo.source = propertyConfig?.source ?? null;
             listingInfo.sdto = propertyConfig?.sdto ?? null;

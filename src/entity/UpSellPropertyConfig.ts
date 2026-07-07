@@ -35,6 +35,9 @@ export class UpSellPropertyConfig {
   @Column({ type: "decimal", precision: 10, scale: 2, nullable: true })
   upsellFee: number | null;
 
+  @Column({ type: "boolean", nullable: true, default: false })
+  taxable: boolean | null;
+
   @Column({ type: "varchar", length: 20, nullable: true })
   pairSyncStatus: string | null;
 

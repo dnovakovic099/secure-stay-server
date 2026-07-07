@@ -6,7 +6,7 @@ import "reflect-metadata";
 import express from "express";
 import qs from "qs";
 import { createRouting } from "./utils/router.util";
-import { ensureIssueMetadataColumns, ensureReviewCheckoutMetadataColumns, ensureTurnoverSettingsColumns, initDatabase } from "./utils/database.util";
+import { ensureIssueMetadataColumns, ensureReviewCheckoutMetadataColumns, ensureTurnoverSettingsColumns, ensureUpsellPropertyConfigColumns, initDatabase } from "./utils/database.util";
 import { errorHandler } from "./middleware/error.middleware";
 import appRoutes from "./router/appRoutes";
 import cors from "cors";
@@ -29,6 +29,7 @@ const main = async () => {
   await ensureIssueMetadataColumns();
   await ensureReviewCheckoutMetadataColumns();
   await ensureTurnoverSettingsColumns();
+  await ensureUpsellPropertyConfigColumns();
 
   const app = express();
   // Disable ETag generation for all responses. This is a pure JSON API: with

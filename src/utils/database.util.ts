@@ -39,21 +39,26 @@ export async function initDatabase() {
   return appDatabase;
 }
 
+async function addColumnIfMissing(table: string, column: string, definition: string) {
+  const existing = await appDatabase.query(`SHOW COLUMNS FROM ${table} LIKE ?`, [column]);
+  if (Array.isArray(existing) && existing.length > 0) return;
+  try {
+    await appDatabase.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    logger.info(`Added missing ${table}.${column} column`);
+  } catch (error: any) {
+    if (error?.code === "ER_DUP_FIELDNAME") return;
+    throw error;
+  }
+}
+
 export async function ensureIssueMetadataColumns() {
   if (!appDatabase.isInitialized) return;
 
-  const addColumnIfMissing = async (column: string, definition: string) => {
-    const existing = await appDatabase.query("SHOW COLUMNS FROM issues LIKE ?", [column]);
-    if (Array.isArray(existing) && existing.length > 0) return;
-    await appDatabase.query(`ALTER TABLE issues ADD COLUMN ${column} ${definition}`);
-    logger.info(`Added missing issues.${column} column`);
-  };
-
   try {
-    await addColumnIfMissing("resolution_refreshed_at", "DATETIME NULL");
-    await addColumnIfMissing("resolution_refreshed_by", "VARCHAR(255) NULL");
-    await addColumnIfMissing("manager_feedback_updated_at", "DATETIME NULL");
-    await addColumnIfMissing("manager_feedback_updated_by", "VARCHAR(255) NULL");
+    await addColumnIfMissing("issues", "resolution_refreshed_at", "DATETIME NULL");
+    await addColumnIfMissing("issues", "resolution_refreshed_by", "VARCHAR(255) NULL");
+    await addColumnIfMissing("issues", "manager_feedback_updated_at", "DATETIME NULL");
+    await addColumnIfMissing("issues", "manager_feedback_updated_by", "VARCHAR(255) NULL");
   } catch (error) {
     logger.error("Failed to ensure issue metadata columns:", error);
     throw error;
@@ -63,17 +68,21 @@ export async function ensureIssueMetadataColumns() {
 export async function ensureReviewCheckoutMetadataColumns() {
   if (!appDatabase.isInitialized) return;
 
-  const addColumnIfMissing = async (column: string, definition: string) => {
-    const existing = await appDatabase.query("SHOW COLUMNS FROM review_checkout LIKE ?", [column]);
-    if (Array.isArray(existing) && existing.length > 0) return;
-    await appDatabase.query(`ALTER TABLE review_checkout ADD COLUMN ${column} ${definition}`);
-    logger.info(`Added missing review_checkout.${column} column`);
-  };
-
   try {
-    await addColumnIfMissing("mitigation_urgency", "INT NULL");
+    await addColumnIfMissing("review_checkout", "mitigation_urgency", "INT NULL");
   } catch (error) {
     logger.error("Failed to ensure review_checkout metadata columns:", error);
+    throw error;
+  }
+}
+
+export async function ensureUpsellPropertyConfigColumns() {
+  if (!appDatabase.isInitialized) return;
+
+  try {
+    await addColumnIfMissing("upsell_property_config", "taxable", "TINYINT(1) NULL DEFAULT 0");
+  } catch (error) {
+    logger.error("Failed to ensure upsell property config columns:", error);
     throw error;
   }
 }
