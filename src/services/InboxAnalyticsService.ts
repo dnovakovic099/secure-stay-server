@@ -789,6 +789,14 @@ export class InboxAnalyticsService {
             { autoApprove: InboxAIAuditService.autoApproveFacts(), trustedSource: true }
         );
         await appDatabase.query(`UPDATE ai_message_suggestions SET missResolvedAt = NOW() WHERE id = ?`, [suggestionId]);
+        // If the AI had raised a learning question on this thread, the manager's
+        // answer covers it — close it so the team isn't asked again in the inbox.
+        await appDatabase.query(
+            `UPDATE ai_learning_prompts
+             SET status = 'answered', answerText = ?, answerScope = ?, resolvedAt = NOW(), resolvedVia = 'staff'
+             WHERE threadId = ? AND status = 'pending'`,
+            [text, scope === "portfolio" ? "portfolio" : "property", r.threadId]
+        );
         return { saved: true };
     }
 
