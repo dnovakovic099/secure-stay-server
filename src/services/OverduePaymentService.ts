@@ -269,11 +269,12 @@ export class OverduePaymentService {
     async syncPaymentStatus(opts: { lookbackDays?: number; lookaheadDays?: number; limit?: number } = {}): Promise<{
         checked: number;
         updated: number;
+        emergenciesRaised: number;
         emergenciesCleared: number;
     }> {
         if (!this.apiKey) {
             logger.warn("[OverduePayment] No Hostify API key configured; skipping payment sweep");
-            return { checked: 0, updated: 0, emergenciesCleared: 0 };
+            return { checked: 0, updated: 0, emergenciesRaised: 0, emergenciesCleared: 0 };
         }
         const lookback = opts.lookbackDays ?? 21;
         const lookahead = opts.lookaheadDays ?? 120;
@@ -298,7 +299,13 @@ export class OverduePaymentService {
         const reservations = await qb.getMany();
         let checked = 0;
         let updated = 0;
+        let emergenciesRaised = 0;
         let emergenciesCleared = 0;
+
+        const today = this.todayStr();
+        const tomorrowDate = new Date();
+        tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+        const tomorrow = tomorrowDate.toISOString().slice(0, 10);
 
         for (const r of reservations) {
             checked++;
@@ -315,18 +322,53 @@ export class OverduePaymentService {
                 await this.reservationRepo.save(r);
                 updated++;
 
+                const fullyPaid = this.isFullyPaid(r.paidPart, r.paidAmount, this.toNum(r.totalPrice));
+
                 // Clear a payment emergency once the balance is settled.
-                if (this.isFullyPaid(r.paidPart, r.paidAmount, this.toNum(r.totalPrice))) {
+                if (fullyPaid) {
                     const cleared = await this.clearEmergencyForReservation(r.id, "payment");
                     if (cleared) emergenciesCleared++;
+                    continue;
+                }
+
+                // Proactively raise the emergency (no guest message needed) when
+                // an unpaid guest checks in today or tomorrow, so the conversation
+                // is pinned in the inbox and the alert email goes out ahead of
+                // arrival instead of only when the guest happens to write in.
+                const arrival = this.dateStr(r.arrivalDate);
+                if (arrival === today || arrival === tomorrow) {
+                    const raised = await this.raiseEmergencyForReservation(r);
+                    if (raised) emergenciesRaised++;
                 }
             } catch (err: any) {
                 logger.warn(`[OverduePayment] sweep failed for reservation ${r.id}: ${err.message}`);
             }
         }
 
-        logger.info(`[OverduePayment] Sweep — checked=${checked}, updated=${updated}, emergenciesCleared=${emergenciesCleared}`);
-        return { checked, updated, emergenciesCleared };
+        logger.info(
+            `[OverduePayment] Sweep — checked=${checked}, updated=${updated}, emergenciesRaised=${emergenciesRaised}, emergenciesCleared=${emergenciesCleared}`
+        );
+        return { checked, updated, emergenciesRaised, emergenciesCleared };
+    }
+
+    /**
+     * Raise the "guest needs to pay" emergency for a reservation's conversation
+     * during the sweep. Returns true only on a fresh raise (email sent).
+     */
+    private async raiseEmergencyForReservation(r: ReservationInfoEntity): Promise<boolean> {
+        const conversation = await this.conversationRepo.findOne({ where: { reservationId: r.id } });
+        if (!conversation) return false;
+        if (Number(conversation.emergency) === 1 && conversation.emergencyType === "payment") return false;
+
+        const total = this.toNum(r.totalPrice);
+        const paid = this.toNum(r.paidAmount);
+        const due = total != null ? Math.max(0, total - (paid ?? 0)) : null;
+        const money = due != null
+            ? `${due.toFixed(2)}${r.currency ? " " + r.currency : ""} still due`
+            : "an outstanding balance";
+        const arrival = this.dateStr(r.arrivalDate);
+        const reason = `Guest checks in ${arrival === this.todayStr() ? "TODAY" : `on ${arrival}`} via ${r.channelName || r.source || "a non-Airbnb channel"} with ${money} (paid ${paid != null ? paid.toFixed(2) : "0"}${total != null ? " of " + total.toFixed(2) : ""}). Do not grant access until paid.`;
+        return this.raiseEmergency(conversation, reason, "payment");
     }
 
     // -------------------------------------------------------------------------
@@ -389,9 +431,12 @@ export class OverduePaymentService {
             const arrival = this.dateStr(r.checkIn || r.arrivalDate);
             const departure = this.dateStr(r.checkOut || r.departureDate);
             const today = this.todayStr();
-            // Trigger on the day the guest arrives — or if they should already have
-            // arrived and the stay is still active — with an outstanding balance.
-            const arrivingOrStaying = arrival != null && arrival <= today && (departure == null || departure >= today);
+            const tomorrowDate = new Date();
+            tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+            const tomorrow = tomorrowDate.toISOString().slice(0, 10);
+            // Trigger when the guest arrives today or tomorrow — or if they should
+            // already have arrived and the stay is still active — with a balance due.
+            const arrivingOrStaying = arrival != null && arrival <= tomorrow && (departure == null || departure >= today);
             if (!arrivingOrStaying) return { isEmergency: false, reason: null };
 
             const due = total != null ? Math.max(0, total - (paidSum ?? 0)) : null;

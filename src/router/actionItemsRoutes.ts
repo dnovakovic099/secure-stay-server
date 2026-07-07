@@ -55,6 +55,10 @@ router
   .delete(verifySession, categoryController.deleteActionItem);
 
 router
+  .route("/discard/:id")
+  .post(verifySession, categoryController.discardActionItem);
+
+router
   .route("/lastestupdates/create")
   .post(
     verifySession,

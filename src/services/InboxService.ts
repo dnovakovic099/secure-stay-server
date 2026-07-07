@@ -616,7 +616,10 @@ export class InboxService {
             );
         }
 
-        qb.orderBy("c.lastMessageAt", "DESC")
+        // Payment/other emergencies are pinned to the top of the list so an
+        // unpaid guest arriving today can't be missed; then newest activity.
+        qb.orderBy("c.emergency", "DESC")
+            .addOrderBy("c.lastMessageAt", "DESC")
             .skip((page - 1) * perPage)
             .take(perPage);
 

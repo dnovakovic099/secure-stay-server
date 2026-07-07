@@ -107,6 +107,32 @@ export class ActionItemsController {
     }
   }
 
+  /**
+   * Discard an action item as "not needed" with a reason. Soft-deletes the
+   * item and records the reason as AI training feedback so the detection
+   * model learns not to create similar items.
+   */
+  async discardActionItem(
+    request: CustomRequest,
+    response: Response,
+    next: NextFunction
+  ) {
+    try {
+      const { id } = request.params;
+      const { reason } = request.body || {};
+      const userId = request.user?.id;
+
+      const actionItemsService = new ActionItemsService();
+      await actionItemsService.discardActionItem(Number(id), String(reason || ""), userId);
+
+      return response
+        .status(200)
+        .json({ message: "Action item discarded and feedback recorded" });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async createActionItemsUpdates(
     request: CustomRequest,
     response: Response,

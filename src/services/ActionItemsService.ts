@@ -8,6 +8,7 @@ import { Between, Brackets, ILike, In, Like } from "typeorm";
 import { start } from "repl";
 import { UsersEntity } from "../entity/Users";
 import { ActionItemsUpdates } from "../entity/ActionItemsUpdates";
+import { AIDiscardFeedbackEntity } from "../entity/AIDiscardFeedback";
 import { ReservationInfoService } from "./ReservationInfoService";
 import { ReservationService } from "./ReservationService";
 import { Issue } from "../entity/Issue";
@@ -498,6 +499,62 @@ export class ActionItemsService {
     existingActionItem.deletedAt = new Date();
 
     return await this.actionItemsRepo.save(existingActionItem);
+  }
+
+  /**
+   * Discard an action item as "not needed" with a required reason. The item is
+   * soft-deleted (same as delete) and the reason is recorded in
+   * ai_discard_feedback, which the AI item-detection prompt reads as negative
+   * examples — teaching it which kinds of action items not to create.
+   */
+  async discardActionItem(id: number, reason: string, userId: string) {
+    const existingActionItem = await this.actionItemsRepo.findOne({
+      where: { id },
+    });
+    if (!existingActionItem) {
+      throw CustomErrorHandler.notFound(`Action item with ID ${id} not found`);
+    }
+    const trimmedReason = String(reason || "").trim();
+    if (!trimmedReason) {
+      throw CustomErrorHandler.validationError("A discard reason is required");
+    }
+
+    // request.user.id is the user's uid string; resolve it to a display name
+    // the same way the list endpoints do.
+    let discardedBy: string | null = userId ? String(userId) : null;
+    try {
+      const user = userId
+        ? await this.usersRepo.findOne({ where: { uid: String(userId) } })
+        : null;
+      const name = [user?.firstName, user?.lastName].filter(Boolean).join(" ") || user?.email;
+      if (name) discardedBy = String(name);
+    } catch {
+      /* keep the raw uid */
+    }
+
+    const feedbackRepo = appDatabase.getRepository(AIDiscardFeedbackEntity);
+    await feedbackRepo.save(
+      feedbackRepo.create({
+        type: "action_item",
+        actionItemId: existingActionItem.id,
+        itemText: existingActionItem.item || null,
+        category: existingActionItem.category || null,
+        listingId: existingActionItem.listingId || null,
+        listingName: existingActionItem.listingName || null,
+        guestName: existingActionItem.guestName || null,
+        reservationId: existingActionItem.reservationId || null,
+        reason: trimmedReason.slice(0, 2000),
+        discardedBy,
+      })
+    );
+
+    existingActionItem.deletedBy = discardedBy || userId;
+    existingActionItem.deletedAt = new Date();
+    const saved = await this.actionItemsRepo.save(existingActionItem);
+    logger.info(
+      `[ActionItems] item ${id} discarded by ${discardedBy || userId}: ${trimmedReason.slice(0, 120)}`
+    );
+    return saved;
   }
 
   async createActionItemsUpdates(body: any, userId: string) {

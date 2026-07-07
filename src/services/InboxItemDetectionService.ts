@@ -4,6 +4,7 @@ import logger from "../utils/logger.utils";
 import { InboxConversationEntity } from "../entity/InboxConversation";
 import { InboxMessageEntity } from "../entity/InboxMessage";
 import { AIDetectedItemEntity } from "../entity/AIDetectedItem";
+import { AIDiscardFeedbackEntity } from "../entity/AIDiscardFeedback";
 import { AIMessagingSettingsService } from "./AIMessagingSettingsService";
 
 // Mini is plenty for "extract tasks from a conversation" and keeps the
@@ -53,6 +54,7 @@ export class InboxItemDetectionService {
     private conversationRepo = appDatabase.getRepository(InboxConversationEntity);
     private messageRepo = appDatabase.getRepository(InboxMessageEntity);
     private detectedRepo = appDatabase.getRepository(AIDetectedItemEntity);
+    private discardFeedbackRepo = appDatabase.getRepository(AIDiscardFeedbackEntity);
 
     /** Env kill-switch (default OFF). */
     static isEnabledByEnv(): boolean {
@@ -163,6 +165,11 @@ export class InboxItemDetectionService {
 
             const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
 
+            // Team discards are the strongest negative signal: each row is an
+            // action item a human explicitly said was NOT needed, with why.
+            // Feed the most recent ones into the prompt as counter-examples.
+            const discardExamples = await this.loadDiscardExamples();
+
             // Per-thread consolidation: tell the model what we already track for
             // this conversation so re-scans of an ongoing saga only emit
             // genuinely NEW facts instead of re-itemizing the whole situation.
@@ -186,7 +193,7 @@ export class InboxItemDetectionService {
                     temperature: 0.2,
                     response_format: { type: "json_object" },
                     messages: [
-                        { role: "system", content: this.systemPrompt(settings) },
+                        { role: "system", content: this.systemPrompt(settings, discardExamples) },
                         { role: "user", content: context },
                     ],
                 });
@@ -295,7 +302,37 @@ export class InboxItemDetectionService {
         });
     }
 
-    private systemPrompt(settings?: any): string {
+    /**
+     * Recent "discarded as not needed" items + reasons, formatted as prompt
+     * counter-examples. Cached briefly since every thread scan needs them.
+     */
+    private static discardCache: { at: number; lines: string[] } | null = null;
+
+    private async loadDiscardExamples(): Promise<string[]> {
+        const cached = InboxItemDetectionService.discardCache;
+        if (cached && Date.now() - cached.at < 5 * 60 * 1000) return cached.lines;
+        let lines: string[] = [];
+        try {
+            const rows = await this.discardFeedbackRepo
+                .createQueryBuilder("f")
+                .where("f.createdAt >= DATE_SUB(NOW(), INTERVAL 120 DAY)")
+                .orderBy("f.createdAt", "DESC")
+                .take(30)
+                .getMany();
+            lines = rows
+                .filter((r) => (r.itemText || "").trim() && (r.reason || "").trim())
+                .map(
+                    (r) =>
+                        `- "${String(r.itemText).replace(/\s+/g, " ").trim().slice(0, 180)}" — discarded because: ${String(r.reason).replace(/\s+/g, " ").trim().slice(0, 200)}`
+                );
+        } catch (err: any) {
+            logger.warn(`[ItemDetection] failed to load discard feedback: ${err.message}`);
+        }
+        InboxItemDetectionService.discardCache = { at: Date.now(), lines };
+        return lines;
+    }
+
+    private systemPrompt(settings?: any, discardExamples: string[] = []): string {
         const actionRules = (settings?.actionItemRules || "").trim();
         const issueRules = (settings?.guestIssueRules || "").trim();
         const feedback = (settings?.detectionFeedback || "").trim();
@@ -303,6 +340,15 @@ export class InboxItemDetectionService {
         if (actionRules) extra.push(`ACTION ITEM RULES:\n${actionRules}`);
         if (issueRules) extra.push(`GUEST ISSUE RULES:\n${issueRules}`);
         if (feedback) extra.push(`TEAM FEEDBACK ON HOW TO IMPROVE DETECTION:\n${feedback}`);
+        if (discardExamples.length) {
+            extra.push(
+                [
+                    "ITEMS THE TEAM DISCARDED AS NOT NEEDED (real examples with the team's reason).",
+                    "Learn from these: do NOT create items of the same kind, and generalize the reasons to similar situations:",
+                    ...discardExamples,
+                ].join("\n")
+            );
+        }
 
         return [
             "You analyze a short-term-rental guest conversation and extract structured operational items.",
