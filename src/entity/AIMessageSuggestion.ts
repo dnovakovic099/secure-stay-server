@@ -31,6 +31,16 @@ export class AIMessageSuggestionEntity {
 
     /** 0..100 model-reported confidence. */
     @Column({ type: "decimal", precision: 5, scale: 2, nullable: true }) confidence: number | null;
+    /**
+     * Independent verifier pass (second model) that fact-checks the drafted
+     * reply against the exact context it was generated from: groundedness of
+     * every claim, completeness vs the guest's asks, and deferral necessity.
+     * This — not the generator's self-reported confidence — is what auto-send
+     * gating should trust. 0..100.
+     */
+    @Column({ type: "decimal", precision: 5, scale: 2, nullable: true }) verifierConfidence: number | null;
+    /** One-line verifier explanation when it scores the reply down. */
+    @Column({ length: 255, nullable: true }) verifierNote: string | null;
 
     @Column({ type: "tinyint", default: 0 }) escalationRequired: number;
     @Column({ length: 500, nullable: true }) escalationReason: string | null;

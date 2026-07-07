@@ -352,6 +352,16 @@ export class InboxAIService {
             if (noPendingQuestion && !instructions) confidencePct = Math.min(confidencePct, 30);
         }
 
+        // (d) Independent verifier pass: a second model fact-checks the drafted
+        //     reply against the exact context it was generated from. The
+        //     generator's self-score clusters at 95-100 and hides real mistakes;
+        //     this score is what confidence-gated auto-send will trust.
+        //     Best-effort with a hard timeout — never blocks the suggestion.
+        const verifier = await Promise.race([
+            this.runReplyVerifier({ context, reply: output.suggested_reply || "" }),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
+        ]);
+
         const suggestion = this.suggestionRepo.create({
             threadId,
             messageId: targetMessageId,
@@ -359,6 +369,8 @@ export class InboxAIService {
             listingId: conversation.listingId,
             suggestedReply: output.suggested_reply || null,
             confidence: confidencePct,
+            verifierConfidence: verifier?.confidence ?? null,
+            verifierNote: verifier?.note ?? null,
             escalationRequired: output.escalation_required ? 1 : 0,
             escalationReason: output.escalation_reason ? String(output.escalation_reason).slice(0, 500) : null,
             internalSummary: output.internal_summary || null,
@@ -374,7 +386,7 @@ export class InboxAIService {
         const saved = await this.suggestionRepo.save(suggestion);
         logger.info(
             `[InboxAIService] suggestion ${saved.id} generated for thread ${threadId} ` +
-            `(conf ${confidencePct ?? "?"}, escalate ${saved.escalationRequired})`
+            `(conf ${confidencePct ?? "?"}, verified ${verifier?.confidence ?? "?"}, escalate ${saved.escalationRequired})`
         );
 
         // If the model flagged a reusable knowledge gap, raise a learning prompt
@@ -395,6 +407,104 @@ export class InboxAIService {
             }
         }
         return saved;
+    }
+
+    private get verifierModel(): string {
+        return process.env.AI_VERIFIER_MODEL || "gpt-4.1-mini";
+    }
+
+    private verifierPrompt(): string {
+        return [
+            "You are a strict pre-send reviewer for a short-term-rental guest-messaging AI.",
+            "You get the full CONTEXT the AI had when drafting (conversation history, guest's latest message, reservation data, property knowledge, availability, proven replies) followed by the DRAFTED REPLY.",
+            "Score how safe it is to send the reply AS-IS with no human review: send_confidence 0-100.",
+            "",
+            "Check each of these independently:",
+            "1. GROUNDING — every factual claim in the reply (amenities, house rules, prices, fees, times, codes, addresses, availability, policies) must be supported by the context. Any claim NOT supported by the context caps the score at 40, even if it sounds plausible.",
+            "2. COMPLETENESS — every explicit question or request in the guest's latest message must be addressed, including each part of a multi-part message. A skipped ask caps the score at 55.",
+            "3. DEFERRAL — if the reply defers ('I'll check', 'the team will confirm') while the context already contains the answer, cap at 50. If the context genuinely lacks the answer, deferring is CORRECT and should score well (85+ if polite and safe).",
+            "4. COMMITMENTS — promises, discounts, exceptions, or guarantees not documented in the context cap the score at 30.",
+            "",
+            "Calibration anchors:",
+            "- 95-100: every claim grounded, every ask addressed, no needless deferral. Safe to auto-send.",
+            "- 80-94: minor gaps (slightly incomplete nicety, small unverifiable detail) but nothing that could mislead the guest.",
+            "- 60-79: partially helpful; some substance missing or weakly grounded.",
+            "- 40-59: a real gap — skipped ask, needless deferral, or shaky grounding.",
+            "- 0-39: contains an unsupported or wrong claim, or an undocumented commitment. Unsafe.",
+            "",
+            "Do NOT reward warmth or fluency; judge substance and safety only.",
+            'Respond with STRICT JSON only: {"send_confidence": <0-100>, "note": "one short sentence explaining the biggest problem (null if 80+)"}',
+        ].join("\n");
+    }
+
+    /**
+     * Independent verifier pass over a drafted reply. Returns a calibrated
+     * send-confidence (0..100) or null when verification is unavailable/fails.
+     */
+    async runReplyVerifier(params: { context: string; reply: string }): Promise<{ confidence: number; note: string | null } | null> {
+        const reply = (params.reply || "").trim();
+        if (!reply || !process.env.OPENAI_API_KEY) return null;
+        try {
+            const client = this.getClient();
+            const completion = await client.chat.completions.create({
+                model: this.verifierModel,
+                temperature: 0,
+                response_format: { type: "json_object" },
+                messages: [
+                    { role: "system", content: this.verifierPrompt() },
+                    { role: "user", content: `${params.context}\n\n=== DRAFTED REPLY TO VERIFY ===\n${reply}` },
+                ],
+            });
+            const parsed = JSON.parse(completion.choices[0]?.message?.content?.trim() || "{}");
+            const num = Number(parsed.send_confidence);
+            if (!Number.isFinite(num)) return null;
+            return {
+                confidence: Math.max(0, Math.min(100, Math.round(num))),
+                note: parsed.note ? String(parsed.note).slice(0, 255) : null,
+            };
+        } catch (err: any) {
+            logger.warn(`[InboxAIService] reply verifier failed: ${err.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * Re-run the verifier for an already-stored suggestion (history backfill /
+     * re-verification). Rebuilds the context from the conversation as it stood
+     * at generation time (messages up to the target message) and persists the
+     * verifier score onto the suggestion row.
+     */
+    async verifyStoredSuggestion(suggestionId: number): Promise<{ confidence: number | null }> {
+        const s = await this.suggestionRepo.findOne({ where: { id: suggestionId } });
+        if (!s || !s.suggestedReply) return { confidence: null };
+        const conversation = await this.conversationRepo.findOne({ where: { threadId: Number(s.threadId) } });
+        if (!conversation) return { confidence: null };
+
+        let messages = await this.messageRepo.find({
+            where: { threadId: Number(s.threadId) },
+            order: { sentAt: "ASC", id: "ASC" },
+        });
+        let target =
+            s.messageId != null
+                ? messages.find((m) => Number(m.externalId) === Number(s.messageId)) || null
+                : null;
+        if (target) {
+            messages = messages.slice(0, messages.indexOf(target) + 1);
+        } else if (s.generatedAt) {
+            // No stored target: reconstruct "as of generation" from timestamps.
+            messages = messages.filter((m) => !m.sentAt || m.sentAt <= s.generatedAt);
+            const inbound = messages.filter((m) => m.direction === "incoming");
+            target = inbound.length ? inbound[inbound.length - 1] : null;
+        }
+
+        const context = await this.buildContext(conversation, messages, target, {});
+        const v = await this.runReplyVerifier({ context, reply: s.suggestedReply });
+        if (v) {
+            s.verifierConfidence = v.confidence;
+            s.verifierNote = v.note;
+            await this.suggestionRepo.save(s);
+        }
+        return { confidence: v?.confidence ?? null };
     }
 
     /**
@@ -700,7 +810,12 @@ export class InboxAIService {
 
             // ---- Hard guardrails (any failure => leave for human) ----
             const minConf = await InboxAIService.autosendMinConfidenceAsync();
-            const conf = suggestion.confidence != null ? Number(suggestion.confidence) : null;
+            // Gate on the stricter of the generator's self-score and the
+            // independent verifier score; BOTH must clear the bar. A missing
+            // verifier score fails closed (no auto-send without verification).
+            const selfConf = suggestion.confidence != null ? Number(suggestion.confidence) : null;
+            const verConf = suggestion.verifierConfidence != null ? Number(suggestion.verifierConfidence) : null;
+            const conf = selfConf != null && verConf != null ? Math.min(selfConf, verConf) : null;
             const reply = (suggestion.suggestedReply || "").trim();
             const warnings = this.safeJsonArray(suggestion.warnings);
 
@@ -708,7 +823,11 @@ export class InboxAIService {
             if (!reply) return this.autosendSkip(threadId, suggestion.id, "empty_reply");
             if (warnings.length > 0) return this.autosendSkip(threadId, suggestion.id, "model_warnings");
             if (conf == null || conf < minConf) {
-                return this.autosendSkip(threadId, suggestion.id, `low_confidence:${conf ?? "?"}<${minConf}`);
+                return this.autosendSkip(
+                    threadId,
+                    suggestion.id,
+                    `low_confidence:self=${selfConf ?? "?"},verified=${verConf ?? "?"}<${minConf}`
+                );
             }
 
             // ---- Deliver ----

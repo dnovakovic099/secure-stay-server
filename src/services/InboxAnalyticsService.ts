@@ -294,7 +294,7 @@ export class InboxAnalyticsService {
     /** Load AI-vs-team pairs (Hostify-captured replies) for the last N days. */
     private async loadTeamPairs(days: number): Promise<Pair[]> {
         const teamRows: any[] = await appDatabase.query(
-            `SELECT s.id, s.threadId, s.escalationRequired, s.suggestedReply, s.actualReplyText, s.confidence,
+            `SELECT s.id, s.threadId, s.escalationRequired, s.suggestedReply, s.actualReplyText, s.confidence, s.verifierConfidence,
                     s.replySimilarity, s.replySemanticSimilarity, s.replyCoverageScore, s.auditMatchQuality,
                     s.replyRelevance, s.replyRelevanceNote, s.aiReplyQuality, s.aiReplyQualityNote,
                     s.aiReplyQualityCategory, s.missResolvedAt, s.generatedAt,
@@ -339,7 +339,14 @@ export class InboxAnalyticsService {
             aiQualityNote: r.aiReplyQualityNote ?? null,
             aiQualityCategory: r.aiReplyQualityCategory ?? null,
             missResolvedAt: r.missResolvedAt ?? null,
-            confidence: r.confidence != null ? Number(r.confidence) : null,
+            // Effective confidence = the stricter of the generator's self-score
+            // and the independent verifier score (matches the auto-send gate).
+            confidence: (() => {
+                const self = r.confidence != null ? Number(r.confidence) : null;
+                const ver = r.verifierConfidence != null ? Number(r.verifierConfidence) : null;
+                if (self != null && ver != null) return Math.min(self, ver);
+                return ver ?? self;
+            })(),
         }));
         return teamPairs;
     }
