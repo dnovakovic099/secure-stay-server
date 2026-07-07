@@ -142,9 +142,22 @@ export class CheckInNotificationService {
                 throw new Error(`Reservation ${reservationId} not found`);
             }
 
-            // Check if notification already sent
-            const existingAudit = await this.preStayAuditRepo.findOne({ where: { reservationId } });
-            if (existingAudit?.notificationStatus === 'sent') {
+            // Ensure the audit row exists so the later atomic-claim UPDATE has a row to hit.
+            let existingAudit = await this.preStayAuditRepo.findOne({ where: { reservationId } });
+            if (!existingAudit) {
+                existingAudit = this.preStayAuditRepo.create({
+                    reservationId,
+                    doorCode: DoorCodeStatus.UNSET,
+                    completionStatus: CompletionStatus.NOT_STARTED,
+                    inventoryCheckStatus: InventoryCheckStatus.UNSET,
+                    cleanlinessCheck: CleanlinessCheck.UNSET,
+                    cleanerCheck: CleanerCheck.UNSET,
+                    cleanerNotified: CleanerNotified.UNSET,
+                    damageCheck: DamageCheck.UNSET
+                });
+                await this.preStayAuditRepo.save(existingAudit);
+            }
+            if (existingAudit.notificationStatus === 'sent') {
                 logger.info(`[CheckInNotification] Notification already sent for reservation ${reservationId}`);
                 return;
             }
@@ -218,13 +231,35 @@ export class CheckInNotificationService {
             
             logger.info(`[CheckInNotification] Sending SMS to ${phoneNumber} via ${senderNumber}`);
 
-            // Send SMS via OpenPhone
-            await this.openPhoneService.sendSMSWithSender(phoneNumber, message, senderNumber);
+            // Atomic claim: flip status to 'sent' with a WHERE clause that excludes rows
+            // already marked as 'sent'. If affected === 0, another cron cycle (or the
+            // Send Now action) already claimed and sent it — bail without hitting OpenPhone.
+            // This is what prevents duplicate SMS when the post-save previously failed
+            // silently and left the audit in a non-'sent' state for the next tick to retry.
+            const claim = await this.preStayAuditRepo
+                .createQueryBuilder()
+                .update()
+                .set({ notificationStatus: 'sent', notificationSentAt: new Date() })
+                .where('reservationId = :id', { id: reservationId })
+                .andWhere(`(notificationStatus IS NULL OR notificationStatus <> 'sent')`)
+                .execute();
 
-            // Update status to sent
-            await this.updateStatus(reservationId, 'sent', templateError || undefined, contact.id, message);
+            if ((claim.affected || 0) === 0) {
+                logger.info(`[CheckInNotification] Reservation ${reservationId} was already claimed by another cycle; skipping duplicate send`);
+                return;
+            }
 
-            logger.info(`[CheckInNotification] SMS sent successfully to ${contact.name} for reservation ${reservationId}`);
+            try {
+                // Send SMS via OpenPhone
+                await this.openPhoneService.sendSMSWithSender(phoneNumber, message, senderNumber);
+                // Persist the rendered message body + contact id now that the send succeeded.
+                await this.updateStatus(reservationId, 'sent', templateError || undefined, contact.id, message);
+                logger.info(`[CheckInNotification] SMS sent successfully to ${contact.name} for reservation ${reservationId}`);
+            } catch (sendError: any) {
+                // Roll the claim back so the row reflects the real outcome and can be retried later.
+                await this.updateStatus(reservationId, 'failed', sendError?.message || 'Unknown error');
+                throw sendError;
+            }
 
         } catch (error: any) {
             logger.error(`[CheckInNotification] Error sending check-in notification for reservation ${reservationId}:`, error.message);
@@ -408,13 +443,12 @@ export class CheckInNotificationService {
             propertyValue !== undefined && propertyValue !== null ? propertyValue : (globalValue !== undefined && globalValue !== null ? globalValue : fallback);
         const resolveEnabled = (
             propertyValue: boolean | null | undefined,
-            _overrideValue: boolean | null | undefined,
+            overrideValue: boolean | null | undefined,
             globalValue: boolean | null | undefined,
             fallback: boolean
         ) => {
-            // Global OFF is a hard kill — bug fix for unintended live SMS sends.
-            if (globalValue === false) return false;
-            if (propertyValue === false) return false;
+            // Property override wins only when explicitly opted in from the Properties page.
+            if (overrideValue === true) return Boolean(propertyValue);
             return globalValue !== undefined && globalValue !== null ? Boolean(globalValue) : fallback;
         };
         const preStayDefaultRecipientType = resolve(settings?.preStayDefaultRecipientType, globalSettings?.preStayDefaultRecipientType, "cleaner");
@@ -554,7 +588,8 @@ Check-In Date: {checkInDate}
     }
 
     /**
-     * Update notification status in database
+     * Update notification status in database. Errors are logged loudly and re-thrown so
+     * the caller can react — silent failures here are what caused the duplicate-send bug.
      */
     private async updateStatus(
         reservationId: number,
@@ -563,40 +598,47 @@ Check-In Date: {checkInDate}
         contactId?: number,
         message?: string
     ): Promise<void> {
-        let audit = await this.preStayAuditRepo.findOne({ where: { reservationId } });
-        
-        if (!audit) {
-            audit = this.preStayAuditRepo.create({
-                reservationId,
-                doorCode: DoorCodeStatus.UNSET,
-                completionStatus: CompletionStatus.NOT_STARTED,
-                inventoryCheckStatus: InventoryCheckStatus.UNSET,
-                cleanlinessCheck: CleanlinessCheck.UNSET,
-                cleanerCheck: CleanerCheck.UNSET,
-                cleanerNotified: CleanerNotified.UNSET,
-                damageCheck: DamageCheck.UNSET
-            });
-        }
+        try {
+            let audit = await this.preStayAuditRepo.findOne({ where: { reservationId } });
 
-        audit.notificationStatus = status;
-        if (contactId !== undefined) {
-             audit.notificationContactId = contactId;
-        }
-        if (status === 'sent') {
-            audit.notificationSentAt = new Date();
-        }
-        if (message !== undefined) {
-            audit.notificationMessage = message;
-        }
-        if (error !== undefined) {
-            audit.notificationError = error;
-        } else {
-            audit.notificationError = null;
-        }
+            if (!audit) {
+                audit = this.preStayAuditRepo.create({
+                    reservationId,
+                    doorCode: DoorCodeStatus.UNSET,
+                    completionStatus: CompletionStatus.NOT_STARTED,
+                    inventoryCheckStatus: InventoryCheckStatus.UNSET,
+                    cleanlinessCheck: CleanlinessCheck.UNSET,
+                    cleanerCheck: CleanerCheck.UNSET,
+                    cleanerNotified: CleanerNotified.UNSET,
+                    damageCheck: DamageCheck.UNSET
+                });
+            }
 
-        await this.preStayAuditRepo.save(audit);
+            audit.notificationStatus = status;
+            if (contactId !== undefined) {
+                 audit.notificationContactId = contactId;
+            }
+            if (status === 'sent') {
+                audit.notificationSentAt = new Date();
+            }
+            if (message !== undefined) {
+                audit.notificationMessage = message;
+            }
+            if (error !== undefined) {
+                audit.notificationError = error;
+            } else {
+                audit.notificationError = null;
+            }
 
-        logger.info(`[CheckInNotification] Updated status to '${status}' for reservation ${reservationId}`);
+            await this.preStayAuditRepo.save(audit);
+
+            logger.info(`[CheckInNotification] Updated status to '${status}' for reservation ${reservationId}`);
+        } catch (err: any) {
+            logger.error(
+                `[CheckInNotification] Failed to persist status '${status}' for reservation ${reservationId}: ${err?.message || err}`
+            );
+            throw err;
+        }
     }
 
     async getPendingCheckIns(): Promise<ReservationInfoEntity[]> {

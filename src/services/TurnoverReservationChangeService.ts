@@ -133,13 +133,12 @@ export class TurnoverReservationChangeService {
             propertyValue !== undefined && propertyValue !== null ? propertyValue : (globalValue !== undefined && globalValue !== null ? globalValue : fallback);
         const resolveEnabled = (
             propertyValue: boolean | null | undefined,
-            _overrideValue: boolean | null | undefined,
+            overrideValue: boolean | null | undefined,
             globalValue: boolean | null | undefined,
             fallback: boolean
         ) => {
-            // Global OFF is a hard kill — bug fix for unintended live SMS sends.
-            if (globalValue === false) return false;
-            if (propertyValue === false) return false;
+            // Property override wins only when explicitly opted in from the Properties page.
+            if (overrideValue === true) return Boolean(propertyValue);
             return globalValue !== undefined && globalValue !== null ? Boolean(globalValue) : fallback;
         };
         const preStayDefaultRecipientType = resolve(settings?.preStayDefaultRecipientType, globalSettings?.preStayDefaultRecipientType, "cleaner");

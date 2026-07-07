@@ -121,11 +121,14 @@ export class OpenPhoneService {
   }
 
   /**
-   * Send an SMS message with a custom sender number
-   * @param to Recipient phone number in E.164 format
-   * @param content Message content
-   * @param fromNumber Sender phone number
-   * @returns Sent message response
+   * Send an SMS message with a custom sender number.
+   *
+   * OpenPhone returns one of: queued | sent | delivered | undelivered.
+   * We treat "undelivered" as an outright failure. "queued" and "sent" are
+   * accepted at OpenPhone but not yet confirmed at the handset — that's the
+   * best we can know synchronously; real delivery confirmation requires an
+   * OpenPhone webhook. The message id is logged so ops can trace it in the
+   * OpenPhone dashboard.
    */
   async sendSMSWithSender(to: string, content: string, fromNumber: string): Promise<any> {
     if (!this.isConfigured()) {
@@ -139,10 +142,25 @@ export class OpenPhoneService {
         from: fromNumber,
         to: [to],
       });
-      logger.info(`SMS sent successfully to: ${to} from: ${fromNumber}`);
+      const messageId = response?.data?.id;
+      const status = response?.data?.status;
+      logger.info(
+        `[OpenPhone] SMS request accepted to=${to} from=${fromNumber} messageId=${messageId || 'n/a'} status=${status || 'n/a'}`
+      );
+      if (status === 'undelivered') {
+        const err: any = new Error(
+          `OpenPhone reported the message as undelivered (messageId=${messageId || 'n/a'}). ` +
+          `Common causes: sender number does not have SMS enabled for the destination country, ` +
+          `A2P registration missing, or carrier rejection. Check the OpenPhone dashboard for details.`
+        );
+        err.openPhoneStatus = status;
+        err.openPhoneMessageId = messageId;
+        throw err;
+      }
       return response;
     } catch (error: any) {
-      logger.error(`Failed to send SMS to ${to}:`, error.message);
+      const detail = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+      logger.error(`[OpenPhone] Failed to send SMS to=${to} from=${fromNumber}: ${detail}`);
       throw error;
     }
   }

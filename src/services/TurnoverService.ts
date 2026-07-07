@@ -437,14 +437,13 @@ export class TurnoverService {
     private resolveEnabledValue(
         settings: TurnoverSettings | null,
         field: 'preStayEnabled' | 'postStayEnabled' | 'sameDayCombinedEnabled',
-        _overrideField: 'preStayEnabledOverride' | 'postStayEnabledOverride' | 'sameDayCombinedEnabledOverride',
+        overrideField: 'preStayEnabledOverride' | 'postStayEnabledOverride' | 'sameDayCombinedEnabledOverride',
         globalValue: boolean | null | undefined,
         fallback: boolean
     ) {
-        // Global OFF is a hard kill: nothing sends when the global toggle is false.
-        if (globalValue === false) return false;
-        // Property explicit OFF wins for that one listing.
-        if (settings?.[field] === false) return false;
+        // A property override wins only when the FE has explicitly opted in (override flag = true).
+        // Otherwise, the global toggle is the source of truth.
+        if (settings?.[overrideField] === true) return Boolean(settings?.[field]);
         return globalValue !== undefined && globalValue !== null ? Boolean(globalValue) : fallback;
     }
 
@@ -961,24 +960,106 @@ export class TurnoverService {
         return changed ? this.settingsRepo.save(row) : row;
     }
 
-    private async resolvePreStayContact(
+    // Common resolver used by both pre-stay and post-stay contact lookups. Mirrors the
+    // scheduler resolution in CheckInNotificationService/CleanerNotificationService so the
+    // Turnovers page shows the same recipient that will actually receive the SMS.
+    private async resolveNotificationRecipient(
         reservation: ReservationInfoEntity,
-        preStayAudit: ReservationDetailPreStayAudit | null,
-        settings: TurnoverSettings | null,
-        globalSettings: TurnoverSettings | null
-    ): Promise<Contact | null> {
-        const overrideId = preStayAudit?.notificationContactId;
-        if (overrideId) {
-            const overrideContact = await this.contactRepo.findOne({ where: { id: overrideId } });
-            if (overrideContact) return overrideContact;
+        overrideContactId: number | undefined,
+        recipientIds: string[] | undefined,
+        settingsContactId: number | null | undefined
+    ): Promise<{ id?: number; name?: string; contact?: string; role?: string } | null> {
+        // 1. Per-reservation audit override (Turnovers page "Update Recipient" action).
+        if (overrideContactId) {
+            const override = await this.contactRepo.findOne({ where: { id: overrideContactId } });
+            if (override) return override;
         }
 
-        const settingsContactId = settings?.preStayContactId || globalSettings?.preStayContactId;
+        // 2. Configured recipient list — resolve by prefix (contact / vendor / owner / client).
+        const ids = recipientIds || [];
+        if (ids.length > 0) {
+            const contactRefIds = ids
+                .filter((id) => id.startsWith('contact:'))
+                .map((id) => Number(id.split(':')[1]))
+                .filter((id) => Number.isFinite(id));
+            if (contactRefIds.length > 0) {
+                const configured = await this.contactRepo.findOne({
+                    where: {
+                        id: In(contactRefIds),
+                        status: In(['active', 'active-backup'] as any),
+                        deletedAt: null as any
+                    }
+                });
+                if (configured) return configured;
+            }
+
+            const vendorRef = ids.find((id) => id.startsWith('vendor:'));
+            if (vendorRef) {
+                const vendorProfileId = Number(vendorRef.split(':')[1]);
+                if (Number.isFinite(vendorProfileId)) {
+                    const assignment = await this.vendorAssignmentRepo.findOne({
+                        where: {
+                            vendorProfileId,
+                            listingId: String(reservation.listingMapId),
+                            status: 'active',
+                            deletedAt: IsNull()
+                        },
+                        relations: ['vendorProfile']
+                    });
+                    if (assignment?.vendorProfile?.contact) {
+                        return {
+                            id: assignment.vendorProfile.id,
+                            name: assignment.vendorProfile.name,
+                            contact: assignment.vendorProfile.contact,
+                            role: assignment.role || 'Vendor'
+                        };
+                    }
+                }
+            }
+
+            const ownerRef = ids.find((id) => id.startsWith('owner:') || id.startsWith('client:'));
+            if (ownerRef) {
+                const clientId = ownerRef.split(':')[1];
+                const client = await this.clientRepo.findOne({ where: { id: clientId } });
+                if (client?.phone) {
+                    return {
+                        name: client.preferredName || `${client.firstName || ''} ${client.lastName || ''}`.trim() || 'Owner',
+                        contact: client.phone,
+                        role: ownerRef.startsWith('owner:') ? 'Owner' : 'Client'
+                    };
+                }
+            }
+        }
+
+        // 3. Legacy per-property contact id (only populated for "custom" mode).
         if (settingsContactId) {
             const contact = await this.contactRepo.findOne({ where: { id: settingsContactId } });
             if (contact) return contact;
         }
 
+        // 4. Fall back to an active vendor cleaner assigned to the listing.
+        const vendorAssignments = await this.vendorAssignmentRepo.find({
+            where: {
+                listingId: String(reservation.listingMapId),
+                status: 'active',
+                deletedAt: IsNull()
+            },
+            relations: ['vendorProfile'],
+            order: { role: 'ASC' as any, id: 'ASC' as any }
+        });
+        const cleaner = vendorAssignments
+            .filter((assignment) => assignment.vendorProfile?.contact)
+            .sort((a, b) => Number(String(b.role || '').toLowerCase() === 'cleaner') - Number(String(a.role || '').toLowerCase() === 'cleaner'))[0];
+        if (cleaner) {
+            return {
+                id: cleaner.vendorProfile.id,
+                name: cleaner.vendorProfile.name,
+                contact: cleaner.vendorProfile.contact,
+                role: cleaner.role || 'Vendor'
+            };
+        }
+
+        // 5. Final fallback: legacy Contact table cleaners.
         const activeContacts = await this.contactRepo.find({
             where: {
                 listingId: String(reservation.listingMapId),
@@ -990,33 +1071,40 @@ export class TurnoverService {
         return activeContacts[0] || null;
     }
 
+    private async resolvePreStayContact(
+        reservation: ReservationInfoEntity,
+        preStayAudit: ReservationDetailPreStayAudit | null,
+        settings: TurnoverSettings | null,
+        globalSettings: TurnoverSettings | null
+    ): Promise<{ id?: number; name?: string; contact?: string; role?: string } | null> {
+        const recipientIds = (settings?.preStayRecipientIds && settings.preStayRecipientIds.length > 0)
+            ? settings.preStayRecipientIds
+            : globalSettings?.preStayRecipientIds || [];
+        const settingsContactId = settings?.preStayContactId || globalSettings?.preStayContactId;
+        return this.resolveNotificationRecipient(
+            reservation,
+            preStayAudit?.notificationContactId || undefined,
+            recipientIds,
+            settingsContactId
+        );
+    }
+
     private async resolvePostStayContact(
         reservation: ReservationInfoEntity,
         postStayAudit: ReservationDetailPostStayAudit | null,
         settings: TurnoverSettings | null,
         globalSettings: TurnoverSettings | null
-    ): Promise<Contact | null> {
-        const overrideId = postStayAudit?.cleanerNotificationContactId;
-        if (overrideId) {
-            const overrideContact = await this.contactRepo.findOne({ where: { id: overrideId } });
-            if (overrideContact) return overrideContact;
-        }
-
+    ): Promise<{ id?: number; name?: string; contact?: string; role?: string } | null> {
+        const recipientIds = (settings?.postStayRecipientIds && settings.postStayRecipientIds.length > 0)
+            ? settings.postStayRecipientIds
+            : globalSettings?.postStayRecipientIds || [];
         const settingsContactId = settings?.postStayContactId || globalSettings?.postStayContactId;
-        if (settingsContactId) {
-            const contact = await this.contactRepo.findOne({ where: { id: settingsContactId } });
-            if (contact) return contact;
-        }
-
-        const activeContacts = await this.contactRepo.find({
-            where: {
-                listingId: String(reservation.listingMapId),
-                role: 'Cleaner',
-                status: 'active',
-                deletedAt: null as any
-            }
-        });
-        return activeContacts[0] || null;
+        return this.resolveNotificationRecipient(
+            reservation,
+            postStayAudit?.cleanerNotificationContactId || undefined,
+            recipientIds,
+            settingsContactId
+        );
     }
 
     // Fetch all approved upsells for a reservation, matching how the reservations
@@ -1837,12 +1925,10 @@ export class TurnoverService {
                 normalized.postStayContactId = normalized.postStayDefaultRecipientType === "custom" && postPrimary?.startsWith('contact:') ? Number(postPrimary.split(':')[1]) : null;
             }
             this.normalizeSenderNumbers(normalized);
-            // The global toggle is the kill switch; the legacy *EnabledOverride flags would let a
-            // property bypass a global OFF, which caused the unintended live SMS incident. Force them
-            // off so future per-property toggles only act as opt-out (false), never as opt-in over global.
-            if ('preStayEnabled' in normalized) normalized.preStayEnabledOverride = false;
-            if ('postStayEnabled' in normalized) normalized.postStayEnabledOverride = false;
-            if ('sameDayCombinedEnabled' in normalized) normalized.sameDayCombinedEnabledOverride = false;
+            // The override flags must be set explicitly by the caller. Silently auto-stamping them
+            // (as we did previously on every save that touched *_enabled) is what caused the live SMS
+            // incident where properties bypassed a global OFF without the user realising. Callers who
+            // want a property to override the global must POST { preStayEnabled, preStayEnabledOverride: true }.
 
             Object.assign(settings, {
                 ...normalized,

@@ -240,24 +240,47 @@ export class CleanerNotificationService {
                 return;
             }
 
+            // Atomic claim: flip status to 'sent' with a WHERE clause that excludes rows
+            // already marked as 'sent'. If affected === 0, another cron cycle already claimed
+            // and sent it — bail without hitting OpenPhone. This prevents duplicate SMS when
+            // the post-save previously failed and left the audit at pending for a retry.
+            const claim = await this.postStayRepo
+                .createQueryBuilder()
+                .update()
+                .set({ cleanerNotificationStatus: 'sent', cleanerNotificationSentAt: new Date() })
+                .where('reservationId = :id', { id: reservationId })
+                .andWhere(`(cleanerNotificationStatus IS NULL OR cleanerNotificationStatus <> 'sent')`)
+                .execute();
+
+            if ((claim.affected || 0) === 0) {
+                logger.info(`[CleanerNotification] Reservation ${reservationId} was already claimed by another cycle; skipping duplicate send`);
+                return;
+            }
+
             const sendErrors: string[] = [];
             let sentCount = 0;
-            for (const recipient of recipients) {
-                const phoneNumber = this.openPhoneService.formatPhoneNumber('+1', recipient.contact);
-                if (!phoneNumber) {
-                    sendErrors.push(`Invalid phone number for ${recipient.name}: ${recipient.contact || 'not provided'}`);
-                    continue;
-                }
+            try {
+                for (const recipient of recipients) {
+                    const phoneNumber = this.openPhoneService.formatPhoneNumber('+1', recipient.contact);
+                    if (!phoneNumber) {
+                        sendErrors.push(`Invalid phone number for ${recipient.name}: ${recipient.contact || 'not provided'}`);
+                        continue;
+                    }
 
-                const senderNumber = this.getSenderNumberForRecipient(recipient, listing, settings);
-                if (!senderNumber) {
-                    sendErrors.push(`SMS sender number not configured for ${recipient.name}`);
-                    continue;
-                }
+                    const senderNumber = this.getSenderNumberForRecipient(recipient, listing, settings);
+                    if (!senderNumber) {
+                        sendErrors.push(`SMS sender number not configured for ${recipient.name}`);
+                        continue;
+                    }
 
-                await this.openPhoneService.sendSMSWithSender(phoneNumber, message, senderNumber);
-                sentCount++;
-                logger.info(`[CleanerNotification] SMS sent successfully to ${recipient.name} for reservation ${reservationId}`);
+                    await this.openPhoneService.sendSMSWithSender(phoneNumber, message, senderNumber);
+                    sentCount++;
+                    logger.info(`[CleanerNotification] SMS sent successfully to ${recipient.name} for reservation ${reservationId}`);
+                }
+            } catch (sendError: any) {
+                // Roll the claim back so the row reflects the real outcome and can be retried.
+                await this.updateNotificationStatus(reservationId, 'failed', sendError?.message || 'Unknown error');
+                throw sendError;
             }
 
             if (sentCount === 0) {
@@ -269,7 +292,7 @@ export class CleanerNotificationService {
                 return;
             }
 
-            // Update status to sent
+            // Persist rendered message body + any partial errors alongside the already-claimed 'sent' status.
             await this.updateNotificationStatus(reservationId, 'sent', [templateError, ...sendErrors].filter(Boolean).join('; ') || undefined, message);
 
         } catch (error: any) {
@@ -498,13 +521,12 @@ export class CleanerNotificationService {
             propertyValue !== undefined && propertyValue !== null ? propertyValue : (globalValue !== undefined && globalValue !== null ? globalValue : fallback);
         const resolveEnabled = (
             propertyValue: boolean | null | undefined,
-            _overrideValue: boolean | null | undefined,
+            overrideValue: boolean | null | undefined,
             globalValue: boolean | null | undefined,
             fallback: boolean
         ) => {
-            // Global OFF is a hard kill — bug fix for unintended live SMS sends.
-            if (globalValue === false) return false;
-            if (propertyValue === false) return false;
+            // Property override wins only when explicitly opted in from the Properties page.
+            if (overrideValue === true) return Boolean(propertyValue);
             return globalValue !== undefined && globalValue !== null ? Boolean(globalValue) : fallback;
         };
         const preStayDefaultRecipientType = resolve(settings?.preStayDefaultRecipientType, globalSettings?.preStayDefaultRecipientType, "cleaner");
@@ -764,7 +786,9 @@ Check-In Date: {checkInDate}
     }
 
     /**
-     * Update notification status in database
+     * Update notification status in database. Errors are re-thrown so callers can
+     * react — swallowing them here previously caused duplicate SMS because the next
+     * cron cycle saw status != 'sent' and retried.
      */
     private async updateNotificationStatus(
         reservationId: number,
@@ -797,7 +821,10 @@ Check-In Date: {checkInDate}
             logger.info(`[CleanerNotification] Updated status to '${status}' for reservation ${reservationId}`);
 
         } catch (err: any) {
-            logger.error(`[CleanerNotification] Error updating notification status:`, err.message);
+            logger.error(
+                `[CleanerNotification] Failed to persist status '${status}' for reservation ${reservationId}: ${err?.message || err}`
+            );
+            throw err;
         }
     }
 }

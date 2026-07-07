@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { TurnoverService } from "../services/TurnoverService";
+import { CheckInNotificationService } from "../services/CheckInNotificationService";
+import { CleanerNotificationService } from "../services/CleanerNotificationService";
 import logger from "../utils/logger.utils";
 
 interface CustomRequest extends Request {
@@ -8,6 +10,8 @@ interface CustomRequest extends Request {
 
 export class TurnoverController {
     private turnoverService = new TurnoverService();
+    private checkInNotificationService = new CheckInNotificationService();
+    private cleanerNotificationService = new CleanerNotificationService();
 
     /**
      * Get turnover notifications
@@ -269,7 +273,10 @@ export class TurnoverController {
     }
 
     /**
-     * Update notification status (pause/resume/send/skip)
+     * Update notification status.
+     * - "send" invokes the real SMS pipeline (CheckIn / Cleaner Notification services)
+     *   which sends via OpenPhone and records status/sentAt/errors on the audit table.
+     * - "pause" / "resume" / "skip" just flip DB flags that the 20-minute scheduler respects.
      */
     async updateNotificationStatus(req: CustomRequest, res: Response, next: NextFunction) {
         try {
@@ -277,6 +284,26 @@ export class TurnoverController {
             const type = req.params.type as 'pre-stay' | 'post-stay';
             const { action } = req.body;
             const userId = req.user?.id;
+
+            if (action === 'send') {
+                try {
+                    if (type === 'pre-stay') {
+                        await this.checkInNotificationService.sendCheckInNotification(reservationId, true);
+                    } else {
+                        await this.cleanerNotificationService.sendCheckoutNotification(reservationId);
+                    }
+                } catch (sendError: any) {
+                    logger.error(`[TurnoverController] Failed to send ${type} notification for reservation ${reservationId}:`, sendError);
+                    return res.status(400).json({
+                        success: false,
+                        message: sendError?.message || `Failed to send ${type} notification`
+                    });
+                }
+                return res.status(200).json({
+                    success: true,
+                    message: `Notification sent`
+                });
+            }
 
             const result = await this.turnoverService.updateNotificationStatus(
                 reservationId,
