@@ -127,15 +127,32 @@ export class QuoInboxService {
     // Sync — conversations + messages for all enabled lines
     // -------------------------------------------------------------------------
 
+    /** Prevents the 3-minute cron from stacking on top of a long deep backfill. */
+    private static syncInFlight = false;
+
     async syncAll(opts: { deep?: boolean } = {}): Promise<{
         lines: number;
         conversations: number;
         messages: number;
         newIncoming: string[]; // conversationIds with new incoming messages
     }> {
-        if (!QuoInboxService.isConfigured()) {
+        if (!QuoInboxService.isConfigured() || QuoInboxService.syncInFlight) {
             return { lines: 0, conversations: 0, messages: 0, newIncoming: [] };
         }
+        QuoInboxService.syncInFlight = true;
+        try {
+            return await this.doSyncAll(opts);
+        } finally {
+            QuoInboxService.syncInFlight = false;
+        }
+    }
+
+    private async doSyncAll(opts: { deep?: boolean } = {}): Promise<{
+        lines: number;
+        conversations: number;
+        messages: number;
+        newIncoming: string[];
+    }> {
         await this.syncPhoneLines();
         const lines = await this.lineRepo.find({ where: { enabled: 1 } });
         let convCount = 0;
@@ -144,7 +161,10 @@ export class QuoInboxService {
 
         for (const line of lines) {
             try {
-                const result = await this.syncLine(line, opts.deep === true);
+                // First-ever sync of a line is always a deep backfill so history
+                // matches what's visible in the Quo app.
+                const deep = opts.deep === true || !line.lastSyncedAt;
+                const result = await this.syncLine(line, deep);
                 convCount += result.conversations;
                 msgCount += result.messages;
                 newIncoming.push(...result.newIncoming);
@@ -157,6 +177,26 @@ export class QuoInboxService {
         return { lines: lines.length, conversations: convCount, messages: msgCount, newIncoming };
     }
 
+    private sleep(ms: number): Promise<void> {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    /** GET with retry on 429/5xx so deep backfills survive the 10 rps limit. */
+    private async apiGet(path: string, params: Record<string, any>): Promise<any> {
+        for (let attempt = 0; ; attempt++) {
+            try {
+                return await this.client.get(path, { params });
+            } catch (err: any) {
+                const status = err?.response?.status;
+                if (attempt < 3 && (status === 429 || status >= 500)) {
+                    await this.sleep(1500 * (attempt + 1));
+                    continue;
+                }
+                throw err;
+            }
+        }
+    }
+
     private async syncLine(line: QuoPhoneLineEntity, deep: boolean): Promise<{
         conversations: number;
         messages: number;
@@ -166,39 +206,47 @@ export class QuoInboxService {
         const since = line.lastSyncedAt
             ? new Date(line.lastSyncedAt.getTime() - 10 * 60 * 1000)
             : null;
-        const maxPages = deep ? 6 : 2;
+        // Deep backfill walks conversations until activity is older than the
+        // backfill window (default 90 days) instead of a tiny page cap, so
+        // busy lines like PM CLIENTS import everything the Quo app shows.
+        const backfillDays = Number(process.env.QUO_BACKFILL_DAYS || 90);
+        const backfillCutoff = new Date(Date.now() - backfillDays * 24 * 60 * 60 * 1000);
+        const maxPages = deep ? 60 : 2;
         let pageToken: string | undefined;
         let conversations = 0;
         let messages = 0;
         const newIncoming: string[] = [];
 
         for (let page = 0; page < maxPages; page++) {
-            const res = await this.client.get("/conversations", {
-                params: {
-                    phoneNumbers: [line.phoneNumberId],
-                    maxResults: 50,
-                    ...(pageToken ? { pageToken } : {}),
-                },
+            const res = await this.apiGet("/conversations", {
+                phoneNumbers: [line.phoneNumberId],
+                maxResults: 50,
+                ...(pageToken ? { pageToken } : {}),
             });
             const convs: any[] = res.data?.data || [];
-            let sawOld = false;
+            let stopPaging = false;
 
             for (const c of convs) {
                 const lastActivity = c.lastActivityAt ? new Date(c.lastActivityAt) : null;
                 // Conversations come newest-activity first; once we're past the
-                // window (non-deep sync), stop paging.
+                // relevant window, stop paging.
                 if (!deep && since && lastActivity && lastActivity < since) {
-                    sawOld = true;
+                    stopPaging = true;
+                    continue;
+                }
+                if (deep && lastActivity && lastActivity < backfillCutoff) {
+                    stopPaging = true;
                     continue;
                 }
                 const synced = await this.syncConversation(line, c, deep);
                 conversations++;
                 messages += synced.messages;
                 if (synced.hadNewIncoming) newIncoming.push(c.id);
+                if (deep) await this.sleep(120); // stay under the 10 rps limit
             }
 
             pageToken = res.data?.nextPageToken || undefined;
-            if (!pageToken || sawOld) break;
+            if (!pageToken || stopPaging) break;
         }
         return { conversations, messages, newIncoming };
     }
@@ -231,6 +279,15 @@ export class QuoInboxService {
             conv.contactName = c.name || conv.contactName;
         }
 
+        // Nothing new since we last stored this conversation? Skip the message
+        // fetch entirely (makes repeated deep syncs cheap).
+        const lastActivityAt = c.lastActivityAt ? new Date(c.lastActivityAt).getTime() : null;
+        if (!isNew && conv.lastMessageAt && lastActivityAt && new Date(conv.lastMessageAt).getTime() >= lastActivityAt) {
+            conv.syncedAt = new Date();
+            await this.conversationRepo.save(conv);
+            return { messages: 0, hadNewIncoming: false };
+        }
+
         // Fetch messages (newest first). Non-deep: stop as soon as we hit a
         // message we already have.
         const prevLastAt = conv.lastMessageAt ? new Date(conv.lastMessageAt).getTime() : 0;
@@ -241,13 +298,11 @@ export class QuoInboxService {
         let newest: { text: string | null; at: Date; direction: string } | null = null;
 
         outer: for (let page = 0; page < maxPages; page++) {
-            const res = await this.client.get("/messages", {
-                params: {
-                    phoneNumberId: line.phoneNumberId,
-                    participants,
-                    maxResults: 50,
-                    ...(pageToken ? { pageToken } : {}),
-                },
+            const res = await this.apiGet("/messages", {
+                phoneNumberId: line.phoneNumberId,
+                participants,
+                maxResults: 50,
+                ...(pageToken ? { pageToken } : {}),
             });
             const msgs: any[] = res.data?.data || [];
             for (const m of msgs) {
