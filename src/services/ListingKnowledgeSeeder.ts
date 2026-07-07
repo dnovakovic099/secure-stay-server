@@ -219,7 +219,39 @@ export class ListingKnowledgeSeeder {
         const addr = !this.isBlank(li.address) ? li.address : !this.isBlank(li.street) ? li.street : "";
         push({ title: "Full address (staff only)", category: "Location", visibility: "internal", content: this.clean(addr) });
 
+        // Access / arrival instructions live in Hostify CUSTOM FIELDS (the text
+        // the automated check-in message is built from: parking, garage/door
+        // codes, lockbox location). Without this the bot deflects "how do we get
+        // in?" questions mid-stay. Stored internal: the bot may use it for
+        // CONFIRMED guests per the prompt's code-sharing rule, but never quotes
+        // it to pre-booking inquiries.
+        const customText = this.flattenCustomFields(li.custom_fields);
+        if (!this.isBlank(customText))
+            push({
+                title: "Access & arrival instructions (staff only)",
+                category: "Check-in",
+                visibility: "internal",
+                content: this.clean(customText).slice(0, 6000),
+            });
+
         return entries;
+    }
+
+    /** Flatten Hostify custom_fields (object/array of strings) to one text block. */
+    private flattenCustomFields(cf: any): string {
+        if (!cf) return "";
+        const parts: string[] = [];
+        const take = (v: any) => {
+            if (typeof v === "string" && v.trim()) parts.push(v.trim());
+            else if (v && typeof v === "object") {
+                const val = v.value ?? v.text ?? v.content;
+                if (typeof val === "string" && val.trim()) parts.push(val.trim());
+            }
+        };
+        if (Array.isArray(cf)) cf.forEach(take);
+        else if (typeof cf === "object") Object.values(cf).forEach(take);
+        else take(cf);
+        return parts.join("\n");
     }
 
     /** Flatten Hostify's description (object of sections or a string) to text. */
@@ -432,6 +464,17 @@ export class ListingKnowledgeSeeder {
                 if (li.beds != null && Number(li.beds) > 0) extra.push(`${li.beds} bed(s).`);
                 if (li.area != null && Number(li.area) > 0) extra.push(`Approx. ${li.area} sq ft.`);
                 if (extra.length) push({ title: "Size & sleeping", category: "Overview", visibility: "external", content: extra.join(" ") });
+
+                // Access / arrival instructions from Hostify custom fields
+                // (parking, garage/door codes, lockbox) — see buildEntriesFromHostify.
+                const customText = this.flattenCustomFields(li.custom_fields);
+                if (!this.isBlank(customText))
+                    push({
+                        title: "Access & arrival instructions (staff only)",
+                        category: "Check-in",
+                        visibility: "internal",
+                        content: this.clean(customText).slice(0, 6000),
+                    });
             } catch {
                 /* non-fatal */
             }
