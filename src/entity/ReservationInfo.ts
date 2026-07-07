@@ -181,6 +181,12 @@ export class ReservationInfoEntity {
     @Column({ length: 20, nullable: true })
     paidPart: string;
 
+    // Hostify reservation.payout_price — the expected total Hostify itself uses
+    // for its "Paid %" (paid_sum / payout_price * 100), per Hostify support.
+    // Preferred over totalPrice (subtotal + tax) when computing amounts due.
+    @Column({ type: 'float', nullable: true })
+    payoutPrice: number;
+
     @Column({ type: 'timestamp', nullable: true })
     paymentSyncedAt: Date;
 

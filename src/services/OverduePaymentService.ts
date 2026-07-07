@@ -72,6 +72,9 @@ export interface OverdueRow {
     totalPrice: number | null;
     paidAmount: number | null;
     amountDue: number | null;
+    // paid_sum / payout_price * 100 — the exact formula Hostify's own app uses
+    // for its "Paid %" column (confirmed by Hostify support, Jul 2026).
+    paidPercent: number | null;
     paidPart: string | null;
     paymentLabel: "paid" | "partial" | "unpaid" | "unknown";
     isOverdue: boolean;
@@ -125,7 +128,9 @@ export class OverduePaymentService {
     private paymentLabel(paidPart?: string | null, paid?: number | null, total?: number | null): OverdueRow["paymentLabel"] {
         const pp = String(paidPart || "").toLowerCase();
         if (this.isFullyPaid(paidPart, paid, total)) return "paid";
-        if (pp === "part" || (paid != null && paid > 0)) return "partial";
+        // Hostify support describes paid_part as none/partial/full; the API has
+        // historically returned "part" — accept both spellings.
+        if (pp === "part" || pp === "partial" || (paid != null && paid > 0)) return "partial";
         if (pp === "none" || (paid != null && paid === 0)) return "unpaid";
         return paidPart ? "unpaid" : "unknown";
     }
@@ -176,7 +181,7 @@ export class OverduePaymentService {
         // Hide calendar-block pseudo-reservations and $0 bookings by default —
         // nothing is owed on them, they just bury the real arrivals.
         if (!filters.includeJunk) {
-            qb.andWhere("COALESCE(r.totalPrice, 0) > 0");
+            qb.andWhere("COALESCE(r.payoutPrice, r.totalPrice, 0) > 0");
             qb.andWhere("LOWER(COALESCE(r.guestName,'')) NOT IN ('blocked', 'airbnb (not available)', 'not available')");
         }
 
@@ -197,13 +202,13 @@ export class OverduePaymentService {
                 qb.andWhere("LOWER(COALESCE(r.paidPart,'')) IN ('full','all')");
                 break;
             case "partial":
-                qb.andWhere("LOWER(COALESCE(r.paidPart,'')) = 'part'");
+                qb.andWhere("LOWER(COALESCE(r.paidPart,'')) IN ('part','partial')");
                 break;
             case "unpaid":
                 qb.andWhere("LOWER(COALESCE(r.paidPart,'')) = 'none'");
                 break;
             case "owing":
-                qb.andWhere("LOWER(COALESCE(r.paidPart,'')) IN ('none','part')");
+                qb.andWhere("LOWER(COALESCE(r.paidPart,'')) IN ('none','part','partial')");
                 break;
             case "unknown":
                 qb.andWhere("r.paidPart IS NULL");
@@ -226,7 +231,7 @@ export class OverduePaymentService {
                 qb.orderBy("r.departureDate", "ASC");
                 break;
             case "due":
-                qb.orderBy("(COALESCE(r.totalPrice, 0) - COALESCE(r.paidAmount, 0))", "DESC");
+                qb.orderBy("(COALESCE(r.payoutPrice, r.totalPrice, 0) - COALESCE(r.paidAmount, 0))", "DESC");
                 break;
             case "smart":
             default:
@@ -262,9 +267,16 @@ export class OverduePaymentService {
 
         const rows: OverdueRow[] = reservations.map((r) => {
             const listing = listingMap.get(Number(r.listingMapId)) || null;
-            const total = this.toNum(r.totalPrice);
+            // Hostify's own "Paid %" divides paid_sum by payout_price, so when we
+            // have payout_price it is the expected total; totalPrice
+            // (subtotal + tax) is only the fallback for unsynced rows.
+            const total = this.toNum(r.payoutPrice) ?? this.toNum(r.totalPrice);
             const paid = this.toNum(r.paidAmount);
             const due = total != null ? Math.max(0, total - (paid ?? 0)) : null;
+            const paidPercent =
+                total != null && total > 0 && paid != null
+                    ? Math.round(Math.min(Math.max((paid / total) * 100, 0), 999) * 10) / 10
+                    : null;
             const label = this.paymentLabel(r.paidPart, paid, total);
             const arrival = this.dateStr(r.arrivalDate);
             const departure = this.dateStr(r.departureDate);
@@ -295,6 +307,7 @@ export class OverduePaymentService {
                 totalPrice: total,
                 paidAmount: paid,
                 amountDue: due,
+                paidPercent,
                 paidPart: r.paidPart || null,
                 paymentLabel: label,
                 isOverdue: arrived && label !== "paid",
@@ -372,15 +385,18 @@ export class OverduePaymentService {
                 const live = data?.reservation || {};
                 const paidPart = live.paid_part != null ? String(live.paid_part) : null;
                 const paidSum = this.toNum(live.paid_sum);
-                if (paidPart == null && paidSum == null) continue;
+                const payoutPrice = this.toNum(live.payout_price);
+                if (paidPart == null && paidSum == null && payoutPrice == null) continue;
 
                 r.paidPart = paidPart ?? r.paidPart;
                 if (paidSum != null) r.paidAmount = paidSum;
+                if (payoutPrice != null) r.payoutPrice = payoutPrice;
                 r.paymentSyncedAt = new Date();
                 await this.reservationRepo.save(r);
                 updated++;
 
-                const fullyPaid = this.isFullyPaid(r.paidPart, r.paidAmount, this.toNum(r.totalPrice));
+                const expectedTotal = this.toNum(r.payoutPrice) ?? this.toNum(r.totalPrice);
+                const fullyPaid = this.isFullyPaid(r.paidPart, r.paidAmount, expectedTotal);
 
                 // Clear a payment emergency once the balance is settled.
                 if (fullyPaid) {
@@ -418,7 +434,7 @@ export class OverduePaymentService {
         if (!conversation) return false;
         if (Number(conversation.emergency) === 1 && conversation.emergencyType === "payment") return false;
 
-        const total = this.toNum(r.totalPrice);
+        const total = this.toNum(r.payoutPrice) ?? this.toNum(r.totalPrice);
         const paid = this.toNum(r.paidAmount);
         const due = total != null ? Math.max(0, total - (paid ?? 0)) : null;
         const money = due != null
@@ -462,12 +478,16 @@ export class OverduePaymentService {
 
             const paidPart = r.paid_part != null ? String(r.paid_part) : null;
             const paidSum = this.toNum(r.paid_sum);
+            // Hostify's Paid % denominator is payout_price (per their support);
+            // subtotal + tax is only a fallback for records that don't carry it.
+            const payoutPrice = this.toNum(r.payout_price);
             const subtotal = this.toNum(r.subtotal);
             const tax = this.toNum(r.tax_amount);
-            let total: number | null = subtotal != null ? subtotal + (tax ?? 0) : this.toNum(r.total_price);
+            let total: number | null =
+                payoutPrice ?? (subtotal != null ? subtotal + (tax ?? 0) : this.toNum(r.total_price));
             if (total == null) {
                 const stored = await this.reservationRepo.findOne({ where: { id: reservationId } });
-                total = this.toNum(stored?.totalPrice);
+                total = this.toNum(stored?.payoutPrice) ?? this.toNum(stored?.totalPrice);
             }
 
             // Persist what we learned regardless of the emergency outcome.
@@ -477,6 +497,7 @@ export class OverduePaymentService {
                     {
                         paidPart: paidPart ?? undefined,
                         paidAmount: paidSum ?? undefined,
+                        payoutPrice: payoutPrice ?? undefined,
                         paymentSyncedAt: new Date(),
                     }
                 );

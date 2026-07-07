@@ -204,6 +204,7 @@ export class ReservationInfoService {
     // values previously captured from the detail endpoint / payment sweep.
     if (updateData.paidPart != null) reservation.paidPart = updateData.paidPart;
     if (updateData.paidAmount != null) reservation.paidAmount = updateData.paidAmount;
+    if (updateData.payoutPrice != null) reservation.payoutPrice = updateData.payoutPrice;
     if (updateData.paymentSyncedAt != null) reservation.paymentSyncedAt = updateData.paymentSyncedAt;
     reservation.confirmation_code = updateData.confirmation_code;
     reservation.owner_revenue = updateData.owner_revenue;
@@ -2112,6 +2113,12 @@ export class ReservationInfoService {
           ? Number(reservation.paid_sum)
           : null,
       paidPart: reservation.paid_part != null ? String(reservation.paid_part) : null,
+      // Hostify support: "Paid %" in their app = paid_sum / payout_price * 100,
+      // so payout_price is the authoritative expected total for payment math.
+      payoutPrice:
+        reservation.payout_price != null && !Number.isNaN(Number(reservation.payout_price))
+          ? Number(reservation.payout_price)
+          : null,
       paymentSyncedAt: reservation.paid_part != null || reservation.paid_sum != null ? new Date() : null,
       confirmation_code: reservation.confirmation_code,
       owner_revenue: reservation.owner_revenue,
