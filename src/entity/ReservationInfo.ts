@@ -172,6 +172,18 @@ export class ReservationInfoEntity {
     @Column({ nullable: true })
     paymentStatus: string;
 
+    // ---- Payment status persisted from Hostify (for Overdue Payments) ----
+    // Amount collected so far (Hostify reservation.paid_sum).
+    @Column({ type: 'float', nullable: true })
+    paidAmount: number;
+
+    // Hostify reservation.paid_part: "none" | "part" | "full" | "all".
+    @Column({ length: 20, nullable: true })
+    paidPart: string;
+
+    @Column({ type: 'timestamp', nullable: true })
+    paymentSyncedAt: Date;
+
     @Column({ default: false })
     isProcessedInStatement: boolean;
 

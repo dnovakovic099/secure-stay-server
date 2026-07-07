@@ -199,6 +199,12 @@ export class ReservationInfoService {
     reservation.airbnbTransientOccupancyTaxPaidAmount = updateData.airbnbTransientOccupancyTaxPaidAmount;
     reservation.airbnbCancellationPolicy = updateData.airbnbCancellationPolicy;
     reservation.paymentStatus = updateData.paymentStatus;
+    // Only overwrite payment fields when the incoming record actually carries
+    // them, so a lightweight sync (list endpoint without paid_part) doesn't wipe
+    // values previously captured from the detail endpoint / payment sweep.
+    if (updateData.paidPart != null) reservation.paidPart = updateData.paidPart;
+    if (updateData.paidAmount != null) reservation.paidAmount = updateData.paidAmount;
+    if (updateData.paymentSyncedAt != null) reservation.paymentSyncedAt = updateData.paymentSyncedAt;
     reservation.confirmation_code = updateData.confirmation_code;
     reservation.owner_revenue = updateData.owner_revenue;
     reservation.integration_nickname = updateData.integration_nickname;
@@ -2098,6 +2104,15 @@ export class ReservationInfoService {
       airbnbTransientOccupancyTaxPaidAmount: null,
       airbnbCancellationPolicy: null,
       paymentStatus: null,
+      // Hostify exposes payment progress on the reservation record. Persist it
+      // (defensively — present on the detail endpoint, sometimes on the list)
+      // so the Overdue Payments page and the unpaid-arrival rule can read it.
+      paidAmount:
+        reservation.paid_sum != null && !Number.isNaN(Number(reservation.paid_sum))
+          ? Number(reservation.paid_sum)
+          : null,
+      paidPart: reservation.paid_part != null ? String(reservation.paid_part) : null,
+      paymentSyncedAt: reservation.paid_part != null || reservation.paid_sum != null ? new Date() : null,
       confirmation_code: reservation.confirmation_code,
       owner_revenue: reservation.owner_revenue,
       integration_nickname: reservation.integration_nickname,

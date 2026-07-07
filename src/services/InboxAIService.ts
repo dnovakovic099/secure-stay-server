@@ -10,6 +10,7 @@ import { ListingIntake } from "../entity/ListingIntake";
 import { AIMessageSuggestionEntity } from "../entity/AIMessageSuggestion";
 import { AIMessageFeedbackEntity } from "../entity/AIMessageFeedback";
 import { InboxService } from "./InboxService";
+import { OverduePaymentService } from "./OverduePaymentService";
 import { ListingKnowledgeService } from "./ListingKnowledgeService";
 import { ListingKnowledgeSeeder } from "./ListingKnowledgeSeeder";
 import { AIMessagingSettingsService } from "./AIMessagingSettingsService";
@@ -97,6 +98,7 @@ export class InboxAIService {
     private suggestionRepo = appDatabase.getRepository(AIMessageSuggestionEntity);
     private feedbackRepo = appDatabase.getRepository(AIMessageFeedbackEntity);
     private hostify = new Hostify();
+    private overduePaymentService = new OverduePaymentService();
 
     private get hostifyApiKey(): string {
         return process.env.HOSTIFY_API_KEY as string;
@@ -799,6 +801,22 @@ export class InboxAIService {
             } catch (err: any) {
                 logger.error(`[InboxAIService] suggestion generation failed (thread ${threadId}): ${err.message}`);
                 return { sent: false, reason: "generation_failed" };
+            }
+
+            // ---- Unpaid-arrival emergency (non-Airbnb only) ----
+            // If the guest is arriving/staying on a non-Airbnb channel with an
+            // outstanding balance, do NOT auto-answer. Flag the conversation as an
+            // emergency ("guest needs to pay") and email the configured recipients
+            // so a human collects payment before access is granted. This runs
+            // regardless of the auto-send toggle so the alert always fires.
+            try {
+                const paymentCheck = await this.overduePaymentService.evaluateArrivalPaymentEmergency(conversation);
+                if (paymentCheck.isEmergency) {
+                    await this.overduePaymentService.raiseEmergency(conversation, paymentCheck.reason || "Guest has an unpaid balance at check-in.", "payment");
+                    return this.autosendSkip(threadId, suggestion.id, "payment_emergency");
+                }
+            } catch (err: any) {
+                logger.warn(`[InboxAIService] payment-emergency check failed (thread ${threadId}): ${err.message}`);
             }
 
             // ---- Auto-send is a separate, stricter gate (default OFF) ----

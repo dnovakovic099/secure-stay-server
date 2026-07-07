@@ -49,6 +49,11 @@ export class AIMessagingSettingsEntity {
     @Column({ length: 255, nullable: true })
     autosendChannels: string | null;
 
+    // Comma/newline-separated recipients for payment-emergency alert emails
+    // ("guest needs to pay" on non-Airbnb reservations arriving unpaid).
+    @Column({ type: "text", nullable: true })
+    paymentAlertEmails: string | null;
+
     // ---- AI detection of our own Action Items + Guest Issues (dormant) ----
     @Column({ type: "tinyint", default: 0 })
     itemDetectionEnabled: number;

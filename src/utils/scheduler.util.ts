@@ -35,6 +35,7 @@ import sendSlackMessage from "./sendSlackMsg";
 import OpenAI from "openai";
 import { InboxAIAuditService } from "../services/InboxAIAuditService";
 import { AutoMessageService } from "../services/AutoMessageService";
+import { OverduePaymentService } from "../services/OverduePaymentService";
 
 
 export function scheduleGetReservation() {
@@ -541,6 +542,23 @@ export function scheduleGetReservation() {
         }
       } catch (error) {
         logger.error("[AutoMessage] Error in scheduled sweep:", error);
+      }
+    }
+  );
+
+  // Overdue payment sweep — refresh Hostify paid_part/paid_sum for non-Airbnb
+  // reservations in the current+upcoming+recent window so the Overdue Payments
+  // page reads our DB, and clear payment emergencies once settled. Every 3 hours.
+  schedule.scheduleJob(
+    "7 */3 * * *",
+    async () => {
+      try {
+        logger.info('[OverduePayment] Payment status sweep started...');
+        const overduePaymentService = new OverduePaymentService();
+        const result = await overduePaymentService.syncPaymentStatus();
+        logger.info(`[OverduePayment] Payment status sweep completed — checked=${result.checked}, updated=${result.updated}, emergenciesCleared=${result.emergenciesCleared}`);
+      } catch (error) {
+        logger.error("[OverduePayment] Error in payment status sweep:", error);
       }
     }
   );

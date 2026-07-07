@@ -98,6 +98,21 @@ export class InboxConversationEntity {
     @Column({ length: 20, default: "hostify" })
     source: string;
 
+    // ---- Emergency flag (e.g. non-Airbnb guest arriving with an unpaid balance) ----
+    // When set, the inbox shows a red banner and the AI response bot is suppressed
+    // for this thread so a human handles the payment conversation.
+    @Column({ type: "tinyint", default: 0 })
+    emergency: number;
+
+    @Column({ length: 50, nullable: true })
+    emergencyType: string | null;
+
+    @Column({ length: 500, nullable: true })
+    emergencyReason: string | null;
+
+    @Column({ type: "datetime", nullable: true })
+    emergencyAt: Date | null;
+
     @Column({ type: "datetime", nullable: true })
     syncedAt: Date | null;
 

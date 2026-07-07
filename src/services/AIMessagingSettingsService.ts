@@ -10,6 +10,7 @@ export interface AIMessagingSettingsPatch {
     autoRespondEnabled?: boolean;
     autosendMinConfidence?: number;
     autosendChannels?: string | null;
+    paymentAlertEmails?: string | null;
     itemDetectionEnabled?: boolean;
     actionItemRules?: string | null;
     guestIssueRules?: string | null;
@@ -71,6 +72,7 @@ export class AIMessagingSettingsService {
             row.autosendMinConfidence = Math.max(0, Math.min(100, Math.round(patch.autosendMinConfidence)));
         }
         if (patch.autosendChannels !== undefined) row.autosendChannels = patch.autosendChannels ? String(patch.autosendChannels).slice(0, 255) : null;
+        if (patch.paymentAlertEmails !== undefined) row.paymentAlertEmails = patch.paymentAlertEmails ?? null;
         if (patch.itemDetectionEnabled !== undefined) row.itemDetectionEnabled = patch.itemDetectionEnabled ? 1 : 0;
         if (patch.actionItemRules !== undefined) row.actionItemRules = patch.actionItemRules ?? null;
         if (patch.guestIssueRules !== undefined) row.guestIssueRules = patch.guestIssueRules ?? null;

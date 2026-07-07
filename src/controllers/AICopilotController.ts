@@ -57,6 +57,7 @@ export class AICopilotController {
                 autoRespondEnabled: typeof b.autoRespondEnabled === "boolean" ? b.autoRespondEnabled : undefined,
                 autosendMinConfidence: toNum(b.autosendMinConfidence) ?? undefined,
                 autosendChannels: b.autosendChannels,
+                paymentAlertEmails: b.paymentAlertEmails,
                 itemDetectionEnabled: typeof b.itemDetectionEnabled === "boolean" ? b.itemDetectionEnabled : undefined,
                 actionItemRules: b.actionItemRules,
                 guestIssueRules: b.guestIssueRules,
