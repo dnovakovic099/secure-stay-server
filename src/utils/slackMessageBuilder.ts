@@ -1581,6 +1581,13 @@ export const buildExpenseSlackMessage = (
             },
             {
                 type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `*Findings:*\n${expense.findings || 'No findings provided'}`
+                }
+            },
+            {
+                type: "section",
                 fields: [
                     { type: "mrkdwn", text: `*Contractor:* ${expense.contractorName || '-'}` },
                     { type: "mrkdwn", text: `*Payment Method:* ${expense.paymentMethod || '-'}` },
