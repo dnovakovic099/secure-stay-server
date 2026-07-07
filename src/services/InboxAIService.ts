@@ -410,7 +410,9 @@ export class InboxAIService {
     }
 
     private get verifierModel(): string {
-        return process.env.AI_VERIFIER_MODEL || "gpt-4.1-mini";
+        // Full model: mini scored 82% of replies at 95+ confidence while 16.5%
+        // of that band were judged mistakes — too lenient to gate auto-send.
+        return process.env.AI_VERIFIER_MODEL || "gpt-4.1";
     }
 
     private verifierPrompt(): string {
