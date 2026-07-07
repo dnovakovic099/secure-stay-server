@@ -97,8 +97,21 @@ export class QuoInboxService {
         return { total: data.length, added };
     }
 
-    async listLines(): Promise<QuoPhoneLineEntity[]> {
-        return this.lineRepo.find({ order: { enabled: "DESC", name: "ASC" } });
+    /**
+     * Lines with per-line "awaiting reply" counts — conversations whose last
+     * message is incoming (nobody has replied yet). Drives the filter badges.
+     */
+    async listLines(): Promise<(QuoPhoneLineEntity & { awaitingReply: number })[]> {
+        const lines = await this.lineRepo.find({ order: { enabled: "DESC", name: "ASC" } });
+        const counts: { phoneNumberId: string; cnt: string }[] = await this.conversationRepo
+            .createQueryBuilder("c")
+            .select("c.phoneNumberId", "phoneNumberId")
+            .addSelect("COUNT(*)", "cnt")
+            .where("c.isArchived = 0 AND c.lastDirection = 'incoming'")
+            .groupBy("c.phoneNumberId")
+            .getRawMany();
+        const countMap = new Map(counts.map((c) => [c.phoneNumberId, Number(c.cnt)]));
+        return lines.map((l) => Object.assign(l, { awaitingReply: countMap.get(l.phoneNumberId) || 0 }));
     }
 
     async updateLine(id: number, patch: { enabled?: boolean; category?: string; name?: string }): Promise<QuoPhoneLineEntity | null> {

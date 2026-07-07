@@ -8,11 +8,14 @@ export class QuoInboxController {
 
     listLines = async (req: Request, res: Response, next: NextFunction) => {
         try {
-            // Refresh from Quo opportunistically so new lines appear without a manual sync.
-            try {
-                await this.service.syncPhoneLines();
-            } catch (err: any) {
-                logger.warn(`[QuoInbox] Line refresh failed: ${err?.message}`);
+            // Refresh from Quo only when asked (initial page load / lines modal);
+            // the badge polling every ~25s reads straight from our DB.
+            if (req.query.refresh === "true") {
+                try {
+                    await this.service.syncPhoneLines();
+                } catch (err: any) {
+                    logger.warn(`[QuoInbox] Line refresh failed: ${err?.message}`);
+                }
             }
             const lines = await this.service.listLines();
             res.status(200).json({ status: true, data: lines });
