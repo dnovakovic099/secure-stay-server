@@ -9,7 +9,7 @@ import { AIMessagingSettingsService } from "./AIMessagingSettingsService";
 // Mini is plenty for "extract tasks from a conversation" and keeps the
 // per-message cost at pennies; override with AI_ITEM_DETECTION_MODEL if needed.
 const DETECTION_MODEL = process.env.AI_ITEM_DETECTION_MODEL || "gpt-4.1-mini";
-const DETECTION_PROMPT_VERSION = "inbox-detect-v3";
+const DETECTION_PROMPT_VERSION = "inbox-detect-v4";
 
 // Guests send messages in bursts. Instead of scanning per message we wait for
 // the burst to settle and scan the thread once — fewer calls, better context,
@@ -162,7 +162,20 @@ export class InboxItemDetectionService {
             if (!messages.length) return { detected: 0, reason: "no_messages" };
 
             const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
-            const context = this.buildContext(conversation, messages);
+
+            // Per-thread consolidation: tell the model what we already track for
+            // this conversation so re-scans of an ongoing saga only emit
+            // genuinely NEW facts instead of re-itemizing the whole situation.
+            const alreadyTracked = await this.detectedRepo
+                .createQueryBuilder("d")
+                .where("d.threadId = :tid", { tid: threadId })
+                .andWhere("d.status IN ('proposed', 'accepted')")
+                .andWhere("d.createdAt >= DATE_SUB(NOW(), INTERVAL 14 DAY)")
+                .orderBy("d.createdAt", "DESC")
+                .take(40)
+                .getMany();
+
+            const context = this.buildContext(conversation, messages, alreadyTracked);
 
             let output: DetectionOutput;
             let raw = "";
@@ -314,6 +327,7 @@ export class InboxItemDetectionService {
             "4. AUTOMATED FLOWS: check-in instructions, access codes before arrival, pre-check-in reminders, payment-link reminders are all SENT AUTOMATICALLY. Never create 'send check-in instructions/details' tasks.",
             "5. TRIVIA: phone number / contact info updates, 'verify guest count' with no consequence, 'monitor' or 'follow up' filler with no concrete act.",
             "6. ONE ITEM PER FACT: a property problem is ONE guest_issue — do NOT also emit an action_item that restates it ('Fix X' for issue X). Only add a separate action_item when the human work goes beyond fixing the reported problem.",
+            "7. ALREADY TRACKED: if the context lists items already tracked for this conversation, NEVER re-emit them or reworded/split/merged variations of them. On a re-scan of an ongoing conversation, only emit facts that are genuinely NEW since those items were created. If everything is already tracked, return empty arrays.",
             "",
             "GUEST ISSUES are ONLY physical or service defects at the property (broken, missing, dirty, not working). Not questions, not requests, not reservation matters.",
             "",
@@ -331,7 +345,11 @@ export class InboxItemDetectionService {
         ].join("\n");
     }
 
-    private buildContext(conversation: InboxConversationEntity, messages: InboxMessageEntity[]): string {
+    private buildContext(
+        conversation: InboxConversationEntity,
+        messages: InboxMessageEntity[],
+        alreadyTracked: AIDetectedItemEntity[] = []
+    ): string {
         const lines: string[] = [];
         lines.push(`Channel: ${conversation.channel || "unknown"}`);
         lines.push(`Guest: ${conversation.guestName || "unknown"}`);
@@ -342,6 +360,16 @@ export class InboxItemDetectionService {
             const who = m.direction === "incoming" ? "GUEST" : m.isAutomatic ? "AUTOMATED" : "TEAM";
             const body = (m.body || (m.note ? `[note] ${m.note}` : "")).replace(/\s+/g, " ").trim();
             if (body) lines.push(`- ${who}: ${body}`);
+        }
+        if (alreadyTracked.length) {
+            lines.push("");
+            lines.push(
+                "ALREADY TRACKED for this conversation (do NOT re-emit these or minor variations of them — " +
+                    "only emit facts that are genuinely NEW or have materially changed since):"
+            );
+            for (const t of alreadyTracked) {
+                lines.push(`- [${t.type}] ${(t.title || "").slice(0, 160)}`);
+            }
         }
         lines.push("");
         lines.push("Extract action_items and guest_issues as STRICT JSON per the schema.");
