@@ -117,6 +117,18 @@ export class OverduePaymentService {
         return Number.isFinite(n) ? n : null;
     }
 
+    /**
+     * Expected total for payment math: Hostify's payout_price (their own Paid %
+     * denominator), falling back to totalPrice. Some Hostify records carry
+     * payout_price = 0 (seen in prod) — treat that as missing, otherwise an
+     * unpaid guest would show $0 due.
+     */
+    private expectedTotal(payoutPrice: any, totalPrice: any): number | null {
+        const payout = this.toNum(payoutPrice);
+        if (payout != null && payout > 0) return payout;
+        return this.toNum(totalPrice);
+    }
+
     /** Fully paid if Hostify says full/all, or the collected amount covers the total. */
     private isFullyPaid(paidPart?: string | null, paid?: number | null, total?: number | null): boolean {
         const pp = String(paidPart || "").toLowerCase();
@@ -181,7 +193,8 @@ export class OverduePaymentService {
         // Hide calendar-block pseudo-reservations and $0 bookings by default —
         // nothing is owed on them, they just bury the real arrivals.
         if (!filters.includeJunk) {
-            qb.andWhere("COALESCE(r.payoutPrice, r.totalPrice, 0) > 0");
+            // payout_price can be 0 on some Hostify records; fall back to totalPrice.
+            qb.andWhere("COALESCE(IF(COALESCE(r.payoutPrice, 0) > 0, r.payoutPrice, r.totalPrice), 0) > 0");
             qb.andWhere("LOWER(COALESCE(r.guestName,'')) NOT IN ('blocked', 'airbnb (not available)', 'not available')");
         }
 
@@ -231,7 +244,10 @@ export class OverduePaymentService {
                 qb.orderBy("r.departureDate", "ASC");
                 break;
             case "due":
-                qb.orderBy("(COALESCE(r.payoutPrice, r.totalPrice, 0) - COALESCE(r.paidAmount, 0))", "DESC");
+                qb.orderBy(
+                    "(COALESCE(IF(COALESCE(r.payoutPrice, 0) > 0, r.payoutPrice, r.totalPrice), 0) - COALESCE(r.paidAmount, 0))",
+                    "DESC"
+                );
                 break;
             case "smart":
             default:
@@ -270,7 +286,7 @@ export class OverduePaymentService {
             // Hostify's own "Paid %" divides paid_sum by payout_price, so when we
             // have payout_price it is the expected total; totalPrice
             // (subtotal + tax) is only the fallback for unsynced rows.
-            const total = this.toNum(r.payoutPrice) ?? this.toNum(r.totalPrice);
+            const total = this.expectedTotal(r.payoutPrice, r.totalPrice);
             const paid = this.toNum(r.paidAmount);
             const due = total != null ? Math.max(0, total - (paid ?? 0)) : null;
             const paidPercent =
@@ -395,7 +411,7 @@ export class OverduePaymentService {
                 await this.reservationRepo.save(r);
                 updated++;
 
-                const expectedTotal = this.toNum(r.payoutPrice) ?? this.toNum(r.totalPrice);
+                const expectedTotal = this.expectedTotal(r.payoutPrice, r.totalPrice);
                 const fullyPaid = this.isFullyPaid(r.paidPart, r.paidAmount, expectedTotal);
 
                 // Clear a payment emergency once the balance is settled.
@@ -434,7 +450,7 @@ export class OverduePaymentService {
         if (!conversation) return false;
         if (Number(conversation.emergency) === 1 && conversation.emergencyType === "payment") return false;
 
-        const total = this.toNum(r.payoutPrice) ?? this.toNum(r.totalPrice);
+        const total = this.expectedTotal(r.payoutPrice, r.totalPrice);
         const paid = this.toNum(r.paidAmount);
         const due = total != null ? Math.max(0, total - (paid ?? 0)) : null;
         const money = due != null
@@ -484,10 +500,14 @@ export class OverduePaymentService {
             const subtotal = this.toNum(r.subtotal);
             const tax = this.toNum(r.tax_amount);
             let total: number | null =
-                payoutPrice ?? (subtotal != null ? subtotal + (tax ?? 0) : this.toNum(r.total_price));
+                payoutPrice != null && payoutPrice > 0
+                    ? payoutPrice
+                    : subtotal != null
+                        ? subtotal + (tax ?? 0)
+                        : this.toNum(r.total_price);
             if (total == null) {
                 const stored = await this.reservationRepo.findOne({ where: { id: reservationId } });
-                total = this.toNum(stored?.payoutPrice) ?? this.toNum(stored?.totalPrice);
+                total = this.expectedTotal(stored?.payoutPrice, stored?.totalPrice);
             }
 
             // Persist what we learned regardless of the emergency outcome.
