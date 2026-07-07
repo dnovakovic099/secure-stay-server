@@ -33,6 +33,7 @@ interface Pair {
     aiQualityNote?: string | null;
     aiQualityCategory?: string | null;
     missResolvedAt?: Date | null;
+    confidence?: number | null;
 }
 
 const words = (s: string) => String(s || "").trim().split(/\s+/).filter(Boolean).length;
@@ -293,7 +294,7 @@ export class InboxAnalyticsService {
     /** Load AI-vs-team pairs (Hostify-captured replies) for the last N days. */
     private async loadTeamPairs(days: number): Promise<Pair[]> {
         const teamRows: any[] = await appDatabase.query(
-            `SELECT s.id, s.threadId, s.escalationRequired, s.suggestedReply, s.actualReplyText,
+            `SELECT s.id, s.threadId, s.escalationRequired, s.suggestedReply, s.actualReplyText, s.confidence,
                     s.replySimilarity, s.replySemanticSimilarity, s.replyCoverageScore, s.auditMatchQuality,
                     s.replyRelevance, s.replyRelevanceNote, s.aiReplyQuality, s.aiReplyQualityNote,
                     s.aiReplyQualityCategory, s.missResolvedAt, s.generatedAt,
@@ -338,8 +339,57 @@ export class InboxAnalyticsService {
             aiQualityNote: r.aiReplyQualityNote ?? null,
             aiQualityCategory: r.aiReplyQualityCategory ?? null,
             missResolvedAt: r.missResolvedAt ?? null,
+            confidence: r.confidence != null ? Number(r.confidence) : null,
         }));
         return teamPairs;
+    }
+
+    /**
+     * Auto-send safety analysis: how the AI's self-reported confidence relates
+     * to judged mistakes. For each confidence band and each candidate auto-send
+     * threshold: how many replies would have gone out, and how many of those
+     * were judged mistakes. This is the go/no-go data for confidence-gated
+     * auto-send (auto-send above the threshold, rep review below).
+     */
+    private confidenceSafety(pairs: Pair[]) {
+        const judged = pairs.filter(
+            (p) => (p.aiQuality === "missed" || p.aiQuality === "addressed") && p.confidence != null
+        );
+        const bands = [
+            { key: "<50", min: 0, max: 49.99 },
+            { key: "50-69", min: 50, max: 69.99 },
+            { key: "70-84", min: 70, max: 84.99 },
+            { key: "85-94", min: 85, max: 94.99 },
+            { key: "95+", min: 95, max: 1000 },
+        ].map((b) => {
+            const inBand = judged.filter((p) => (p.confidence as number) >= b.min && (p.confidence as number) <= b.max);
+            const missed = inBand.filter((p) => p.aiQuality === "missed").length;
+            return {
+                band: b.key,
+                judged: inBand.length,
+                mistakes: missed,
+                mistakePct: inBand.length ? Math.round((missed / inBand.length) * 1000) / 10 : null,
+            };
+        });
+        const thresholds = [95, 90, 85, 80, 70, 60].map((t) => {
+            const above = judged.filter((p) => (p.confidence as number) >= t);
+            const missed = above.filter((p) => p.aiQuality === "missed").length;
+            return {
+                threshold: t,
+                wouldAutoSend: above.length,
+                sharePct: judged.length ? Math.round((above.length / judged.length) * 1000) / 10 : 0,
+                mistakes: missed,
+                mistakePct: above.length ? Math.round((missed / above.length) * 1000) / 10 : null,
+            };
+        });
+        const avg = (a: number[]) => (a.length ? Math.round((a.reduce((x, y) => x + y, 0) / a.length) * 10) / 10 : null);
+        return {
+            judged: judged.length,
+            avgConfidenceFine: avg(judged.filter((p) => p.aiQuality === "addressed").map((p) => p.confidence as number)),
+            avgConfidenceMistake: avg(judged.filter((p) => p.aiQuality === "missed").map((p) => p.confidence as number)),
+            bands,
+            thresholds,
+        };
     }
 
     /**
@@ -479,6 +529,7 @@ export class InboxAnalyticsService {
             },
             vsTeam: this.summarize(teamComparable),
             vsUser: this.summarize(userPairs),
+            confidenceSafety: this.confidenceSafety(teamComparable),
             trend: this.buildTrend(teamComparable, gran),
             notValidForScoring: {
                 count: notValid.length,
@@ -684,6 +735,7 @@ export class InboxAnalyticsService {
                 note: p.aiQualityNote || null,
                 category: p.aiQualityCategory || "other",
                 coverage: p.coverage,
+                confidence: p.confidence ?? null,
                 resolvedAt: p.missResolvedAt || null,
                 generatedAt: p.generatedAt,
                 remediation: remediationOf(p),

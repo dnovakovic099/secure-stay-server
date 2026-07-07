@@ -50,6 +50,11 @@ export class InboxAIAuditService {
         return process.env.AI_MESSAGING_MODEL || "gpt-4.1";
     }
 
+    /** Reply-quality judging uses the full model: mini was too lenient (July audit). */
+    private get judgeModel(): string {
+        return process.env.AI_JUDGE_MODEL || "gpt-4.1";
+    }
+
     // -------------------------------------------------------------------------
     // 1) Capture what the team actually replied, and score the divergence.
     // -------------------------------------------------------------------------
@@ -213,18 +218,22 @@ export class InboxAIAuditService {
             '- "off_topic": it is about something unrelated or driven by internal operations the guest did not ask about (e.g. guest asks about parking and the team says "our property manager will call your phone", a payment-verification link, an upsell pitch, or a question about a completely different subject).',
             '- "unknown": you cannot tell.',
             'For "off_topic" include a short note (max 15 words) saying what the team reply was actually about.',
-            "2) ai_verdict — did the AI reply handle the guest's message well on its own?",
-            '- "missed": the guest asked for specific information or content (e.g. the house rules, check-in instructions, a price) and the AI failed to provide it while the team did, OR the AI\'s answer was wrong/unhelpful for what was asked.',
-            '- "addressed": the AI reply reasonably answered or handled the guest\'s message, even if the team said something different or was more proactive. A polite, correct reply to a message that needed no information is "addressed".',
+            "2) ai_verdict — STRICT, CALIBRATED judgement of the AI reply on its own. Ask: would a fair property manager call this reply a genuine mistake if it had been sent as-is?",
+            '- "missed" (a genuine mistake) when ANY of these apply:',
+            "  * wrong info: the AI stated something factually contradicted by the team reply (price, rule, amenity, address, code, availability).",
+            "  * needless deferral: the guest asked for something concrete and the AI said it would check / escalate / follow up while the team answered directly with the substance. Politeness does not excuse it.",
+            "  * ignored ask: the AI skipped an explicit question or request in the guest's message (including PART of a multi-part message) that the team addressed.",
+            '- "addressed" (acceptable) when the reply was safe and reasonable to send as-is. Differences that are ONLY: shorter/longer wording, extra warmth, missing internal-ops details the AI could not know (cleaner schedules, payment-received confirmations, who will call whom), or the team volunteering unrelated extras — are acceptable, NOT mistakes.',
             '- "unknown": you cannot tell.',
             'For "missed" ALSO include:',
             '- ai_note: one short sentence (max 20 words) saying exactly what the AI failed to provide or got wrong.',
-            "- ai_category: the root cause —",
-            '  "missing_info" = the AI lacked a property/reservation fact the team knew (fix: add it to the knowledge base);',
+            "- ai_category: the failure type —",
             '  "wrong_info" = the AI stated something incorrect (fix: correct the knowledge base);',
-            '  "deferral" = the AI deferred/escalated when it could and should have answered;',
+            '  "deferral" = needless deferral/escalation when it could and should have answered;',
+            '  "ignored_ask" = skipped an explicit (part of the) guest request;',
+            '  "missing_info" = the AI lacked a property/reservation fact the team knew (fix: add it to the knowledge base);',
             '  "other" = anything else.',
-            'Respond with STRICT JSON only: {"results":[{"i":<index>,"verdict":"relevant|off_topic|unknown","ai_verdict":"addressed|missed|unknown","note":"...","ai_note":"...","ai_category":"missing_info|wrong_info|deferral|other"}]}',
+            'Respond with STRICT JSON only: {"results":[{"i":<index>,"verdict":"relevant|off_topic|unknown","ai_verdict":"addressed|missed|unknown","note":"...","ai_note":"...","ai_category":"wrong_info|deferral|ignored_ask|missing_info|other"}]}',
         ].join("\n");
 
         let judged = 0;
@@ -242,7 +251,7 @@ export class InboxAIAuditService {
                 .join("\n\n");
             try {
                 const resp = await openai.chat.completions.create({
-                    model: this.model,
+                    model: this.judgeModel,
                     temperature: 0,
                     response_format: { type: "json_object" },
                     messages: [
@@ -264,7 +273,7 @@ export class InboxAIAuditService {
                     if (av === "missed") {
                         it.row.aiReplyQualityNote = r?.ai_note ? String(r.ai_note).slice(0, 255) : null;
                         const cat = String(r?.ai_category || "").toLowerCase();
-                        it.row.aiReplyQualityCategory = ["missing_info", "wrong_info", "deferral"].includes(cat)
+                        it.row.aiReplyQualityCategory = ["missing_info", "wrong_info", "deferral", "ignored_ask"].includes(cat)
                             ? cat
                             : "other";
                     } else {
