@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from "axios";
+import crypto from "crypto";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { QuoPhoneLineEntity } from "../entity/QuoPhoneLine";
@@ -542,6 +543,139 @@ export class QuoInboxService {
 
     async markRead(conversationId: string): Promise<void> {
         await this.conversationRepo.update({ conversationId }, { unread: 0 });
+    }
+
+    // -------------------------------------------------------------------------
+    // Webhook — real-time message ingest (poll stays as reconciliation)
+    // -------------------------------------------------------------------------
+
+    /** Shared-secret token in the webhook URL, derived from the API key. */
+    static webhookToken(): string {
+        const key = process.env.QUO_API_KEY || process.env.OPEN_PHONE_API_KEY || "";
+        return crypto.createHash("sha256").update(`quo-webhook:${key}`).digest("hex").slice(0, 32);
+    }
+
+    static webhookUrl(): string | null {
+        const base = process.env.QUO_WEBHOOK_BASE_URL || process.env.BASE_URL;
+        if (!base) return null;
+        return `${String(base).replace(/\/+$/, "")}/quo-inbox/webhook?token=${QuoInboxService.webhookToken()}`;
+    }
+
+    /** Register our message webhook with Quo (idempotent). */
+    async ensureWebhook(): Promise<{ url: string | null; created: boolean; skipped?: string }> {
+        const url = QuoInboxService.webhookUrl();
+        if (!url) return { url: null, created: false, skipped: "BASE_URL is not configured" };
+        if (!QuoInboxService.isConfigured()) return { url, created: false, skipped: "API key not configured" };
+
+        const list = await this.apiGet("/webhooks", {});
+        const hooks: any[] = list.data?.data || [];
+        const existing = hooks.find((w) => String(w?.url || "") === url);
+        if (existing) return { url, created: false };
+
+        await this.client.post("/webhooks/messages", {
+            url,
+            events: ["message.received", "message.delivered"],
+            resourceIds: ["*"],
+            status: "enabled",
+            label: "SecureStay Quo Inbox",
+        });
+        logger.info(`[QuoInbox] Registered message webhook at ${url.split("?")[0]}`);
+        return { url, created: true };
+    }
+
+    /**
+     * Ingest a message.* webhook event. Returns the conversationId and whether
+     * it was an incoming message so the caller can schedule detection.
+     */
+    async handleWebhookEvent(payload: any): Promise<{
+        handled: boolean;
+        conversationId?: string;
+        incoming?: boolean;
+    }> {
+        const type = String(payload?.type || "");
+        if (!type.startsWith("message.")) return { handled: false };
+        const m = payload?.data?.object;
+        if (!m?.id || !m?.phoneNumberId) return { handled: false };
+
+        const line = await this.lineRepo.findOne({ where: { phoneNumberId: m.phoneNumberId } });
+        if (!line || !line.enabled) return { handled: false };
+
+        const direction = m.direction === "outgoing" ? "outgoing" : "incoming";
+        const toArr: string[] = Array.isArray(m.to) ? m.to : m.to ? [m.to] : [];
+        const externalNums = (direction === "incoming" ? [m.from] : toArr).filter(Boolean);
+        const text = m.text ?? m.body ?? null;
+        const sentAt = m.createdAt ? new Date(m.createdAt) : new Date();
+
+        let conversationId: string | null = m.conversationId || null;
+        if (!conversationId && externalNums.length) {
+            const existingConv = await this.conversationRepo.findOne({
+                where: { phoneNumberId: line.phoneNumberId, participantPhone: externalNums[0] },
+            });
+            conversationId = existingConv?.conversationId || null;
+        }
+        if (!conversationId) {
+            // Unknown thread — let a quick line sync pick it up with proper ids.
+            await this.syncLine(line, false);
+            line.lastSyncedAt = new Date();
+            await this.lineRepo.save(line);
+            return { handled: true };
+        }
+
+        // Message upsert (the poll may already have stored it).
+        const exists = await this.messageRepo.findOne({ where: { externalId: m.id } });
+        if (!exists) {
+            await this.messageRepo.save(
+                this.messageRepo.create({
+                    externalId: m.id,
+                    conversationId,
+                    phoneNumberId: line.phoneNumberId,
+                    body: text,
+                    direction,
+                    fromNumber: m.from || null,
+                    toNumbers: toArr.join(",") || null,
+                    mediaUrls: Array.isArray(m.media) && m.media.length
+                        ? JSON.stringify(m.media.map((x: any) => x.url).filter(Boolean))
+                        : null,
+                    status: m.status || (type === "message.delivered" ? "delivered" : "received"),
+                    quoUserId: m.userId || null,
+                    senderName: direction === "outgoing" ? await this.resolveUserName(m.userId) : null,
+                    sentAt,
+                })
+            );
+        }
+
+        let conv = await this.conversationRepo.findOne({ where: { conversationId } });
+        const isNew = !conv;
+        if (!conv) {
+            conv = this.conversationRepo.create({
+                conversationId,
+                phoneNumberId: line.phoneNumberId,
+                lineNumber: line.number,
+                lineName: line.name,
+                participantPhone: externalNums[0] || null,
+                participants: externalNums.join(","),
+                unread: 0,
+                isArchived: 0,
+            });
+        }
+        if (!conv.lastMessageAt || sentAt >= new Date(conv.lastMessageAt)) {
+            conv.lastMessageText = text;
+            conv.lastMessageAt = sentAt;
+            conv.lastDirection = direction;
+            if (direction === "incoming") conv.unread = 1;
+        }
+        conv.syncedAt = new Date();
+        conv = await this.conversationRepo.save(conv);
+
+        if ((isNew || !conv.reservationId) && conv.linkMethod !== "manual") {
+            try {
+                await this.resolveReservationLink(conv);
+            } catch (err: any) {
+                logger.warn(`[QuoInbox] Reservation link failed for ${conversationId}: ${err?.message}`);
+            }
+        }
+
+        return { handled: true, conversationId, incoming: direction === "incoming" && !exists };
     }
 
     // -------------------------------------------------------------------------

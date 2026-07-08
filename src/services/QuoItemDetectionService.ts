@@ -31,6 +31,25 @@ export class QuoItemDetectionService {
         return String(process.env.QUO_ITEM_DETECTION_ENABLED || "true").toLowerCase() !== "false";
     }
 
+    // Burst debounce for webhook-driven detection: texts arrive in flurries, so
+    // wait for the thread to settle and scan once instead of per message.
+    private static pendingTimers = new Map<string, NodeJS.Timeout>();
+    private static DEBOUNCE_MS = Number(process.env.QUO_ITEM_DETECTION_DEBOUNCE_MS || 3 * 60 * 1000);
+
+    static scheduleDetection(conversationId: string): void {
+        if (!QuoItemDetectionService.isEnabled()) return;
+        const existing = QuoItemDetectionService.pendingTimers.get(conversationId);
+        if (existing) clearTimeout(existing);
+        const timer = setTimeout(() => {
+            QuoItemDetectionService.pendingTimers.delete(conversationId);
+            new QuoItemDetectionService()
+                .detectForConversation(conversationId)
+                .catch((err) => logger.error(`[QuoDetect] Scheduled detection failed for ${conversationId}: ${err?.message}`));
+        }, QuoItemDetectionService.DEBOUNCE_MS);
+        timer.unref?.();
+        QuoItemDetectionService.pendingTimers.set(conversationId, timer);
+    }
+
     private getClient(): OpenAI {
         const apiKey = process.env.OPENAI_API_KEY;
         if (!apiKey) throw new Error("OPENAI_API_KEY is not set");

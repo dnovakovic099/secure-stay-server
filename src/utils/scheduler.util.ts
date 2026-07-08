@@ -565,6 +565,23 @@ export function scheduleGetReservation() {
     }
   );
 
+  // Register the Quo message webhook on boot (idempotent) so new messages
+  // arrive in real time; the 3-minute poll below stays as reconciliation.
+  if (QuoInboxService.isConfigured()) {
+    setTimeout(async () => {
+      try {
+        const result = await new QuoInboxService().ensureWebhook();
+        if (result.skipped) {
+          logger.warn(`[QuoInbox] Webhook registration skipped: ${result.skipped}`);
+        } else if (result.created) {
+          logger.info('[QuoInbox] Webhook registered with Quo.');
+        }
+      } catch (error) {
+        logger.error('[QuoInbox] Webhook registration failed:', error);
+      }
+    }, 15 * 1000);
+  }
+
   // Quo (OpenPhone) SMS inbox sync — every 3 minutes, PM/GR lines only.
   // Polls conversations + messages into quo_conversations / quo_messages and
   // runs action-item detection on threads with new incoming messages.

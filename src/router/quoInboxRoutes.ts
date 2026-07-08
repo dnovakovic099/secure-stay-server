@@ -14,4 +14,8 @@ router.post("/conversations/:conversationId/read", verifySession, controller.mar
 router.post("/conversations/:conversationId/link", verifySession, controller.link);
 router.post("/sync", verifySession, controller.sync);
 
+// Inbound webhook from Quo — no session; authenticated by URL token.
+router.post("/webhook", controller.webhook);
+router.post("/webhook/register", verifySession, controller.registerWebhook);
+
 export default router;

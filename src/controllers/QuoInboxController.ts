@@ -99,6 +99,34 @@ export class QuoInboxController {
         }
     };
 
+    /** Inbound Quo message webhook — authenticated by the token in the URL. */
+    webhook = async (req: Request, res: Response) => {
+        // Always 200 quickly; Quo retries/disables noisy endpoints otherwise.
+        try {
+            if (String(req.query.token || "") !== QuoInboxService.webhookToken()) {
+                return res.status(401).json({ status: false });
+            }
+            const result = await this.service.handleWebhookEvent(req.body);
+            if (result.handled && result.incoming && result.conversationId) {
+                QuoItemDetectionService.scheduleDetection(result.conversationId);
+            }
+            res.status(200).json({ status: true });
+        } catch (error: any) {
+            logger.error(`[QuoInbox] Webhook handling failed: ${error?.message}`);
+            res.status(200).json({ status: true });
+        }
+    };
+
+    /** Register (or verify) the webhook with Quo. */
+    registerWebhook = async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const result = await this.service.ensureWebhook();
+            res.status(200).json({ status: true, data: result });
+        } catch (error) {
+            next(error);
+        }
+    };
+
     sync = async (req: Request, res: Response, next: NextFunction) => {
         try {
             const deep = req.body?.deep === true;
