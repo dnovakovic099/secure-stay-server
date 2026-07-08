@@ -80,32 +80,18 @@ export class QuoInboxController {
         }
     };
 
-    /** AI reply suggestion for a Quo SMS thread (ephemeral — nothing is sent). */
+    /** AI reply suggestion for a Quo SMS thread (persisted; nothing is sent). */
     suggest = async (req: Request, res: Response, next: NextFunction) => {
         try {
             if (!InboxAIService.isEnabled()) {
                 return res.status(200).json({ status: false, message: "AI messaging is disabled" });
             }
             const conversationId = String(req.params.conversationId);
-            const result = await this.service.getConversation(conversationId);
-            if (!result) return res.status(404).json({ status: false, message: "Conversation not found" });
-
-            const { conversation, messages } = result;
-            const suggestion = await new InboxAIService().quoSuggestReply({
-                conversationId,
-                listingId: conversation.listingId,
-                listingName: conversation.listingName,
-                reservationId: conversation.reservationId,
-                guestName: conversation.guestName,
-                contactName: conversation.contactName,
-                messages: messages.map((m) => ({
-                    direction: m.direction,
-                    body: m.body,
-                    senderName: m.senderName,
-                    sentAt: m.sentAt,
-                })),
-            });
-            res.status(200).json({ status: true, data: suggestion });
+            const force = req.body?.force === true;
+            const result = await new InboxAIService().quoSuggestReply(conversationId, { force });
+            if (!result) return res.status(400).json({ status: false, message: "No inbound message to reply to" });
+            const { suggestion, ...payload } = result;
+            res.status(200).json({ status: true, data: { ...payload, suggestionId: suggestion.id } });
         } catch (error) {
             next(error);
         }
@@ -141,6 +127,8 @@ export class QuoInboxController {
             const result = await this.service.handleWebhookEvent(req.body);
             if (result.handled && result.incoming && result.conversationId) {
                 QuoItemDetectionService.scheduleDetection(result.conversationId);
+                // Shadow AI suggestion (persisted for the audit/analytics loop).
+                InboxAIService.scheduleQuoSuggestion(result.conversationId);
             }
             res.status(200).json({ status: true });
         } catch (error: any) {
@@ -169,6 +157,7 @@ export class QuoInboxController {
                 detector.detectForConversations(result.newIncoming).catch((err) =>
                     logger.error(`[QuoInbox] Post-sync detection failed: ${err?.message}`)
                 );
+                for (const cid of result.newIncoming) InboxAIService.scheduleQuoSuggestion(cid);
             }
             res.status(200).json({ status: true, data: result });
         } catch (error) {

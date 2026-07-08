@@ -603,6 +603,9 @@ export function scheduleGetReservation() {
           if (detection.created) {
             logger.info(`[QuoInbox] Detection created ${detection.created} action item(s)`);
           }
+          // Shadow AI suggestions for linked threads (audit/analytics dataset).
+          const { InboxAIService } = require("../services/InboxAIService");
+          for (const cid of result.newIncoming) InboxAIService.scheduleQuoSuggestion(cid);
         }
       } catch (error) {
         logger.error("[QuoInbox] Error in scheduled sync:", error);

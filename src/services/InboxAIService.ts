@@ -4,6 +4,8 @@ import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { InboxConversationEntity } from "../entity/InboxConversation";
 import { InboxMessageEntity } from "../entity/InboxMessage";
+import { QuoConversationEntity } from "../entity/QuoConversation";
+import { QuoMessageEntity } from "../entity/QuoMessage";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Listing } from "../entity/Listing";
 import { ListingIntake } from "../entity/ListingIntake";
@@ -203,13 +205,18 @@ export class InboxAIService {
 
     /** Latest persisted suggestion for a thread (optionally for a specific message). */
     async getLatestSuggestion(threadId: number, messageId?: number | null) {
-        const where: any = { threadId };
+        // source filter: quo suggestions reuse this table with their own
+        // (small) numeric thread ids that could collide with Hostify's.
+        const where: any = { threadId, source: "hostify" };
         if (messageId != null) where.messageId = messageId;
         return this.suggestionRepo.findOne({ where, order: { generatedAt: "DESC", id: "DESC" } });
     }
 
     async listSuggestionsForThread(threadId: number) {
-        return this.suggestionRepo.find({ where: { threadId }, order: { generatedAt: "DESC", id: "DESC" } });
+        return this.suggestionRepo.find({
+            where: { threadId, source: "hostify" },
+            order: { generatedAt: "DESC", id: "DESC" },
+        });
     }
 
     /**
@@ -726,25 +733,84 @@ export class InboxAIService {
     // Quo (OpenPhone SMS) suggestions
     // ------------------------------------------------------------------
 
+    /** Kill switch for Quo shadow suggestions (default ON when AI messaging is on). */
+    static quoSuggestionsEnabled(): boolean {
+        return (
+            InboxAIService.isEnabled() &&
+            String(process.env.QUO_AI_SUGGESTIONS_ENABLED || "true").toLowerCase() !== "false"
+        );
+    }
+
+    // SMS arrives in bursts; wait for the thread to settle and generate one
+    // suggestion against the latest inbound instead of one per text.
+    private static quoPendingTimers = new Map<string, NodeJS.Timeout>();
+    private static QUO_SUGGEST_DEBOUNCE_MS = Number(process.env.QUO_AI_SUGGEST_DEBOUNCE_MS || 3 * 60 * 1000);
+
+    /**
+     * Schedule a shadow suggestion for a Quo conversation after its message
+     * burst settles. Safe to call on every inbound webhook/poll; dedupes per
+     * conversation and per target message.
+     */
+    static scheduleQuoSuggestion(conversationId: string): void {
+        if (!InboxAIService.quoSuggestionsEnabled()) return;
+        const existing = InboxAIService.quoPendingTimers.get(conversationId);
+        if (existing) clearTimeout(existing);
+        const timer = setTimeout(() => {
+            InboxAIService.quoPendingTimers.delete(conversationId);
+            new InboxAIService()
+                .quoShadowSuggest(conversationId)
+                .catch((err) => logger.warn(`[InboxAI] Quo shadow suggestion failed for ${conversationId}: ${err?.message}`));
+        }, InboxAIService.QUO_SUGGEST_DEBOUNCE_MS);
+        timer.unref?.();
+        InboxAIService.quoPendingTimers.set(conversationId, timer);
+    }
+
+    /**
+     * Shadow suggestion for a Quo thread: loads the conversation, generates and
+     * PERSISTS a suggestion for the latest inbound message so the nightly audit
+     * can pair it with the team's actual SMS reply — the same learning dataset
+     * the Hostify inbox builds. Only runs for reservation-linked threads:
+     * unlinked SMS (owners, vendors, unknown numbers) has no listing context
+     * and would pollute the quality metrics.
+     */
+    async quoShadowSuggest(conversationId: string): Promise<AIMessageSuggestionEntity | null> {
+        if (!InboxAIService.quoSuggestionsEnabled()) return null;
+        const conv = await appDatabase
+            .getRepository(QuoConversationEntity)
+            .findOne({ where: { conversationId } });
+        if (!conv || !conv.reservationId) return null;
+        if (conv.lastDirection !== "incoming") return null;
+        // Webhook (API cluster) and the 3-min poll (cron worker) both schedule
+        // this; a named MySQL lock makes one worker win, the loser skips.
+        const runner = appDatabase.createQueryRunner();
+        const lockName = `ss_quosuggest_${conversationId}`;
+        try {
+            await runner.connect();
+            const lockRows: any[] = await runner.query("SELECT GET_LOCK(?, 0) AS l", [lockName]);
+            if (!Number(lockRows?.[0]?.l)) return null;
+            const result = await this.quoSuggestReply(conversationId, { persistOnly: true });
+            return result?.suggestion ?? null;
+        } finally {
+            await runner.query("SELECT RELEASE_LOCK(?)", [lockName]).catch(() => undefined);
+            await runner.release().catch(() => undefined);
+        }
+    }
+
     /**
      * Generate a reply suggestion for a Quo SMS conversation. Quo threads live
      * in their own tables (quo_conversations / quo_messages), so we map the
      * thread onto an ephemeral inbox conversation — same context builder, same
-     * system prompt, same guardrails as the Hostify inbox — and return the
-     * result without persisting a suggestion row (Quo thread ids are strings
-     * and don't fit ai_message_suggestions). If the conversation is linked to
-     * a reservation we get the full context (listing KB, live reservation,
-     * availability); unlinked threads still get conversation history.
+     * system prompt, same guardrails as the Hostify inbox. Every generation is
+     * persisted to ai_message_suggestions (source='quo', threadId =
+     * quo_conversations.id, messageId = quo_messages.id) so the nightly audit
+     * and Analytics work exactly like the Hostify inbox. Deduped per target
+     * message unless force=true.
      */
-    async quoSuggestReply(input: {
-        conversationId: string;
-        listingId?: number | null;
-        listingName?: string | null;
-        reservationId?: number | null;
-        guestName?: string | null;
-        contactName?: string | null;
-        messages: { direction: string; body: string | null; senderName?: string | null; sentAt: Date }[];
-    }): Promise<{
+    async quoSuggestReply(
+        conversationId: string,
+        opts: { force?: boolean; persistOnly?: boolean } = {}
+    ): Promise<{
+        suggestion: AIMessageSuggestionEntity;
         reply: string;
         confidence: number | null;
         escalationRequired: boolean;
@@ -753,52 +819,79 @@ export class InboxAIService {
         sourcesUsed: string[];
         internalSummary: string | null;
         linked: boolean;
-    }> {
+    } | null> {
+        const quoConvRepo = appDatabase.getRepository(QuoConversationEntity);
+        const quoMsgRepo = appDatabase.getRepository(QuoMessageEntity);
+        const conv = await quoConvRepo.findOne({ where: { conversationId } });
+        if (!conv) throw new Error(`Quo conversation ${conversationId} not found`);
+        const quoMessages = await quoMsgRepo.find({
+            where: { conversationId },
+            order: { sentAt: "ASC" },
+            take: 500,
+        });
+
+        // Target = latest inbound with a body.
+        let targetQuo: QuoMessageEntity | null = null;
+        for (let i = quoMessages.length - 1; i >= 0; i--) {
+            if (quoMessages[i].direction === "incoming" && String(quoMessages[i].body || "").trim()) {
+                targetQuo = quoMessages[i];
+                break;
+            }
+        }
+        if (!targetQuo) {
+            if (opts.persistOnly) return null;
+            throw new Error("No inbound guest message to reply to");
+        }
+
+        // Dedupe: reuse the stored suggestion for this exact message unless forced.
+        if (!opts.force) {
+            const existing = await this.suggestionRepo.findOne({
+                where: { source: "quo", threadId: conv.id, messageId: targetQuo.id },
+                order: { generatedAt: "DESC", id: "DESC" },
+            });
+            if (existing) return this.quoResult(existing, conv);
+        }
+
         // Resolve reservation status (drives inquiry sales mode + phase rules).
         let reservationStatus: string | null = null;
-        if (input.reservationId) {
+        if (conv.reservationId) {
             const r = await this.reservationRepo
-                .findOne({ where: { id: Number(input.reservationId) } })
+                .findOne({ where: { id: Number(conv.reservationId) } })
                 .catch(() => null);
             reservationStatus = r?.status || null;
         }
 
         const conversation = this.conversationRepo.create({
             threadId: 0,
-            listingId: input.listingId ? Number(input.listingId) : null,
-            listingName: input.listingName || null,
-            reservationId: input.reservationId ? Number(input.reservationId) : null,
-            guestName: input.guestName || input.contactName || "Guest",
+            listingId: conv.listingId ? Number(conv.listingId) : null,
+            listingName: conv.listingName || null,
+            reservationId: conv.reservationId ? Number(conv.reservationId) : null,
+            guestName: conv.guestName || conv.contactName || "Guest",
             channel: "SMS (Quo)",
             reservationStatus,
         }) as InboxConversationEntity;
 
-        const cleaned = (input.messages || []).filter((m) => m && String(m.body || "").trim());
-        const messages = cleaned.map(
-            (m) =>
-                this.messageRepo.create({
-                    threadId: 0,
-                    direction: m.direction === "outgoing" ? "outgoing" : "incoming",
-                    body: String(m.body || "").trim(),
-                    senderName: m.senderName || (m.direction === "outgoing" ? "Host" : input.guestName || "Guest"),
-                    sentAt: m.sentAt,
-                }) as InboxMessageEntity
-        );
-
-        let target: InboxMessageEntity | null = null;
-        for (let i = messages.length - 1; i >= 0; i--) {
-            if (messages[i].direction === "incoming") {
-                target = messages[i];
-                break;
-            }
-        }
-        if (!target) throw new Error("No inbound guest message to reply to");
+        const messages = quoMessages
+            .filter((m) => String(m.body || "").trim())
+            .map(
+                (m) =>
+                    this.messageRepo.create({
+                        threadId: 0,
+                        externalId: m.id,
+                        direction: m.direction === "outgoing" ? "outgoing" : "incoming",
+                        body: String(m.body || "").trim(),
+                        senderName: m.senderName || (m.direction === "outgoing" ? "Host" : conversation.guestName),
+                        sentAt: m.sentAt,
+                    }) as InboxMessageEntity
+            );
+        const target = messages.find((m) => Number(m.externalId) === Number(targetQuo!.id)) || null;
+        if (!target) throw new Error("Target message not found after mapping");
 
         const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
         let context = await this.buildContext(conversation, messages, target, { includeKnowledge: true });
         context +=
             "\n\n## Delivery channel note\nThis reply is sent as a plain SMS text message. Keep it tight (1-3 sentences unless the question needs more), no links unless they were already shared in this thread, no markdown or formatting.";
-        if (!input.reservationId) {
+        if (!conv.reservationId) {
             context +=
                 "\nThis SMS thread is NOT linked to a reservation, so there is no listing/reservation context. Answer only from the conversation itself; if the guest asks something property-specific you can't answer, say you'll check and follow up.";
         }
@@ -855,19 +948,57 @@ export class InboxAIService {
             else if (warnings.length) confidencePct = Math.min(confidencePct, 60);
         }
 
-        logger.info(
-            `[InboxAI] Quo suggestion for ${input.conversationId} (linked=${Boolean(input.reservationId)}, conf=${confidencePct ?? "n/a"})`
+        // Independent verifier pass (same gate the Hostify inbox trusts).
+        const verifier = await Promise.race([
+            this.runReplyVerifier({ context, reply: output.suggested_reply || "" }),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
+        ]);
+
+        const suggestion = await this.suggestionRepo.save(
+            this.suggestionRepo.create({
+                source: "quo",
+                quoConversationId: conversationId,
+                threadId: conv.id,
+                messageId: targetQuo.id,
+                reservationId: conv.reservationId ? Number(conv.reservationId) : null,
+                listingId: conv.listingId ? Number(conv.listingId) : null,
+                suggestedReply: output.suggested_reply || null,
+                confidence: confidencePct,
+                verifierConfidence: verifier?.confidence ?? null,
+                verifierNote: verifier?.note ?? null,
+                escalationRequired: output.escalation_required ? 1 : 0,
+                escalationReason: output.escalation_reason ? String(output.escalation_reason).slice(0, 500) : null,
+                internalSummary: output.internal_summary || null,
+                sourcesUsed: JSON.stringify(output.sources_used || []),
+                warnings: JSON.stringify(warnings),
+                suggestedActionItems: JSON.stringify(output.suggested_action_items || []),
+                modelName: INBOX_AI_MODEL,
+                promptVersion: INBOX_AI_PROMPT_VERSION,
+                status: "suggested",
+                rawResponse: raw.slice(0, 60000) || null,
+                generatedAt: new Date(),
+            })
         );
 
+        logger.info(
+            `[InboxAI] Quo suggestion ${suggestion.id} for ${conversationId} ` +
+                `(linked=${Boolean(conv.reservationId)}, conf=${confidencePct ?? "n/a"}, verified=${verifier?.confidence ?? "n/a"})`
+        );
+        return this.quoResult(suggestion, conv);
+    }
+
+    /** Shape a stored quo suggestion row into the API response the composer uses. */
+    private quoResult(s: AIMessageSuggestionEntity, conv: QuoConversationEntity) {
         return {
-            reply: output.suggested_reply || "",
-            confidence: confidencePct,
-            escalationRequired: !!output.escalation_required,
-            escalationReason: output.escalation_reason || null,
-            warnings,
-            sourcesUsed: Array.isArray(output.sources_used) ? output.sources_used : [],
-            internalSummary: output.internal_summary || null,
-            linked: Boolean(input.reservationId),
+            suggestion: s,
+            reply: s.suggestedReply || "",
+            confidence: s.confidence != null ? Number(s.confidence) : null,
+            escalationRequired: Number(s.escalationRequired) === 1,
+            escalationReason: s.escalationReason || null,
+            warnings: this.safeJsonArray(s.warnings),
+            sourcesUsed: this.safeJsonArray(s.sourcesUsed),
+            internalSummary: s.internalSummary || null,
+            linked: Boolean(conv.reservationId),
         };
     }
 

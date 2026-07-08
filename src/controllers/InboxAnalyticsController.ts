@@ -6,12 +6,17 @@ import { InboxAnalyticsService } from "../services/InboxAnalyticsService";
  * improvement trend, and reason breakdown. Read-only (plus a bounded, on-demand
  * semantic backfill trigger).
  */
+/** "quo" selects the Quo SMS report; anything else = the Hostify inbox. */
+function sourceOf(request: Request): "hostify" | "quo" {
+    return request.query.source === "quo" ? "quo" : "hostify";
+}
+
 export class InboxAnalyticsController {
     async report(request: Request, response: Response, next: NextFunction) {
         try {
             const sinceDays = request.query.sinceDays ? Number(request.query.sinceDays) : 60;
             const granularity = (request.query.granularity as "day" | "week" | "month") || "day";
-            const data = await new InboxAnalyticsService().report(sinceDays, granularity);
+            const data = await new InboxAnalyticsService().report(sinceDays, granularity, sourceOf(request));
             return response.status(200).json({ status: true, data });
         } catch (error) {
             return next(error);
@@ -23,7 +28,7 @@ export class InboxAnalyticsController {
             const metric = (request.query.metric as "coverage" | "semantic" | "jaccard") || "coverage";
             const sinceDays = request.query.sinceDays ? Number(request.query.sinceDays) : 60;
             const limit = request.query.limit ? Number(request.query.limit) : 50;
-            const data = await new InboxAnalyticsService().worstReplies(metric, sinceDays, limit);
+            const data = await new InboxAnalyticsService().worstReplies(metric, sinceDays, limit, sourceOf(request));
             return response.status(200).json({ status: true, data });
         } catch (error) {
             return next(error);
@@ -34,7 +39,7 @@ export class InboxAnalyticsController {
         try {
             const sinceDays = request.query.sinceDays ? Number(request.query.sinceDays) : 60;
             const includeResolved = request.query.includeResolved === "true";
-            const data = await new InboxAnalyticsService().misses(sinceDays, includeResolved);
+            const data = await new InboxAnalyticsService().misses(sinceDays, includeResolved, sourceOf(request));
             return response.status(200).json({ status: true, data });
         } catch (error) {
             return next(error);

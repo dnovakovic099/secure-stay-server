@@ -19,6 +19,17 @@ import {
 export class AIMessageSuggestionEntity {
     @PrimaryGeneratedColumn() id: number;
 
+    /**
+     * Which inbox this suggestion belongs to: "hostify" (v2 inbox threads) or
+     * "quo" (OpenPhone SMS). For quo rows threadId = quo_conversations.id and
+     * messageId = quo_messages.id; the string OpenPhone conversation key lives
+     * in quoConversationId.
+     */
+    @Index() @Column({ length: 16, default: "hostify" }) source: string;
+
+    /** OpenPhone conversation key (quo rows only). */
+    @Column({ length: 64, nullable: true }) quoConversationId: string | null;
+
     @Index() @Column({ type: "bigint" }) threadId: number;
 
     /** externalId of the inbound guest message this responds to (nullable). */

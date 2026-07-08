@@ -14,9 +14,14 @@ import { InboxAIAuditService } from "./InboxAIAuditService";
  * with real examples. Read-only over inbox-v2 AI tables.
  */
 
+/** Which inbox the report covers: Hostify v2 inbox or Quo (OpenPhone SMS). */
+export type AnalyticsSource = "hostify" | "quo";
+
 interface Pair {
     id: number;
     threadId: number;
+    /** Quo only: OpenPhone conversation key for deep-links to /messages/quo. */
+    threadKey?: string | null;
     channel: string | null;
     guestMsg: string | null;
     ai: string;
@@ -221,6 +226,7 @@ export class InboxAnalyticsService {
                     .slice(0, 30)
                     .map((p) => ({
                         threadId: p.threadId,
+                        threadKey: p.threadKey ?? null,
                         channel: p.channel,
                         guestMessage: (p.guestMsg || "").replace(/\s+/g, " ").slice(0, 240),
                         aiReply: p.ai.replace(/\s+/g, " ").slice(0, 320),
@@ -291,34 +297,63 @@ export class InboxAnalyticsService {
             });
     }
 
-    /** Load AI-vs-team pairs (Hostify-captured replies) for the last N days. */
-    private async loadTeamPairs(days: number): Promise<Pair[]> {
-        const teamRows: any[] = await appDatabase.query(
-            `SELECT s.id, s.threadId, s.escalationRequired, s.suggestedReply, s.actualReplyText, s.confidence, s.verifierConfidence,
-                    s.replySimilarity, s.replySemanticSimilarity, s.replyCoverageScore, s.auditMatchQuality,
-                    s.replyRelevance, s.replyRelevanceNote, s.aiReplyQuality, s.aiReplyQualityNote,
-                    s.aiReplyQualityCategory, s.missResolvedAt, s.generatedAt,
-                    c.channel,
-                    COALESCE(
-                        NULLIF(gm.body, ''),
-                        (SELECT m2.body FROM inbox_messages m2
-                         WHERE m2.threadId = s.threadId AND m2.direction = 'incoming'
-                           AND m2.sentAt <= s.generatedAt
-                           AND m2.body IS NOT NULL AND m2.body <> ''
-                         ORDER BY m2.sentAt DESC LIMIT 1)
-                    ) AS guestMsg
-             FROM ai_message_suggestions s
-             LEFT JOIN inbox_conversations c ON c.threadId = s.threadId
-             LEFT JOIN inbox_messages gm ON gm.threadId = s.threadId AND gm.externalId = s.messageId
-             WHERE s.actualReplyText IS NOT NULL AND s.actualReplyText <> ''
-               AND s.suggestedReply IS NOT NULL AND s.suggestedReply <> ''
-               AND s.generatedAt >= (NOW() - INTERVAL ? DAY)
-             ORDER BY s.generatedAt DESC`,
-            [days]
-        );
+    /** Load AI-vs-team pairs (audit-captured replies) for the last N days. */
+    private async loadTeamPairs(days: number, source: AnalyticsSource = "hostify"): Promise<Pair[]> {
+        const teamRows: any[] =
+            source === "quo"
+                ? await appDatabase.query(
+                      `SELECT s.id, s.threadId, s.quoConversationId AS threadKey, s.escalationRequired, s.suggestedReply, s.actualReplyText,
+                              s.confidence, s.verifierConfidence,
+                              s.replySimilarity, s.replySemanticSimilarity, s.replyCoverageScore, s.auditMatchQuality,
+                              s.replyRelevance, s.replyRelevanceNote, s.aiReplyQuality, s.aiReplyQualityNote,
+                              s.aiReplyQualityCategory, s.missResolvedAt, s.generatedAt,
+                              COALESCE(c.lineName, 'SMS') AS channel,
+                              COALESCE(
+                                  NULLIF(gm.body, ''),
+                                  (SELECT m2.body FROM quo_messages m2
+                                   WHERE m2.conversationId = s.quoConversationId AND m2.direction = 'incoming'
+                                     AND m2.sentAt <= s.generatedAt
+                                     AND m2.body IS NOT NULL AND m2.body <> ''
+                                   ORDER BY m2.sentAt DESC LIMIT 1)
+                              ) AS guestMsg
+                       FROM ai_message_suggestions s
+                       LEFT JOIN quo_conversations c ON c.id = s.threadId
+                       LEFT JOIN quo_messages gm ON gm.id = s.messageId
+                       WHERE s.source = 'quo'
+                         AND s.actualReplyText IS NOT NULL AND s.actualReplyText <> ''
+                         AND s.suggestedReply IS NOT NULL AND s.suggestedReply <> ''
+                         AND s.generatedAt >= (NOW() - INTERVAL ? DAY)
+                       ORDER BY s.generatedAt DESC`,
+                      [days]
+                  )
+                : await appDatabase.query(
+                      `SELECT s.id, s.threadId, NULL AS threadKey, s.escalationRequired, s.suggestedReply, s.actualReplyText, s.confidence, s.verifierConfidence,
+                              s.replySimilarity, s.replySemanticSimilarity, s.replyCoverageScore, s.auditMatchQuality,
+                              s.replyRelevance, s.replyRelevanceNote, s.aiReplyQuality, s.aiReplyQualityNote,
+                              s.aiReplyQualityCategory, s.missResolvedAt, s.generatedAt,
+                              c.channel,
+                              COALESCE(
+                                  NULLIF(gm.body, ''),
+                                  (SELECT m2.body FROM inbox_messages m2
+                                   WHERE m2.threadId = s.threadId AND m2.direction = 'incoming'
+                                     AND m2.sentAt <= s.generatedAt
+                                     AND m2.body IS NOT NULL AND m2.body <> ''
+                                   ORDER BY m2.sentAt DESC LIMIT 1)
+                              ) AS guestMsg
+                       FROM ai_message_suggestions s
+                       LEFT JOIN inbox_conversations c ON c.threadId = s.threadId
+                       LEFT JOIN inbox_messages gm ON gm.threadId = s.threadId AND gm.externalId = s.messageId
+                       WHERE s.source = 'hostify'
+                         AND s.actualReplyText IS NOT NULL AND s.actualReplyText <> ''
+                         AND s.suggestedReply IS NOT NULL AND s.suggestedReply <> ''
+                         AND s.generatedAt >= (NOW() - INTERVAL ? DAY)
+                       ORDER BY s.generatedAt DESC`,
+                      [days]
+                  );
         const teamPairs: Pair[] = teamRows.map((r) => ({
             id: Number(r.id),
             threadId: Number(r.threadId),
+            threadKey: r.threadKey ?? null,
             channel: r.channel ?? null,
             guestMsg: r.guestMsg ?? null,
             ai: r.suggestedReply,
@@ -455,11 +490,15 @@ export class InboxAnalyticsService {
         };
     }
 
-    async report(sinceDays = 60, granularity: "day" | "week" | "month" = "day"): Promise<any> {
+    async report(
+        sinceDays = 60,
+        granularity: "day" | "week" | "month" = "day",
+        source: AnalyticsSource = "hostify"
+    ): Promise<any> {
         const days = Math.min(Math.max(sinceDays, 7), 180);
         const gran = granularity === "week" || granularity === "month" ? granularity : "day";
 
-        const teamPairs = await this.loadTeamPairs(days);
+        const teamPairs = await this.loadTeamPairs(days, source);
         const {
             teamComparable,
             notValid,
@@ -471,8 +510,9 @@ export class InboxAnalyticsService {
         } = this.filterComparable(teamPairs);
         const teamNotComparable = teamPairs.length - teamComparable.length;
 
-        // (b) vs USER edits/rejects sent from SecureStay.
-        const userRows: any[] = await appDatabase.query(
+        // (b) vs USER edits/rejects sent from SecureStay. Hostify only — the Quo
+        // composer doesn't track accept/edit outcomes yet.
+        const userRows: any[] = source === "quo" ? [] : await appDatabase.query(
             `SELECT s.id, s.threadId, s.status, s.escalationRequired, s.suggestedReply, s.generatedAt,
                     c.channel,
                     COALESCE(
@@ -487,7 +527,8 @@ export class InboxAnalyticsService {
              LEFT JOIN inbox_conversations c ON c.threadId = s.threadId
              LEFT JOIN inbox_messages gm ON gm.threadId = s.threadId AND gm.externalId = s.messageId
              LEFT JOIN inbox_messages sm ON sm.threadId = s.threadId AND sm.externalId = s.finalSentMessageId
-             WHERE s.status IN ('accepted','edited','rejected')
+             WHERE s.source = 'hostify'
+               AND s.status IN ('accepted','edited','rejected')
                AND s.finalSentMessageId IS NOT NULL
                AND s.suggestedReply IS NOT NULL AND s.suggestedReply <> ''
                AND s.generatedAt >= (NOW() - INTERVAL ? DAY)
@@ -522,6 +563,7 @@ export class InboxAnalyticsService {
         return {
             sinceDays: days,
             granularity: gran,
+            source,
             generatedAt: new Date().toISOString(),
             semanticCoverage: { scored: totalSemantic, total: totalMatched, relevancePending },
             dataQuality: {
@@ -542,6 +584,7 @@ export class InboxAnalyticsService {
                 count: notValid.length,
                 examples: notValid.slice(0, 30).map((p) => ({
                     threadId: p.threadId,
+                    threadKey: p.threadKey ?? null,
                     channel: p.channel,
                     guestMessage: (p.guestMsg || "").replace(/\s+/g, " ").slice(0, 240),
                     aiReply: p.ai.replace(/\s+/g, " ").slice(0, 320),
@@ -561,13 +604,14 @@ export class InboxAnalyticsService {
     async worstReplies(
         metric: "coverage" | "semantic" | "jaccard" = "coverage",
         sinceDays = 60,
-        limit = 50
+        limit = 50,
+        source: AnalyticsSource = "hostify"
     ): Promise<any> {
         const days = Math.min(Math.max(sinceDays, 7), 180);
         const cap = Math.min(Math.max(limit, 1), 100);
         const m = metric === "semantic" || metric === "jaccard" ? metric : "coverage";
 
-        const teamPairs = await this.loadTeamPairs(days);
+        const teamPairs = await this.loadTeamPairs(days, source);
         const { teamComparable } = this.filterComparable(teamPairs);
 
         const score = (p: Pair): number | null =>
@@ -586,6 +630,7 @@ export class InboxAnalyticsService {
             .slice(0, cap)
             .map((p) => ({
                 threadId: p.threadId,
+                threadKey: p.threadKey ?? null,
                 channel: p.channel,
                 guestMessage: (p.guestMsg || "").replace(/\s+/g, " ").slice(0, 240),
                 aiReply: p.ai.replace(/\s+/g, " ").slice(0, 320),
@@ -607,9 +652,13 @@ export class InboxAnalyticsService {
      * or the AI was wrong). Grouped counts by root cause so fixes can be routed
      * (missing_info → add KB fact, wrong_info → correct KB, deferral → behavior).
      */
-    async misses(sinceDays = 60, includeResolved = false): Promise<any> {
+    async misses(
+        sinceDays = 60,
+        includeResolved = false,
+        source: AnalyticsSource = "hostify"
+    ): Promise<any> {
         const days = Math.min(Math.max(sinceDays, 7), 180);
-        const teamPairs = await this.loadTeamPairs(days);
+        const teamPairs = await this.loadTeamPairs(days, source);
         // Same fairness filters as the scores: a "miss" judged against a
         // follow-up or off-topic team reply isn't actionable.
         const { teamComparable } = this.filterComparable(teamPairs);
@@ -634,10 +683,15 @@ export class InboxAnalyticsService {
         //  - a learning prompt raised on the same thread (the bot asked the team).
         const threadIds = [...new Set(list.map((p) => p.threadId))];
         const listingRows: any[] = threadIds.length
-            ? await appDatabase.query(
-                  `SELECT threadId, listingId FROM inbox_conversations WHERE threadId IN (${threadIds.map(() => "?").join(",")})`,
-                  threadIds
-              )
+            ? source === "quo"
+                ? await appDatabase.query(
+                      `SELECT id AS threadId, listingId FROM quo_conversations WHERE id IN (${threadIds.map(() => "?").join(",")})`,
+                      threadIds
+                  )
+                : await appDatabase.query(
+                      `SELECT threadId, listingId FROM inbox_conversations WHERE threadId IN (${threadIds.map(() => "?").join(",")})`,
+                      threadIds
+                  )
             : [];
         const listingByThread = new Map<number, number | null>(
             listingRows.map((r) => [Number(r.threadId), r.listingId != null ? Number(r.listingId) : null])
@@ -650,7 +704,8 @@ export class InboxAnalyticsService {
                   listingIds
               )
             : [];
-        const prompts: any[] = threadIds.length
+        // Learning prompts are keyed on Hostify thread ids — no Quo equivalent.
+        const prompts: any[] = threadIds.length && source !== "quo"
             ? await appDatabase.query(
                   `SELECT threadId, question, status, answerText FROM ai_learning_prompts
                    WHERE threadId IN (${threadIds.map(() => "?").join(",")})
@@ -735,6 +790,7 @@ export class InboxAnalyticsService {
             examples: list.map((p) => ({
                 id: p.id,
                 threadId: p.threadId,
+                threadKey: p.threadKey ?? null,
                 channel: p.channel,
                 guestMessage: (p.guestMsg || "").replace(/\s+/g, " ").slice(0, 240),
                 aiReply: p.ai.replace(/\s+/g, " ").slice(0, 320),
@@ -763,19 +819,24 @@ export class InboxAnalyticsService {
         const text = (answer || "").trim();
         if (!text) return { saved: false };
         const rows: any[] = await appDatabase.query(
-            `SELECT s.id, s.threadId, s.aiReplyQualityNote, s.messageId, c.listingId
+            `SELECT s.id, s.source, s.threadId, s.quoConversationId, s.aiReplyQualityNote, s.messageId,
+                    COALESCE(c.listingId, q.listingId) AS listingId
              FROM ai_message_suggestions s
-             LEFT JOIN inbox_conversations c ON c.threadId = s.threadId
+             LEFT JOIN inbox_conversations c ON s.source = 'hostify' AND c.threadId = s.threadId
+             LEFT JOIN quo_conversations q ON s.source = 'quo' AND q.id = s.threadId
              WHERE s.id = ?`,
             [suggestionId]
         );
         if (!rows.length) return { saved: false };
         const r = rows[0];
+        const isQuo = r.source === "quo";
         const guestRows: any[] = r.messageId
-            ? await appDatabase.query(
-                  `SELECT body FROM inbox_messages WHERE threadId = ? AND externalId = ? LIMIT 1`,
-                  [r.threadId, r.messageId]
-              )
+            ? isQuo
+                ? await appDatabase.query(`SELECT body FROM quo_messages WHERE id = ? LIMIT 1`, [r.messageId])
+                : await appDatabase.query(
+                      `SELECT body FROM inbox_messages WHERE threadId = ? AND externalId = ? LIMIT 1`,
+                      [r.threadId, r.messageId]
+                  )
             : [];
         const question = String(r.aiReplyQualityNote || guestRows?.[0]?.body || "guest question").slice(0, 500);
 
@@ -798,12 +859,15 @@ export class InboxAnalyticsService {
         await appDatabase.query(`UPDATE ai_message_suggestions SET missResolvedAt = NOW() WHERE id = ?`, [suggestionId]);
         // If the AI had raised a learning question on this thread, the manager's
         // answer covers it — close it so the team isn't asked again in the inbox.
-        await appDatabase.query(
-            `UPDATE ai_learning_prompts
-             SET status = 'answered', answerText = ?, answerScope = ?, resolvedAt = NOW(), resolvedVia = 'staff'
-             WHERE threadId = ? AND status = 'pending'`,
-            [text, scope === "portfolio" ? "portfolio" : "property", r.threadId]
-        );
+        // (Hostify only — learning prompts key on Hostify thread ids.)
+        if (!isQuo) {
+            await appDatabase.query(
+                `UPDATE ai_learning_prompts
+                 SET status = 'answered', answerText = ?, answerScope = ?, resolvedAt = NOW(), resolvedVia = 'staff'
+                 WHERE threadId = ? AND status = 'pending'`,
+                [text, scope === "portfolio" ? "portfolio" : "property", r.threadId]
+            );
+        }
         return { saved: true };
     }
 

@@ -3,6 +3,7 @@ import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { AIMessageSuggestionEntity } from "../entity/AIMessageSuggestion";
 import { InboxMessageEntity } from "../entity/InboxMessage";
+import { QuoMessageEntity } from "../entity/QuoMessage";
 import { AILearnedFactsService } from "./AILearnedFactsService";
 import { ExemplarService } from "./ExemplarService";
 import { RetrievalService } from "./RetrievalService";
@@ -31,6 +32,7 @@ interface ExtractedFact {
 export class InboxAIAuditService {
     private suggestionRepo = appDatabase.getRepository(AIMessageSuggestionEntity);
     private messageRepo = appDatabase.getRepository(InboxMessageEntity);
+    private quoMessageRepo = appDatabase.getRepository(QuoMessageEntity);
     private learned = new AILearnedFactsService();
 
     /** Extraction (the OpenAI part) is on by default but can be turned off. */
@@ -74,14 +76,7 @@ export class InboxAIAuditService {
         const newlyMatched: AIMessageSuggestionEntity[] = [];
         for (const s of suggestions) {
             try {
-                const reply = await this.messageRepo
-                    .createQueryBuilder("m")
-                    .where("m.threadId = :tid", { tid: s.threadId })
-                    .andWhere("m.direction = :dir", { dir: "outgoing" })
-                    .andWhere("m.isAutomatic = 0")
-                    .andWhere("m.sentAt > :genAt", { genAt: s.generatedAt })
-                    .orderBy("m.sentAt", "ASC")
-                    .getOne();
+                const reply = await this.findTeamReply(s);
 
                 s.auditedAt = new Date();
                 if (reply && reply.body && reply.body.trim()) {
@@ -111,6 +106,55 @@ export class InboxAIAuditService {
     }
 
     /**
+     * First human team reply sent after the suggestion was generated —
+     * source-aware: Hostify suggestions pair with inbox_messages, Quo (SMS)
+     * suggestions pair with quo_messages on the same OpenPhone conversation.
+     */
+    private async findTeamReply(
+        s: AIMessageSuggestionEntity
+    ): Promise<{ body: string | null; externalId: number | null; sentAt: Date | null } | null> {
+        if (s.source === "quo") {
+            if (!s.quoConversationId) return null;
+            const m = await this.quoMessageRepo
+                .createQueryBuilder("m")
+                .where("m.conversationId = :cid", { cid: s.quoConversationId })
+                .andWhere("m.direction = :dir", { dir: "outgoing" })
+                .andWhere("m.sentAt > :genAt", { genAt: s.generatedAt })
+                .orderBy("m.sentAt", "ASC")
+                .getOne();
+            return m ? { body: m.body, externalId: m.id, sentAt: m.sentAt } : null;
+        }
+        const m = await this.messageRepo
+            .createQueryBuilder("m")
+            .where("m.threadId = :tid", { tid: s.threadId })
+            .andWhere("m.direction = :dir", { dir: "outgoing" })
+            .andWhere("m.isAutomatic = 0")
+            .andWhere("m.sentAt > :genAt", { genAt: s.generatedAt })
+            .orderBy("m.sentAt", "ASC")
+            .getOne();
+        return m ? { body: m.body, externalId: m.externalId ?? null, sentAt: m.sentAt ?? null } : null;
+    }
+
+    /** Body of the guest message the suggestion was drafted against (source-aware). */
+    private async findGuestMessageBody(s: AIMessageSuggestionEntity): Promise<string> {
+        if (s.messageId == null) return "";
+        try {
+            if (s.source === "quo") {
+                const gm = await this.quoMessageRepo.findOne({ where: { id: Number(s.messageId) } });
+                return (gm?.body || "").replace(/\s+/g, " ").trim();
+            }
+            const gm = await this.messageRepo
+                .createQueryBuilder("m")
+                .where("m.threadId = :tid", { tid: s.threadId })
+                .andWhere("m.externalId = :eid", { eid: s.messageId })
+                .getOne();
+            return (gm?.body || "").replace(/\s+/g, " ").trim();
+        } catch {
+            return "";
+        }
+    }
+
+    /**
      * Decide whether the AI suggestion and the team's reply are answering the SAME
      * guest message. The team replies to whatever the LATEST inbound message was
      * just before they sent. If that isn't the message the AI drafted against
@@ -124,6 +168,18 @@ export class InboxAIAuditService {
     ): Promise<string> {
         if (!replyAt || s.messageId == null) return "unknown";
         try {
+            if (s.source === "quo") {
+                if (!s.quoConversationId) return "unknown";
+                const latest = await this.quoMessageRepo
+                    .createQueryBuilder("m")
+                    .where("m.conversationId = :cid", { cid: s.quoConversationId })
+                    .andWhere("m.direction = :dir", { dir: "incoming" })
+                    .andWhere("m.sentAt < :r", { r: replyAt })
+                    .orderBy("m.sentAt", "DESC")
+                    .getOne();
+                if (!latest) return "unknown";
+                return Number(latest.id) === Number(s.messageId) ? "clean" : "guest_followup";
+            }
             const latestInbound = await this.messageRepo
                 .createQueryBuilder("m")
                 .where("m.threadId = :tid", { tid: s.threadId })
@@ -189,16 +245,7 @@ export class InboxAIAuditService {
                 skipped.push(s);
                 continue;
             }
-            let guestMsg = "";
-            if (s.messageId != null) {
-                const gm = await this.messageRepo
-                    .createQueryBuilder("m")
-                    .where("m.threadId = :tid", { tid: s.threadId })
-                    .andWhere("m.externalId = :eid", { eid: s.messageId })
-                    .getOne()
-                    .catch(() => null);
-                guestMsg = (gm?.body || "").replace(/\s+/g, " ").trim();
-            }
+            const guestMsg = await this.findGuestMessageBody(s);
             if (!guestMsg) {
                 s.replyRelevance = "unknown";
                 s.aiReplyQuality = "unknown";
