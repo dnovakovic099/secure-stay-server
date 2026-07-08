@@ -2351,16 +2351,20 @@ export class InboxAIService {
             // visibility-split) when RAG is enabled and the KB has been indexed.
             if (ExemplarService.isEnabled() && guestQuery.trim()) {
                 const kbSem = await new RetrievalService().retrieveKb(canonicalListingId, guestQuery, { k: 4 });
+                // Chunks are embedded at up to ~1350 chars (1200 + overlap); render
+                // them whole. Slicing at 700 dropped trailing caveats like "Note:
+                // Pool and hot tub heating are available for an additional fee",
+                // which made the bot present paid amenities as free.
                 if (kbSem.external.length) {
                     lines.push("");
                     lines.push("## Listing Knowledge Base (you MAY share this with the guest)");
-                    for (const d of kbSem.external) lines.push(`- ${d.text.replace(/\s+/g, " ").trim().slice(0, 700)}`);
+                    for (const d of kbSem.external) lines.push(`- ${d.text.replace(/\s+/g, " ").trim().slice(0, 1400)}`);
                     rendered = true;
                 }
                 if (kbSem.internal.length) {
                     lines.push("");
                     lines.push("## Internal knowledge (staff-only — use to inform your reply, do NOT quote verbatim)");
-                    for (const d of kbSem.internal) lines.push(`- ${d.text.replace(/\s+/g, " ").trim().slice(0, 700)}`);
+                    for (const d of kbSem.internal) lines.push(`- ${d.text.replace(/\s+/g, " ").trim().slice(0, 1400)}`);
                     rendered = true;
                 }
             }
@@ -2430,12 +2434,12 @@ export class InboxAIService {
             if (docs.external.length) {
                 lines.push("");
                 lines.push("## Listing documents (guest-shareable — you MAY share this content)");
-                for (const d of docs.external) lines.push(`- ${d.text.replace(/\s+/g, " ").trim().slice(0, 700)}`);
+                for (const d of docs.external) lines.push(`- ${d.text.replace(/\s+/g, " ").trim().slice(0, 1400)}`);
             }
             if (docs.internal.length) {
                 lines.push("");
                 lines.push("## Internal listing documents (staff-only — use to inform your reply, do NOT quote verbatim)");
-                for (const d of docs.internal) lines.push(`- ${d.text.replace(/\s+/g, " ").trim().slice(0, 700)}`);
+                for (const d of docs.internal) lines.push(`- ${d.text.replace(/\s+/g, " ").trim().slice(0, 1400)}`);
             }
         } catch {
             /* non-fatal */
