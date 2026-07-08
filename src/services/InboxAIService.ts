@@ -1007,9 +1007,16 @@ export class InboxAIService {
      */
     private stripDashes(text: string): string {
         if (!text) return text;
-        // Covers hyphen-minus plus unicode hyphen(2010)…horizontal bar(2015),
-        // minus sign(2212), small/fullwidth hyphen & em dash variants.
-        const noDash = text.replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D-]/g, " ");
+        // Sentence dashes (en/em dash, or a spaced hyphen) read as punctuation —
+        // turn them into a comma so the sentence still flows ("out back — I've
+        // got a kayak" → "out back, I've got a kayak"), instead of the bare
+        // space that used to create run-ons.
+        const commaFixed = text
+            .replace(/(\d)\s*[\u2012-\u2015\u2212]\s*(?=[A-Za-z0-9])/g, "$1 to ")
+            .replace(/\s+-\s+/g, ", ")
+            .replace(/\s*[\u2012-\u2015\u2212]\s*/g, ", ");
+        // Remaining hyphen variants (compound words like check-in) become spaces.
+        const noDash = commaFixed.replace(/[\u2010-\u2011\uFE58\uFE63\uFF0D-]/g, " ");
         return noDash
             .split("\n")
             .map((line) =>
