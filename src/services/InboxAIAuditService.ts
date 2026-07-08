@@ -64,11 +64,15 @@ export class InboxAIAuditService {
         const since = new Date();
         since.setDate(since.getDate() - sinceDays);
 
+        // Newest first: unmatched rows stay NULL and are rescanned nightly, so
+        // once the 21-day backlog exceeds the cap, ASC ordering starved the
+        // newest suggestions (Quo showed 6 paired replies while ~170 pairable
+        // rows sat beyond the cutoff). Old never-answered rows age out anyway.
         const suggestions = await this.suggestionRepo
             .createQueryBuilder("s")
             .where("s.generatedAt >= :since", { since })
             .andWhere("s.actualReplyText IS NULL")
-            .orderBy("s.generatedAt", "ASC")
+            .orderBy("s.generatedAt", "DESC")
             .take(2000)
             .getMany();
 
