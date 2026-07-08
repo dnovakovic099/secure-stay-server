@@ -573,21 +573,41 @@ export class ResolutionsTeamSlackService {
                 isListingUnlisted: isUnlistedListingStatus(listingListedStatus),
             });
 
-            await axios.post(
-                "https://slack.com/api/chat.update",
-                {
-                    channel: reviewCheckout.slackChannelId,
-                    ts: reviewCheckout.slackThreadTs,
-                    text: msgPayload.text,
-                    blocks: msgPayload.blocks,
+            // chat.update needs its response inspected. When we don't the way we didn't
+            // before, transient failures (rate limits, `message_not_found` on a stale ts,
+            // `channel_not_found` on a bad channel, etc.) are entirely invisible — the root
+            // card silently stays out of sync with the DB, which is how "assignee changed
+            // 17 minutes ago in-thread but root still shows Jade" happens. We now check
+            // `ok`, retry once for retryable errors, and log a clear line so the failure
+            // surfaces in the server log next time it happens.
+            const requestBody = {
+                channel: reviewCheckout.slackChannelId,
+                ts: reviewCheckout.slackThreadTs,
+                text: msgPayload.text,
+                blocks: msgPayload.blocks,
+            };
+            const requestConfig = {
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
                 },
-                {
-                    headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-                    },
+            };
+
+            let response = await axios.post("https://slack.com/api/chat.update", requestBody, requestConfig);
+            if (!response.data?.ok) {
+                const retryableErrors = ["ratelimited", "rate_limited", "internal_error", "service_unavailable", "fatal_error"];
+                if (retryableErrors.includes(String(response.data?.error))) {
+                    // Small backoff before a single retry; Slack's rate-limit retry-after
+                    // is 1s by default and internal_error is usually transient.
+                    await new Promise((resolve) => setTimeout(resolve, 1200));
+                    response = await axios.post("https://slack.com/api/chat.update", requestBody, requestConfig);
                 }
-            );
+            }
+            if (!response.data?.ok) {
+                logger.error(
+                    `[ResolutionsTeam] chat.update rejected for reviewCheckout=${reviewCheckout.id} channel=${reviewCheckout.slackChannelId} ts=${reviewCheckout.slackThreadTs}: error=${response.data?.error} response_metadata=${JSON.stringify(response.data?.response_metadata || {})}`,
+                );
+            }
         } catch (err) {
             logger.error(`[ResolutionsTeam] Failed to update root message for reviewCheckout ${reviewCheckout.id}:`, err);
         }
