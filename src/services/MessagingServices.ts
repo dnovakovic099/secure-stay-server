@@ -15,6 +15,8 @@ import { Listing } from "../entity/Listing";
 import { ListingService } from "./ListingService";
 import { In, Like } from "typeorm";
 import { OpenPhoneService } from "./OpenPhoneService";
+import { ReservationDetailPreStayAuditService } from "./ReservationDetailPreStayAuditService";
+import { ReservationDetailPostStayAuditService } from "./ReservationDetailPostStayAuditService";
 
 // Hostify message webhook payload interface
 export interface HostifyMessagePayload {
@@ -62,6 +64,8 @@ export class MessagingService {
     private reservationRepository = appDatabase.getRepository(ReservationInfoEntity);
     private listingService = new ListingService();
     private openPhoneService = new OpenPhoneService();
+    private preStayAuditService = new ReservationDetailPreStayAuditService();
+    private postStayAuditService = new ReservationDetailPostStayAuditService();
 
     private normalizeText(value: any) {
         return String(value || "").trim().toLowerCase();
@@ -1265,6 +1269,11 @@ export class MessagingService {
             .filter((phone, index, array) => array.indexOf(phone) === index)
             .map((phone, index) => ({ value: phone, isDefault: index === 0, source: index === 0 ? "Reservation" : "Hostify" }));
 
+        const [preStayAuditStatus, postStayAuditStatus] = await Promise.all([
+            this.preStayAuditService.fetchCompletionStatusByReservationId(reservation.id),
+            this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id),
+        ]);
+
         return {
             ...reservation,
             guestName: resolvedGuestName,
@@ -1299,6 +1308,8 @@ export class MessagingService {
             plannedDeparture: liveReservation?.planned_departure ?? null,
             hostifyCheckinFormLink: liveReservation?.hostify_checkin_form_link ?? null,
             hostifyCheckinFormCompleted: liveReservation?.hostify_checkin_form_completed ?? null,
+            preStayAuditStatus,
+            postStayAuditStatus,
             customFields,
             timezoneIdentifier: timeZoneIdentifier,
             timezoneName: normalizedListing?.timezoneName || timeZoneIdentifier,
