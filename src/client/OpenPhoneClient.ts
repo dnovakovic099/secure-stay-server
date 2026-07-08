@@ -83,12 +83,15 @@ export class OpenPhoneClient {
   }
 
   /**
-   * Get list of users in the Quo workspace
+   * Get list of users in the Quo workspace.
+   * NOTE: the API rejects maxResults > 50 with a 400 — use pageToken to paginate.
    * @returns List of workspace users
    */
-  async getUsers(maxResults = 50): Promise<GetUsersResponse> {
+  async getUsers(maxResults = 50, pageToken?: string): Promise<GetUsersResponse> {
     try {
-      const response = await this.client.get<GetUsersResponse>("/users", { params: { maxResults } });
+      const params: Record<string, any> = { maxResults: Math.min(maxResults, 50) };
+      if (pageToken) params.pageToken = pageToken;
+      const response = await this.client.get<GetUsersResponse>("/users", { params });
       return response.data;
     } catch (error: any) {
       const errorMsg = error.response?.data ? JSON.stringify(error.response.data) : error.message;

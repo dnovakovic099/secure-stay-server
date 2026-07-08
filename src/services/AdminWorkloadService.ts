@@ -85,11 +85,16 @@ export class AdminWorkloadService {
         }
         const map = new Map<string, { email: string; name: string }>();
         try {
-            const res = await this.op.getUsers(100);
-            for (const u of res.data || []) {
-                const email = (u.email || "").trim().toLowerCase();
-                if (!email) continue;
-                map.set(u.id, { email, name: [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || email });
+            let pageToken: string | undefined;
+            for (let page = 0; page < 10; page++) {
+                const res = await this.op.getUsers(50, pageToken);
+                for (const u of res.data || []) {
+                    const email = (u.email || "").trim().toLowerCase();
+                    if (!email) continue;
+                    map.set(u.id, { email, name: [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || email });
+                }
+                pageToken = res.nextPageToken || undefined;
+                if (!pageToken || !(res.data || []).length) break;
             }
         } catch (err: any) {
             logger.warn(`[AdminWorkload] quo users fetch failed: ${err?.message}`);
