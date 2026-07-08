@@ -137,9 +137,12 @@ export class InboxService {
             conversation = this.conversationRepo.create({ threadId });
         }
 
-        conversation.reservationId = toNumberOrNull(summary?.reservation_id);
-        conversation.listingId = toNumberOrNull(summary?.listing_id);
-        conversation.guestId = toNumberOrNull(summary?.guest_id);
+        // Never clobber known ids with null — Hostify thread summaries are
+        // sparse for inquiries and can omit listing_id/reservation_id that a
+        // previous webhook hydrate already resolved.
+        conversation.reservationId = toNumberOrNull(summary?.reservation_id) ?? conversation.reservationId ?? null;
+        conversation.listingId = toNumberOrNull(summary?.listing_id) ?? conversation.listingId ?? null;
+        conversation.guestId = toNumberOrNull(summary?.guest_id) ?? conversation.guestId ?? null;
         conversation.guestName = summary?.guest_name ?? conversation.guestName ?? null;
         conversation.guestPhone = summary?.guest_phone != null ? String(summary.guest_phone) : conversation.guestPhone ?? null;
         conversation.guestEmail = summary?.guest_email ?? conversation.guestEmail ?? null;

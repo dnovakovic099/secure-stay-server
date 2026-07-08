@@ -1175,6 +1175,7 @@ export class InboxAIService {
             "- For an extension request, if the relevant night is available, confirm it and its nightly price, then say the team will finalize the booking/charge (you cannot modify the reservation yourself). This does NOT require escalation.",
             "- If the requested night is NOT available per the calendar, tell the guest it's unavailable and, if helpful, mention the nearest open dates.",
             "- If NO 'Live availability' data is present for an extension/date request, do NOT express eagerness that presumes the night is open (avoid 'we'd love to extend your stay!'). Give a neutral reply that you'll confirm availability, keep confidence <= 0.4, and do not imply the night is likely available.",
+            "- NEVER answer an availability question by telling the guest to rely on the platform calendar (no 'if the platform lets you select the dates, they're available', no claims that 'our calendar/system is always up to date'). Without Live availability data, the ONLY correct availability answer is that the team will confirm the specific dates.",
             "- Only escalate availability/extension messages when the guest is negotiating price/discounts or the calendar data is absent.",
             "",
             "LOCAL AREA, DIRECTIONS & TRAVEL TIME:",
@@ -1936,16 +1937,45 @@ export class InboxAIService {
         // directly ("the 5th is open at $220") instead of "we'll check".
         if (includeKnowledge) try {
             const guestText = (targetMessage?.body || conversation.lastMessageText || "").toString();
-            if (conversation.listingId && this.detectAvailabilityIntent(guestText)) {
-                const avail = await this.buildAvailabilityBlock(conversation);
-                if (avail) {
-                    lines.push("");
-                    lines.push("## Live availability (from the calendar — you MAY state these facts to the guest)");
-                    lines.push(avail);
+            if (this.detectAvailabilityIntent(guestText)) {
+                // The conversation row should always carry a listingId, but thread
+                // summaries have dropped it before — recover it from the
+                // reservation, then the listing name, rather than skipping the
+                // calendar.
+                if (!conversation.listingId && conversation.reservationId) {
+                    try {
+                        const r = await this.reservationRepo.findOne({ where: { id: Number(conversation.reservationId) } });
+                        if (r?.listingMapId) conversation.listingId = Number(r.listingMapId);
+                    } catch { /* fall through */ }
+                }
+                if (!conversation.listingId && conversation.listingName) {
+                    try {
+                        const l = await appDatabase.getRepository(Listing).findOne({
+                            where: [
+                                { internalListingName: conversation.listingName },
+                                { name: conversation.listingName },
+                                { externalListingName: conversation.listingName },
+                            ],
+                            withDeleted: true,
+                        });
+                        if (l?.id) conversation.listingId = Number(l.id);
+                    } catch { /* fall through to the warning below */ }
+                }
+                if (conversation.listingId) {
+                    const avail = await this.buildAvailabilityBlock(conversation);
+                    if (avail) {
+                        lines.push("");
+                        lines.push("## Live availability (from the calendar — you MAY state these facts to the guest)");
+                        lines.push(avail);
+                    } else {
+                        logger.warn(`[InboxAI] Availability intent on thread ${conversation.threadId} but calendar fetch returned nothing (listing ${conversation.listingId})`);
+                    }
+                } else {
+                    logger.warn(`[InboxAI] Availability intent on thread ${conversation.threadId} but conversation has no listingId — calendar skipped`);
                 }
             }
-        } catch {
-            /* non-fatal */
+        } catch (err: any) {
+            logger.warn(`[InboxAI] Availability block failed for thread ${conversation.threadId}: ${err?.message}`);
         }
 
         lines.push("");
