@@ -47,6 +47,19 @@ import { ReviewDiscussionService } from "./ReviewDiscussionService";
 import { OpenAIService } from "./OpenAIService";
 import { findMatchingHostifyChildListing } from "../utils/listingListedStatus.util";
 
+// Module-level TTL cache for the per-reservation is_listed resolution. This is the
+// last-mile optimization on top of childListingsCache in ListingService: even with the
+// per-parent Hostify cache warm, getReservationListingListedStatusMap still has to walk
+// every unique parent listing on every /reviewcheckout call and match each reservation
+// against its children — that's the ~2.5s the mitigation timing log surfaces. Caching the
+// *derived* per-reservation value collapses subsequent requests into a pure Map lookup.
+//
+// TTL: 1 hour. Listing state (is_listed / channel-listing status) very rarely changes
+// intra-day, and the mitigation view already has a manual refresh button for the rare
+// case where a listing state flipped mid-session.
+const RESERVATION_LISTED_STATUS_TTL_MS = 60 * 60 * 1000;
+const reservationListedStatusCache = new Map<number, { value: unknown; expiresAt: number }>();
+
 interface ProcessedReview extends ReviewEntity {
     unresolvedForMoreThanThreeDays: boolean;
     unresolvedForMoreThanSevenDays: boolean;
@@ -1222,11 +1235,34 @@ export class ReviewService {
     ): Promise<Map<number, unknown>> {
         const result = new Map<number, unknown>();
 
-        // Seed the result with the parent listing's is_listed. This is the fallback that stays
-        // in place if the per-listing Hostify fetch times out — the mitigation view still
-        // renders, we just lose the child-level precision (a parent-listed / child-unlisted
-        // combo won't get its unlisted marker until Hostify responds and the cache warms).
-        reservations.forEach((reservation) => {
+        // First-mile: serve every already-cached reservation immediately from the module-level
+        // per-reservation TTL cache. This is what turns a repeat /mitigation load from ~2.5s
+        // to near-zero for this step — subsequent calls within TTL never touch Hostify at all
+        // and only unseen reservations trigger the fan-out below.
+        const now = Date.now();
+        const reservationsNeedingFetch: ReservationInfoEntity[] = [];
+        for (const reservation of reservations) {
+            const reservationId = Number(reservation?.id);
+            if (!reservationId) continue;
+            const cached = reservationListedStatusCache.get(reservationId);
+            if (cached && cached.expiresAt > now) {
+                result.set(reservationId, cached.value);
+            } else {
+                reservationsNeedingFetch.push(reservation);
+            }
+        }
+
+        // If every reservation was cache-warm, we're done — skip the entire Hostify fan-out
+        // and the per-listing time budget below. This is the common path once the process
+        // has been up for more than one request cycle.
+        if (reservationsNeedingFetch.length === 0) return result;
+
+        // Seed the *uncached* reservations' result with the parent listing's is_listed. This
+        // is the fallback that stays in place if the per-listing Hostify fetch times out —
+        // the mitigation view still renders, we just lose child-level precision (a parent-
+        // listed / child-unlisted combo won't get its unlisted marker until Hostify responds
+        // and the cache warms).
+        reservationsNeedingFetch.forEach((reservation) => {
             const reservationId = Number(reservation?.id);
             if (!reservationId) return;
             const parentListing = listingMap.get(Number(reservation.listingMapId));
@@ -1234,7 +1270,7 @@ export class ReviewService {
         });
 
         const uniqueParentListingIds = Array.from(new Set(
-            reservations
+            reservationsNeedingFetch
                 .map((reservation) => Number(reservation?.listingMapId))
                 .filter(Boolean)
         ));
@@ -1291,7 +1327,7 @@ export class ReviewService {
             );
         }
 
-        reservations.forEach((reservation) => {
+        reservationsNeedingFetch.forEach((reservation) => {
             const reservationId = Number(reservation?.id);
             if (!reservationId) return;
 
@@ -1299,16 +1335,27 @@ export class ReviewService {
             // Only refine the seeded result when we actually received child listings.
             // Skipping when the map has no entry preserves the parent-derived fallback for
             // timed-out or errored listings.
-            if (!childListings) return;
-            const matchedChildListing = findMatchingHostifyChildListing(childListings, {
-                externalPropertyId: reservation.externalPropertyId,
-                integration_nickname: reservation.integration_nickname,
-                channelName: reservation.channelName,
-            });
+            if (childListings) {
+                const matchedChildListing = findMatchingHostifyChildListing(childListings, {
+                    externalPropertyId: reservation.externalPropertyId,
+                    integration_nickname: reservation.integration_nickname,
+                    channelName: reservation.channelName,
+                });
 
-            if (matchedChildListing && matchedChildListing.is_listed !== undefined) {
-                result.set(reservationId, matchedChildListing.is_listed);
+                if (matchedChildListing && matchedChildListing.is_listed !== undefined) {
+                    result.set(reservationId, matchedChildListing.is_listed);
+                }
             }
+
+            // Persist the resolved value back to the per-reservation TTL cache so the *next*
+            // /reviewcheckout call for this reservation is served entirely from memory. Note
+            // this caches whichever value we ended up with — parent-fallback for timed-out
+            // listings, child-refined otherwise. On the next request within TTL we skip the
+            // Hostify fan-out for this reservation entirely.
+            reservationListedStatusCache.set(reservationId, {
+                value: result.get(reservationId) ?? null,
+                expiresAt: now + RESERVATION_LISTED_STATUS_TTL_MS,
+            });
         });
 
         return result;
