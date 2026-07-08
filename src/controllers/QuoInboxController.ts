@@ -72,8 +72,16 @@ export class QuoInboxController {
             const body = String(req.body?.body || "").trim();
             if (!body) return res.status(400).json({ status: false, message: "Message body is required" });
             const user: any = (req as any).user;
-            const senderName = user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : null;
-            const message = await this.service.sendReply(String(req.params.conversationId), body, senderName);
+            // Supabase users have no firstName/lastName — resolve through the
+            // users table so Quo sends are attributed like inbox-v2 sends.
+            const { resolveRequestUser } = await import("../utils/requestUser.util");
+            const sender = await resolveRequestUser(user);
+            const message = await this.service.sendReply(
+                String(req.params.conversationId),
+                body,
+                sender.userName,
+                sender.userId
+            );
 
             // Sent from the AI composer → record the suggestion outcome
             // (accepted verbatim vs edited), same lifecycle as Inbox V2.
@@ -82,7 +90,7 @@ export class QuoInboxController {
                 const aiStatus = req.body?.aiStatus === "edited" ? "edited" : "accepted";
                 new InboxAIService()
                     .updateSuggestionStatus(suggestionId, aiStatus, {
-                        acceptedByUserId: Number(user?.secureStayUserId) || null,
+                        acceptedByUserId: sender.userId,
                         finalSentMessageId: message?.id ?? null,
                     })
                     .catch((err) => logger.warn(`[QuoInbox] Suggestion status update failed: ${err?.message}`));
