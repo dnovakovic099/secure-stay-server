@@ -579,6 +579,15 @@ export class QuoInboxService {
     /**
      * Ingest a message.* webhook event. Returns the conversationId and whether
      * it was an incoming message so the caller can schedule detection.
+     *
+     * Quo has shipped several payload shapes over API versions:
+     *   - v2/v3: data.object = full message incl. phoneNumberId + conversationId
+     *   - v4:    data.object = message with `text`, NO conversationId
+     *   - beta:  data.resource = bare message; ids live in data.context
+     *             (phoneNumberId, conversationId, senderIdentifier, recipientIdentifiers)
+     * The original handler only understood the first shape and silently dropped
+     * the rest (returned 200 with no log) — the webhook looked "registered and
+     * enabled" while ingesting nothing. Normalize all shapes before processing.
      */
     async handleWebhookEvent(payload: any): Promise<{
         handled: boolean;
@@ -587,16 +596,37 @@ export class QuoInboxService {
     }> {
         const type = String(payload?.type || "");
         if (!type.startsWith("message.")) return { handled: false };
-        const m = payload?.data?.object;
-        if (!m?.id || !m?.phoneNumberId) return { handled: false };
+        const raw = payload?.data?.object || payload?.data?.resource || null;
+        const ctx = payload?.data?.context || {};
+        if (!raw?.id) {
+            logger.warn(`[QuoInbox] Webhook ${type}: unrecognized payload shape — ${JSON.stringify(payload).slice(0, 400)}`);
+            return { handled: false };
+        }
+        const m = {
+            id: raw.id,
+            phoneNumberId: raw.phoneNumberId || ctx.phoneNumberId || null,
+            conversationId: raw.conversationId || ctx.conversationId || null,
+            userId: raw.userId || ctx.userId || null,
+            direction: raw.direction,
+            from: raw.from || ctx.senderIdentifier || null,
+            to: raw.to ?? ctx.recipientIdentifiers ?? null,
+            text: raw.text ?? raw.body ?? null,
+            media: raw.media,
+            status: raw.status || null,
+            createdAt: raw.createdAt || null,
+        };
+        if (!m.phoneNumberId) {
+            logger.warn(`[QuoInbox] Webhook ${type}: no phoneNumberId in payload — ${JSON.stringify(payload).slice(0, 400)}`);
+            return { handled: false };
+        }
 
         const line = await this.lineRepo.findOne({ where: { phoneNumberId: m.phoneNumberId } });
-        if (!line || !line.enabled) return { handled: false };
+        if (!line || !line.enabled) return { handled: false }; // excluded line (MAINT/Sales/…) — expected, no log
 
         const direction = m.direction === "outgoing" ? "outgoing" : "incoming";
         const toArr: string[] = Array.isArray(m.to) ? m.to : m.to ? [m.to] : [];
         const externalNums = (direction === "incoming" ? [m.from] : toArr).filter(Boolean);
-        const text = m.text ?? m.body ?? null;
+        const text = m.text;
         const sentAt = m.createdAt ? new Date(m.createdAt) : new Date();
 
         let conversationId: string | null = m.conversationId || null;
@@ -607,10 +637,20 @@ export class QuoInboxService {
             conversationId = existingConv?.conversationId || null;
         }
         if (!conversationId) {
-            // Unknown thread — let a quick line sync pick it up with proper ids.
+            // Unknown thread — a quick line sync imports it with proper ids, then
+            // report it back so detection / AI suggestion still run for it.
             await this.syncLine(line, false);
             line.lastSyncedAt = new Date();
             await this.lineRepo.save(line);
+            if (externalNums.length) {
+                const found = await this.conversationRepo.findOne({
+                    where: { phoneNumberId: line.phoneNumberId, participantPhone: externalNums[0] },
+                });
+                if (found) {
+                    return { handled: true, conversationId: found.conversationId, incoming: direction === "incoming" };
+                }
+            }
+            logger.warn(`[QuoInbox] Webhook ${type}: could not resolve conversation for message ${m.id} on line ${line.name}`);
             return { handled: true };
         }
 
