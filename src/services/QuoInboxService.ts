@@ -207,12 +207,16 @@ export class QuoInboxService {
         const since = line.lastSyncedAt
             ? new Date(line.lastSyncedAt.getTime() - 10 * 60 * 1000)
             : null;
-        // Deep backfill walks conversations until activity is older than the
-        // backfill window (default 90 days) instead of a tiny page cap, so
-        // busy lines like PM CLIENTS import everything the Quo app shows.
         const backfillDays = Number(process.env.QUO_BACKFILL_DAYS || 90);
         const backfillCutoff = new Date(Date.now() - backfillDays * 24 * 60 * 60 * 1000);
-        const maxPages = deep ? 60 : 2;
+        // IMPORTANT: Quo's /conversations list is NOT ordered by last activity —
+        // recently-active old threads sit deep in the list. The previous
+        // "walk newest-first and stop when activity gets old" approach therefore
+        // silently missed most updates (verified against the live API 2026-07-08).
+        // Instead we push the window down to the API with updatedAfter and walk
+        // EVERY page it returns.
+        const updatedAfter = deep || !since ? backfillCutoff : since;
+        const maxPages = deep ? 200 : 40;
         let pageToken: string | undefined;
         let conversations = 0;
         let messages = 0;
@@ -222,23 +226,12 @@ export class QuoInboxService {
             const res = await this.apiGet("/conversations", {
                 phoneNumbers: [line.phoneNumberId],
                 maxResults: 50,
+                updatedAfter: updatedAfter.toISOString(),
                 ...(pageToken ? { pageToken } : {}),
             });
             const convs: any[] = res.data?.data || [];
-            let stopPaging = false;
 
             for (const c of convs) {
-                const lastActivity = c.lastActivityAt ? new Date(c.lastActivityAt) : null;
-                // Conversations come newest-activity first; once we're past the
-                // relevant window, stop paging.
-                if (!deep && since && lastActivity && lastActivity < since) {
-                    stopPaging = true;
-                    continue;
-                }
-                if (deep && lastActivity && lastActivity < backfillCutoff) {
-                    stopPaging = true;
-                    continue;
-                }
                 const synced = await this.syncConversation(line, c, deep);
                 conversations++;
                 messages += synced.messages;
@@ -247,7 +240,7 @@ export class QuoInboxService {
             }
 
             pageToken = res.data?.nextPageToken || undefined;
-            if (!pageToken || stopPaging) break;
+            if (!pageToken) break;
         }
         return { conversations, messages, newIncoming };
     }
