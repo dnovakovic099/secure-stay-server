@@ -3905,6 +3905,20 @@ export class ReviewService {
         // In mitigation mode the full date window is returned without skip/take, so total ===
         // reviewCheckoutList.length and the separate COUNT() that getManyAndCount runs is pure
         // waste. Skipping it cuts the heavy join-COUNT query from every mitigation request.
+        // Per-step timing for the mitigation window only. Every log line records
+        // milliseconds elapsed since the previous step so we can see exactly which chunk
+        // dominates a slow response instead of guessing from a wall-clock total. Off for
+        // non-mitigation callers because those already take single-digit ms — the log noise
+        // isn't worth it there.
+        const timings: Array<{ step: string; ms: number }> = [];
+        let stepStart = Date.now();
+        const markStep = (step: string) => {
+            if (!includeOpeningMitigationWindow) return;
+            const now = Date.now();
+            timings.push({ step, ms: now - stepStart });
+            stepStart = now;
+        };
+
         let reviewCheckoutList: ReviewCheckout[];
         let total: number;
         if (includeOpeningMitigationWindow) {
@@ -3913,6 +3927,7 @@ export class ReviewService {
         } else {
             [reviewCheckoutList, total] = await query.getManyAndCount();
         }
+        markStep("mainQuery");
 
         if (includeOpeningMitigationWindow) {
             logger.info(`[getReviewsForCheckout][mitigation-window] mode=${mitigationWindowBefore ? 'load-older' : 'initial'} windowDays=${mitigationWindowDays ?? 14} returnedRows=${reviewCheckoutList.length} total=${total}`);
@@ -3998,6 +4013,7 @@ export class ReviewService {
                 })
                 : Promise.resolve([] as ReviewCheckoutUpdates[]),
         ]);
+        markStep("secondaryQueriesParallel");
 
         // Group updates per reviewCheckout for O(1) lookup during the row transform below.
         const updatesByCheckoutId = new Map<number, ReviewCheckoutUpdates[]>();
@@ -4037,6 +4053,7 @@ export class ReviewService {
                 userIds.add(extra.uid);
             }
         }
+        markStep("missingAuthorsQuery");
 
         const userMap = new Map(users.map(user => [
             user.uid,
@@ -4087,6 +4104,7 @@ export class ReviewService {
                 : Promise.resolve([]),
             noteAuthorUids.length > 0 ? getSlackUsers() : Promise.resolve([]),
         ]);
+        markStep("noteAuthorEmployeesAndSlack");
         const authorEmployeeByUserIdMap = new Map(noteAuthorEmployees.map((e) => [e.userId, e] as const));
         const noteAuthorPhotoIds = noteAuthorEmployees
             .map((e) => Number(e.profilePhoto))
@@ -4097,6 +4115,7 @@ export class ReviewService {
                 : []
             ).map((f) => [f.id, f] as const)
         );
+        markStep("fileInfoQuery");
         const latestUpdateCache = {
             userByUidMap,
             authorEmployeeByUserIdMap,
@@ -4112,6 +4131,7 @@ export class ReviewService {
         const listingTagRecords = uniqueListingIds.length > 0
             ? await this.listingRepo.find({ where: { id: In(uniqueListingIds as number[]) }, select: ['id', 'tags', 'timeZoneName', 'checkInTimeStart', 'checkOutTime'] })
             : [];
+        markStep("listingTagRecords");
         const listingTagMap = new Map(listingTagRecords.map(l => [Number(l.id), l]));
         // Compute the cancellation-timing map and the Hostify-derived listed-status map in
         // parallel — they don't depend on each other and were previously waiting sequentially
@@ -4123,6 +4143,7 @@ export class ReviewService {
             this.getLateCancelledReservationMap(reservationInfoList, listingTagMap),
             this.getReservationListingListedStatusMap(reservationInfoList, listingTagMap),
         ]);
+        markStep("lateCancelled+listingListedStatus");
 
         const transformedData = await Promise.all(reviewCheckoutList.map(async (rc) => {
             const matchedReview = reviews.find(r => r.reservationId == rc.reservationInfo?.id) || null;
@@ -4232,6 +4253,15 @@ export class ReviewService {
                 reviews: enrichedReviews,
             };
         }));
+        markStep("rowTransform");
+
+        if (includeOpeningMitigationWindow) {
+            const totalStepMs = timings.reduce((sum, entry) => sum + entry.ms, 0);
+            const breakdown = timings
+                .map((entry) => `${entry.step}=${entry.ms}ms`)
+                .join(" ");
+            logger.info(`[getReviewsForCheckout][timing] rows=${reviewCheckoutList.length} totalStepMs=${totalStepMs} ${breakdown}`);
+        }
 
         return { result: transformedData, total, ...(groupCounts ? { groupCounts } : {}) };
     }
