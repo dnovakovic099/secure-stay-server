@@ -1322,13 +1322,41 @@ export class InboxAIService {
             .findOne({ where: { id: clientId }, relations: ["properties", "secondaryContacts"] });
         if (!client) return null;
 
+        // Service package per property — property_service_info is the source of
+        // truth (client_management.serviceType is rarely filled). This decides
+        // WHO handles cleaning/maintenance, so the AI must never promise the
+        // wrong thing (see the responsibilities block below).
+        const svcRows: any[] = await appDatabase
+            .query(
+                `SELECT cp.listingId, UPPER(TRIM(COALESCE(psi.serviceType, ''))) AS svc
+                 FROM client_properties cp
+                 LEFT JOIN property_service_info psi ON psi.clientPropertyId = cp.id AND psi.deletedAt IS NULL
+                 WHERE cp.clientId = ? AND cp.deletedAt IS NULL`,
+                [clientId]
+            )
+            .catch(() => []);
+        const svcByListing = new Map<number, string>();
+        for (const r of svcRows) {
+            const svc = String(r.svc || "").replace(/_SERVICE$/, "").trim();
+            const lid = Number(r.listingId);
+            if (svc && Number.isFinite(lid)) svcByListing.set(lid, svc);
+        }
+        const distinctSvc = [...new Set(svcByListing.values())];
+        const fallbackSvc = String(client.serviceType || "").replace(/_SERVICE$/, "").trim().toUpperCase() || null;
+        const packageLabel =
+            distinctSvc.length === 1 ? distinctSvc[0] : distinctSvc.length > 1 ? "MIXED" : fallbackSvc;
+
         const lines: string[] = [];
         lines.push("## CLIENT PROFILE (the person you are texting — our property-management client)");
         const name = [client.preferredName || client.firstName, client.lastName].filter(Boolean).join(" ").trim();
         lines.push(`- Name: ${name || "unknown"}${client.preferredName ? ` (goes by ${client.preferredName})` : ""}`);
         if (client.companyName) lines.push(`- Company: ${client.companyName}`);
         if (client.status) lines.push(`- Client status: ${client.status}`);
-        if (client.serviceType) lines.push(`- Service type: ${client.serviceType}`);
+        if (packageLabel) {
+            lines.push(
+                `- Service package: ${packageLabel}${packageLabel === "MIXED" ? " (differs per property — see the property list)" : ""}`
+            );
+        }
         if (client.timezone) lines.push(`- Timezone: ${client.timezone}`);
         const notes = String(client.notes || "").replace(/\s+/g, " ").trim();
         if (notes) lines.push(`- Team notes on this client: ${notes.slice(0, 800)}`);
@@ -1368,8 +1396,39 @@ export class InboxAIService {
             if (l.bedroomsNumber != null) bits.push(`${l.bedroomsNumber}BR`);
             if (l.bathroomsNumber != null) bits.push(`${l.bathroomsNumber}BA`);
             if (l.personCapacity != null) bits.push(`sleeps ${l.personCapacity}`);
+            const svc = svcByListing.get(id);
+            if (svc) bits.push(`${svc} package`);
             lines.push(`- ${l.internalListingName || l.name || `Listing ${id}`}${bits.length ? ` — ${bits.join(", ")}` : ""}`);
         }
+
+        // Who does what: FULL-service owners pay us to run cleanings/maintenance;
+        // LAUNCH/PRO owners run their own. The AI promising "we'll send the
+        // cleaner" to a LAUNCH client creates work we aren't contracted to do.
+        lines.push("");
+        lines.push("## SERVICE PACKAGE — WHO HANDLES CLEANING & MAINTENANCE (critical)");
+        lines.push(
+            "- FULL service properties: WE (the management team) handle cleanings, turnovers, maintenance and vendor coordination. " +
+                "You MAY say things like \"we'll have the cleaner check it\" or \"we'll send someone out\" and coordinate next steps."
+        );
+        lines.push(
+            "- LAUNCH and PRO package properties: the CLIENT handles their own cleanings and maintenance — we do NOT coordinate " +
+                "cleaners or vendors for them. NEVER promise to send a cleaner, schedule maintenance, or dispatch a vendor for these " +
+                "properties. Instead, share what you know and let them arrange it (you can suggest they have their cleaner/handyman " +
+                "take a look); escalate to the team only for questions about our actual scope."
+        );
+        lines.push(
+            packageLabel === "MIXED"
+                ? "- THIS client has a mix of packages — check the per-property tag in the property list above before promising anything."
+                : packageLabel
+                  ? `- THIS client is on the ${packageLabel} package${
+                        packageLabel === "FULL"
+                            ? " — we handle their cleanings and maintenance."
+                            : packageLabel === "LAUNCH" || packageLabel === "PRO"
+                              ? " — they handle their own cleanings and maintenance; do not offer to coordinate those."
+                              : "."
+                    }`
+                  : "- This client's package is not recorded — do not promise cleaning/maintenance coordination; say the team will confirm who handles it."
+        );
 
         // Live booking picture across their portfolio: who's in now, who's
         // arriving, what just checked out. Payout figures included — this is the
@@ -1830,6 +1889,7 @@ export class InboxAIService {
                     "- The transcript labels the other party 'GUEST' for technical reasons — they are the CLIENT (owner). Never use guest hospitality phrasing (no 'we hope you enjoy your stay', no booking upsells, no 'we'd love to host you').",
                     "- You MAY share operational details about the client's OWN properties from the provided context: bookings and dates, guest names on their reservations, occupancy, statuses, maintenance items, payout/revenue figures that appear in context.",
                     "- NEVER share information about OTHER clients, other owners' properties, internal margins, or staff/vendor internal pricing.",
+                    "- CLEANING & MAINTENANCE: check the SERVICE PACKAGE block in the context. On FULL-service properties our team coordinates cleaners/maintenance and you may promise that. On LAUNCH or PRO package properties the client handles their own cleaning and maintenance — never offer to send a cleaner, schedule maintenance, or coordinate vendors there.",
                     "- If they ask about money we owe them, statements, contract terms, management fees, offboarding, or anything legal/financial beyond the figures in context: acknowledge, say the team will follow up with specifics, and set escalation_required=true.",
                     "- If the answer isn't in the provided context, say the team will check and get back to them — never guess about their business.",
                     "- Tone: professional, warm, concise. Use their first name naturally. SMS style — short.",

@@ -541,6 +541,54 @@ export class QuoInboxService {
         return true;
     }
 
+    /**
+     * Service package per PM client ("FULL" | "PRO" | "LAUNCH" | "MIXED"),
+     * derived from their properties' property_service_info rows —
+     * client_management.serviceType is almost never filled in, the per-property
+     * table is the source of truth. FULL = we handle cleaning/maintenance;
+     * PRO/LAUNCH = the client handles those themselves.
+     */
+    async pmClientServicePackages(clientIds: string[]): Promise<Map<string, string>> {
+        const ids = [...new Set(clientIds.filter(Boolean))];
+        const map = new Map<string, string>();
+        if (!ids.length) return map;
+        try {
+            const rows: any[] = await appDatabase.query(
+                `SELECT cm.id AS clientId,
+                        UPPER(TRIM(COALESCE(psi.serviceType, cm.serviceType, ''))) AS svc
+                 FROM client_management cm
+                 LEFT JOIN client_properties cp ON cp.clientId = cm.id AND cp.deletedAt IS NULL
+                 LEFT JOIN property_service_info psi ON psi.clientPropertyId = cp.id AND psi.deletedAt IS NULL
+                 WHERE cm.id IN (${ids.map(() => "?").join(",")})`,
+                ids
+            );
+            const byClient = new Map<string, Set<string>>();
+            for (const r of rows) {
+                const svc = String(r.svc || "").replace(/_SERVICE$/, "").trim();
+                if (!svc) continue;
+                if (!byClient.has(r.clientId)) byClient.set(r.clientId, new Set());
+                byClient.get(r.clientId)!.add(svc);
+            }
+            for (const [cid, types] of byClient) {
+                const arr = [...types];
+                map.set(cid, arr.length === 1 ? arr[0] : "MIXED");
+            }
+        } catch {
+            /* badge is best-effort */
+        }
+        return map;
+    }
+
+    /** Decorate conversation rows with pmClientServicePackage for the dashboard. */
+    private async attachPmServicePackages(convs: QuoConversationEntity[]): Promise<void> {
+        const ids = convs.map((c) => c.pmClientId).filter(Boolean) as string[];
+        if (!ids.length) return;
+        const map = await this.pmClientServicePackages(ids);
+        for (const c of convs) {
+            (c as any).pmClientServicePackage = c.pmClientId ? map.get(c.pmClientId) ?? null : null;
+        }
+    }
+
     /** Manual PM-client link/unlink from the dashboard. */
     async manualLinkClient(conversationId: string, clientId: string | null): Promise<QuoConversationEntity | null> {
         const conv = await this.conversationRepo.findOne({ where: { conversationId } });
@@ -557,7 +605,9 @@ export class QuoInboxService {
                 [client.preferredName || client.firstName, client.lastName].filter(Boolean).join(" ").trim() || null;
             conv.pmClientLinkMethod = "manual";
         }
-        return this.conversationRepo.save(conv);
+        const saved = await this.conversationRepo.save(conv);
+        await this.attachPmServicePackages([saved]);
+        return saved;
     }
 
     /**
@@ -644,6 +694,7 @@ export class QuoInboxService {
 
         qb.orderBy("c.lastMessageAt", "DESC").skip((page - 1) * perPage).take(perPage);
         const [conversations, total] = await qb.getManyAndCount();
+        await this.attachPmServicePackages(conversations);
         return { conversations, total, page, perPage };
     }
 
@@ -658,6 +709,7 @@ export class QuoInboxService {
     } | null> {
         const conversation = await this.conversationRepo.findOne({ where: { conversationId } });
         if (!conversation) return null;
+        await this.attachPmServicePackages([conversation]);
         const messages = await this.messageRepo.find({
             where: { conversationId },
             order: { sentAt: "ASC" },
