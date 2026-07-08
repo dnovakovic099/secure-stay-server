@@ -80,6 +80,22 @@ export class QuoInboxController {
         }
     };
 
+    /** Cached AI suggestion for the thread's latest inbound message (no generation). */
+    getSuggestion = async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            if (!InboxAIService.isEnabled()) {
+                return res.status(200).json({ status: true, data: null, disabled: true });
+            }
+            const conversationId = String(req.params.conversationId);
+            const result = await new InboxAIService().quoGetSuggestion(conversationId);
+            if (!result) return res.status(200).json({ status: true, data: null });
+            const { suggestion, ...payload } = result;
+            res.status(200).json({ status: true, data: { ...payload, suggestionId: suggestion.id } });
+        } catch (error) {
+            next(error);
+        }
+    };
+
     /** AI reply suggestion for a Quo SMS thread (persisted; nothing is sent). */
     suggest = async (req: Request, res: Response, next: NextFunction) => {
         try {

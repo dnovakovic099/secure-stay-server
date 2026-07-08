@@ -988,6 +988,33 @@ export class InboxAIService {
     }
 
     /** Shape a stored quo suggestion row into the API response the composer uses. */
+    /**
+     * Cached suggestion for a Quo thread's latest inbound message — no generation.
+     * Mirrors getLatestSuggestion for the Hostify inbox so the Quo UI can show a
+     * suggestion instantly on thread open (shadow suggestions are persisted by
+     * the webhook/poll pipeline for linked threads).
+     */
+    async quoGetSuggestion(conversationId: string) {
+        const conv = await appDatabase
+            .getRepository(QuoConversationEntity)
+            .findOne({ where: { conversationId } });
+        if (!conv) return null;
+        const quoMessages = await appDatabase.getRepository(QuoMessageEntity).find({
+            where: { conversationId },
+            order: { sentAt: "DESC" },
+            take: 50,
+        });
+        const target = quoMessages.find(
+            (m) => m.direction === "incoming" && String(m.body || "").trim()
+        );
+        if (!target) return null;
+        const existing = await this.suggestionRepo.findOne({
+            where: { source: "quo", threadId: conv.id, messageId: target.id },
+            order: { generatedAt: "DESC", id: "DESC" },
+        });
+        return existing ? this.quoResult(existing, conv) : null;
+    }
+
     private quoResult(s: AIMessageSuggestionEntity, conv: QuoConversationEntity) {
         return {
             suggestion: s,
