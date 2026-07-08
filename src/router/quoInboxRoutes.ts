@@ -10,6 +10,7 @@ router.patch("/lines/:id", verifySession, controller.updateLine);
 router.get("/conversations", verifySession, controller.listConversations);
 router.get("/conversations/:conversationId", verifySession, controller.getConversation);
 router.post("/conversations/:conversationId/reply", verifySession, controller.reply);
+router.post("/conversations/:conversationId/suggest", verifySession, controller.suggest);
 router.post("/conversations/:conversationId/read", verifySession, controller.markRead);
 router.post("/conversations/:conversationId/link", verifySession, controller.link);
 router.post("/sync", verifySession, controller.sync);

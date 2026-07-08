@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { QuoInboxService } from "../services/QuoInboxService";
 import { QuoItemDetectionService } from "../services/QuoItemDetectionService";
+import { InboxAIService } from "../services/InboxAIService";
 import logger from "../utils/logger.utils";
 
 export class QuoInboxController {
@@ -74,6 +75,37 @@ export class QuoInboxController {
             const senderName = user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : null;
             const message = await this.service.sendReply(String(req.params.conversationId), body, senderName);
             res.status(200).json({ status: true, data: message });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    /** AI reply suggestion for a Quo SMS thread (ephemeral — nothing is sent). */
+    suggest = async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            if (!InboxAIService.isEnabled()) {
+                return res.status(200).json({ status: false, message: "AI messaging is disabled" });
+            }
+            const conversationId = String(req.params.conversationId);
+            const result = await this.service.getConversation(conversationId);
+            if (!result) return res.status(404).json({ status: false, message: "Conversation not found" });
+
+            const { conversation, messages } = result;
+            const suggestion = await new InboxAIService().quoSuggestReply({
+                conversationId,
+                listingId: conversation.listingId,
+                listingName: conversation.listingName,
+                reservationId: conversation.reservationId,
+                guestName: conversation.guestName,
+                contactName: conversation.contactName,
+                messages: messages.map((m) => ({
+                    direction: m.direction,
+                    body: m.body,
+                    senderName: m.senderName,
+                    sentAt: m.sentAt,
+                })),
+            });
+            res.status(200).json({ status: true, data: suggestion });
         } catch (error) {
             next(error);
         }

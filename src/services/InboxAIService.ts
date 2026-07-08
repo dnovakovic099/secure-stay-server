@@ -722,6 +722,155 @@ export class InboxAIService {
         };
     }
 
+    // ------------------------------------------------------------------
+    // Quo (OpenPhone SMS) suggestions
+    // ------------------------------------------------------------------
+
+    /**
+     * Generate a reply suggestion for a Quo SMS conversation. Quo threads live
+     * in their own tables (quo_conversations / quo_messages), so we map the
+     * thread onto an ephemeral inbox conversation — same context builder, same
+     * system prompt, same guardrails as the Hostify inbox — and return the
+     * result without persisting a suggestion row (Quo thread ids are strings
+     * and don't fit ai_message_suggestions). If the conversation is linked to
+     * a reservation we get the full context (listing KB, live reservation,
+     * availability); unlinked threads still get conversation history.
+     */
+    async quoSuggestReply(input: {
+        conversationId: string;
+        listingId?: number | null;
+        listingName?: string | null;
+        reservationId?: number | null;
+        guestName?: string | null;
+        contactName?: string | null;
+        messages: { direction: string; body: string | null; senderName?: string | null; sentAt: Date }[];
+    }): Promise<{
+        reply: string;
+        confidence: number | null;
+        escalationRequired: boolean;
+        escalationReason: string | null;
+        warnings: string[];
+        sourcesUsed: string[];
+        internalSummary: string | null;
+        linked: boolean;
+    }> {
+        // Resolve reservation status (drives inquiry sales mode + phase rules).
+        let reservationStatus: string | null = null;
+        if (input.reservationId) {
+            const r = await this.reservationRepo
+                .findOne({ where: { id: Number(input.reservationId) } })
+                .catch(() => null);
+            reservationStatus = r?.status || null;
+        }
+
+        const conversation = this.conversationRepo.create({
+            threadId: 0,
+            listingId: input.listingId ? Number(input.listingId) : null,
+            listingName: input.listingName || null,
+            reservationId: input.reservationId ? Number(input.reservationId) : null,
+            guestName: input.guestName || input.contactName || "Guest",
+            channel: "SMS (Quo)",
+            reservationStatus,
+        }) as InboxConversationEntity;
+
+        const cleaned = (input.messages || []).filter((m) => m && String(m.body || "").trim());
+        const messages = cleaned.map(
+            (m) =>
+                this.messageRepo.create({
+                    threadId: 0,
+                    direction: m.direction === "outgoing" ? "outgoing" : "incoming",
+                    body: String(m.body || "").trim(),
+                    senderName: m.senderName || (m.direction === "outgoing" ? "Host" : input.guestName || "Guest"),
+                    sentAt: m.sentAt,
+                }) as InboxMessageEntity
+        );
+
+        let target: InboxMessageEntity | null = null;
+        for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i].direction === "incoming") {
+                target = messages[i];
+                break;
+            }
+        }
+        if (!target) throw new Error("No inbound guest message to reply to");
+
+        const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
+        let context = await this.buildContext(conversation, messages, target, { includeKnowledge: true });
+        context +=
+            "\n\n## Delivery channel note\nThis reply is sent as a plain SMS text message. Keep it tight (1-3 sentences unless the question needs more), no links unless they were already shared in this thread, no markdown or formatting.";
+        if (!input.reservationId) {
+            context +=
+                "\nThis SMS thread is NOT linked to a reservation, so there is no listing/reservation context. Answer only from the conversation itself; if the guest asks something property-specific you can't answer, say you'll check and follow up.";
+        }
+
+        const client = this.getClient();
+        const completion = await client.chat.completions.create({
+            model: INBOX_AI_MODEL,
+            temperature: 0.4,
+            response_format: { type: "json_object" },
+            messages: [
+                {
+                    role: "system",
+                    content: this.systemPrompt(settings, {
+                        inquirySales: InboxAIService.isInquiryStatus(reservationStatus),
+                    }),
+                },
+                { role: "user", content: context },
+            ],
+        });
+        const raw = completion.choices[0]?.message?.content?.trim() || "";
+        const output = this.parseModelOutput(raw);
+
+        // Same server-side escalation safety net as the Hostify inbox.
+        const kw = this.scanForEscalation(target.body || "");
+        if (kw) {
+            output.escalation_required = true;
+            output.escalation_reason = output.escalation_reason ? `${output.escalation_reason}; ${kw}` : kw;
+        }
+
+        // Anti-invention net: flag codes/prices not present in the context.
+        const haystack = (context + " " + messages.map((m) => m.body || "").join(" ")).toLowerCase();
+        const reply = output.suggested_reply || "";
+        const leaks: string[] = [];
+        for (const tok of reply.match(/\b\d{4,8}#?/g) || []) {
+            const digits = tok.replace(/\D/g, "");
+            if (digits && !haystack.includes(digits)) leaks.push(tok);
+        }
+        for (const tok of reply.match(/[$€£]\s?\d[\d,]*(?:\.\d+)?/g) || []) {
+            const num = tok.replace(/[^\d.]/g, "");
+            if (num && !haystack.includes(num)) leaks.push(tok);
+        }
+        const warnings = Array.isArray(output.warnings) ? [...output.warnings] : [];
+        if (leaks.length) {
+            warnings.push(`Reply may contain unverified value(s) not found in context: ${leaks.join(", ")}.`);
+        }
+
+        let confidencePct =
+            typeof output.confidence === "number" && Number.isFinite(output.confidence)
+                ? Math.max(0, Math.min(100, Math.round(output.confidence * 100)))
+                : null;
+        if (confidencePct != null) {
+            if (leaks.length) confidencePct = Math.min(confidencePct, 30);
+            if (output.escalation_required) confidencePct = Math.min(confidencePct, 45);
+            else if (warnings.length) confidencePct = Math.min(confidencePct, 60);
+        }
+
+        logger.info(
+            `[InboxAI] Quo suggestion for ${input.conversationId} (linked=${Boolean(input.reservationId)}, conf=${confidencePct ?? "n/a"})`
+        );
+
+        return {
+            reply: output.suggested_reply || "",
+            confidence: confidencePct,
+            escalationRequired: !!output.escalation_required,
+            escalationReason: output.escalation_reason || null,
+            warnings,
+            sourcesUsed: Array.isArray(output.sources_used) ? output.sources_used : [],
+            internalSummary: output.internal_summary || null,
+            linked: Boolean(input.reservationId),
+        };
+    }
+
     /** Update a suggestion's lifecycle status (accepted/edited/ignored/rejected). */
     async updateSuggestionStatus(
         id: number,
