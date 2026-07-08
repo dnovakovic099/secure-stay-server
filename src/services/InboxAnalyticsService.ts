@@ -38,6 +38,7 @@ interface Pair {
     aiQualityNote?: string | null;
     aiQualityCategory?: string | null;
     missResolvedAt?: Date | null;
+    missResolvedBy?: string | null;
     confidence?: number | null;
 }
 
@@ -306,7 +307,7 @@ export class InboxAnalyticsService {
                               s.confidence, s.verifierConfidence,
                               s.replySimilarity, s.replySemanticSimilarity, s.replyCoverageScore, s.auditMatchQuality,
                               s.replyRelevance, s.replyRelevanceNote, s.aiReplyQuality, s.aiReplyQualityNote,
-                              s.aiReplyQualityCategory, s.missResolvedAt, s.generatedAt,
+                              s.aiReplyQualityCategory, s.missResolvedAt, s.missResolvedBy, s.generatedAt,
                               COALESCE(c.lineName, 'SMS') AS channel,
                               COALESCE(
                                   NULLIF(gm.body, ''),
@@ -330,7 +331,7 @@ export class InboxAnalyticsService {
                       `SELECT s.id, s.threadId, NULL AS threadKey, s.escalationRequired, s.suggestedReply, s.actualReplyText, s.confidence, s.verifierConfidence,
                               s.replySimilarity, s.replySemanticSimilarity, s.replyCoverageScore, s.auditMatchQuality,
                               s.replyRelevance, s.replyRelevanceNote, s.aiReplyQuality, s.aiReplyQualityNote,
-                              s.aiReplyQualityCategory, s.missResolvedAt, s.generatedAt,
+                              s.aiReplyQualityCategory, s.missResolvedAt, s.missResolvedBy, s.generatedAt,
                               c.channel,
                               COALESCE(
                                   NULLIF(gm.body, ''),
@@ -374,6 +375,7 @@ export class InboxAnalyticsService {
             aiQualityNote: r.aiReplyQualityNote ?? null,
             aiQualityCategory: r.aiReplyQualityCategory ?? null,
             missResolvedAt: r.missResolvedAt ?? null,
+            missResolvedBy: r.missResolvedBy ?? null,
             // Effective confidence = the stricter of the generator's self-score
             // and the independent verifier score (matches the auto-send gate).
             confidence: (() => {
@@ -800,6 +802,7 @@ export class InboxAnalyticsService {
                 coverage: p.coverage,
                 confidence: p.confidence ?? null,
                 resolvedAt: p.missResolvedAt || null,
+                resolvedBy: p.missResolvedBy || null,
                 generatedAt: p.generatedAt,
                 remediation: remediationOf(p),
             })),
@@ -814,8 +817,9 @@ export class InboxAnalyticsService {
     async teachMiss(
         suggestionId: number,
         answer: string,
-        scope: "property" | "portfolio" = "property"
-    ): Promise<{ saved: boolean }> {
+        scope: "property" | "portfolio" = "property",
+        userId?: string | null
+    ): Promise<{ saved: boolean; resolvedBy?: string | null }> {
         const text = (answer || "").trim();
         if (!text) return { saved: false };
         const rows: any[] = await appDatabase.query(
@@ -856,7 +860,11 @@ export class InboxAnalyticsService {
             },
             { autoApprove: InboxAIAuditService.autoApproveFacts(), trustedSource: true }
         );
-        await appDatabase.query(`UPDATE ai_message_suggestions SET missResolvedAt = NOW() WHERE id = ?`, [suggestionId]);
+        const resolvedBy = await this.resolveUserName(userId);
+        await appDatabase.query(
+            `UPDATE ai_message_suggestions SET missResolvedAt = NOW(), missResolvedBy = ? WHERE id = ?`,
+            [resolvedBy, suggestionId]
+        );
         // If the AI had raised a learning question on this thread, the manager's
         // answer covers it — close it so the team isn't asked again in the inbox.
         // (Hostify only — learning prompts key on Hostify thread ids.)
@@ -872,13 +880,35 @@ export class InboxAnalyticsService {
     }
 
     /** Mark / unmark a miss as handled so the fix queue shrinks as it's worked. */
-    async resolveMiss(suggestionId: number, resolved: boolean): Promise<{ resolvedAt: Date | null }> {
+    async resolveMiss(
+        suggestionId: number,
+        resolved: boolean,
+        userId?: string | null
+    ): Promise<{ resolvedAt: Date | null; resolvedBy: string | null }> {
         const resolvedAt = resolved ? new Date() : null;
+        const resolvedBy = resolved ? await this.resolveUserName(userId) : null;
         await appDatabase.query(
-            `UPDATE ai_message_suggestions SET missResolvedAt = ? WHERE id = ?`,
-            [resolvedAt, suggestionId]
+            `UPDATE ai_message_suggestions SET missResolvedAt = ?, missResolvedBy = ? WHERE id = ?`,
+            [resolvedAt, resolvedBy, suggestionId]
         );
-        return { resolvedAt };
+        return { resolvedAt, resolvedBy };
+    }
+
+    /** Resolve a Supabase uid to a display name for attribution; falls back to the raw uid. */
+    private async resolveUserName(userId?: string | null): Promise<string | null> {
+        const uid = String(userId || "").trim();
+        if (!uid) return null;
+        try {
+            const rows: any[] = await appDatabase.query(
+                `SELECT firstName, lastName, email FROM users WHERE uid = ? LIMIT 1`,
+                [uid]
+            );
+            const u = rows?.[0];
+            const name = [u?.firstName, u?.lastName].filter(Boolean).join(" ").trim();
+            return name || u?.email || uid;
+        } catch {
+            return uid;
+        }
     }
 
     /** Bounded on-demand semantic backfill so the page can populate the chart now. */

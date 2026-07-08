@@ -51,7 +51,8 @@ export class InboxAnalyticsController {
             const id = Number(request.params.id);
             const answer = String(request.body?.answer || "");
             const scope = request.body?.scope === "portfolio" ? "portfolio" : "property";
-            const data = await new InboxAnalyticsService().teachMiss(id, answer, scope);
+            const userId = (request as any).user?.id ?? null;
+            const data = await new InboxAnalyticsService().teachMiss(id, answer, scope, userId);
             return response.status(200).json({ status: true, data });
         } catch (error) {
             return next(error);
@@ -62,7 +63,8 @@ export class InboxAnalyticsController {
         try {
             const id = Number(request.params.id);
             const resolved = request.body?.resolved !== false;
-            const data = await new InboxAnalyticsService().resolveMiss(id, resolved);
+            const userId = (request as any).user?.id ?? null;
+            const data = await new InboxAnalyticsService().resolveMiss(id, resolved, userId);
             return response.status(200).json({ status: true, data });
         } catch (error) {
             return next(error);

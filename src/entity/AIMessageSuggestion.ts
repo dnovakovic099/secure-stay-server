@@ -129,6 +129,8 @@ export class AIMessageSuggestionEntity {
     @Column({ length: 30, nullable: true }) aiReplyQualityCategory: string | null;
     /** Set when a human marks this miss as handled in the "Replies to fix" queue. */
     @Column({ type: "datetime", nullable: true }) missResolvedAt: Date | null;
+    /** Display name (or uid) of the user who resolved/taught this miss. */
+    @Column({ length: 255, nullable: true }) missResolvedBy: string | null;
     @Column({ type: "datetime", nullable: true }) auditedAt: Date | null;
 
     @Index() @Column({ type: "datetime" }) generatedAt: Date;
