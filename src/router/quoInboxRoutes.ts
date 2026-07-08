@@ -12,6 +12,7 @@ router.get("/conversations/:conversationId", verifySession, controller.getConver
 router.post("/conversations/:conversationId/reply", verifySession, controller.reply);
 router.get("/conversations/:conversationId/suggestion", verifySession, controller.getSuggestion);
 router.post("/conversations/:conversationId/suggest", verifySession, controller.suggest);
+router.get("/conversations/:conversationId/learning-prompt", verifySession, controller.getLearningPrompt);
 router.post("/conversations/:conversationId/read", verifySession, controller.markRead);
 router.post("/conversations/:conversationId/link", verifySession, controller.link);
 router.post("/sync", verifySession, controller.sync);

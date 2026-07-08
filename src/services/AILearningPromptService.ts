@@ -27,6 +27,7 @@ export class AILearningPromptService {
      */
     async raise(input: {
         threadId: number;
+        source?: string;
         listingId?: number | null;
         listingName?: string | null;
         question: string;
@@ -35,9 +36,10 @@ export class AILearningPromptService {
     }): Promise<AILearningPromptEntity | null> {
         const question = (input.question || "").trim();
         if (!question) return null;
+        const source = input.source === "quo" ? "quo" : "hostify";
         try {
             const existing = await this.repo.findOne({
-                where: { threadId: input.threadId as any, status: "pending" },
+                where: { threadId: input.threadId as any, source, status: "pending" },
                 order: { createdAt: "DESC" },
             });
             if (existing) {
@@ -51,6 +53,7 @@ export class AILearningPromptService {
             }
             const created = this.repo.create({
                 threadId: input.threadId,
+                source,
                 listingId: input.listingId ?? null,
                 listingName: input.listingName ?? null,
                 question: question.slice(0, 1000),
@@ -65,9 +68,9 @@ export class AILearningPromptService {
         }
     }
 
-    async getPendingForThread(threadId: number): Promise<AILearningPromptEntity | null> {
+    async getPendingForThread(threadId: number, source: string = "hostify"): Promise<AILearningPromptEntity | null> {
         return this.repo.findOne({
-            where: { threadId: threadId as any, status: "pending" },
+            where: { threadId: threadId as any, source, status: "pending" },
             order: { createdAt: "DESC" },
         });
     }

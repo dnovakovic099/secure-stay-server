@@ -520,6 +520,11 @@ export class QuoInboxService {
         return { conversations, total, page, perPage };
     }
 
+    /** Lightweight conversation row fetch (no messages). */
+    async getConversationRow(conversationId: string): Promise<QuoConversationEntity | null> {
+        return this.conversationRepo.findOne({ where: { conversationId } });
+    }
+
     async getConversation(conversationId: string): Promise<{
         conversation: QuoConversationEntity;
         messages: QuoMessageEntity[];

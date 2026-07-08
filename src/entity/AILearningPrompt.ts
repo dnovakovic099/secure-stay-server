@@ -23,6 +23,8 @@ export class AILearningPromptEntity {
     @PrimaryGeneratedColumn() id: number;
 
     @Index() @Column({ type: "bigint" }) threadId: number;
+    /** Which inbox raised it: 'hostify' (default) or 'quo'. threadId is scoped per source. */
+    @Column({ length: 20, default: "hostify" }) source: string;
     @Column({ type: "bigint", nullable: true }) listingId: number | null;
     @Column({ length: 255, nullable: true }) listingName: string | null;
 

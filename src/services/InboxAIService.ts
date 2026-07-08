@@ -867,7 +867,14 @@ export class InboxAIService {
      */
     async quoSuggestReply(
         conversationId: string,
-        opts: { force?: boolean; persistOnly?: boolean } = {}
+        opts: {
+            force?: boolean;
+            persistOnly?: boolean;
+            /** Staff-steered composer: what the reply should say (Generate). */
+            instructions?: string | null;
+            /** Current draft to revise per the instructions (Refine). */
+            baseDraft?: string | null;
+        } = {}
     ): Promise<{
         suggestion: AIMessageSuggestionEntity;
         reply: string;
@@ -910,8 +917,9 @@ export class InboxAIService {
             quoMessages = quoMessages.slice(0, targetIdx + 1);
         }
 
-        // Dedupe: reuse the stored suggestion for this exact message unless forced.
-        if (!opts.force) {
+        // Dedupe: reuse the stored suggestion for this exact message unless forced
+        // or the staff steered the draft (Refine/Generate always regenerate).
+        if (!opts.force && !opts.instructions && !opts.baseDraft) {
             const existing = await this.suggestionRepo.findOne({
                 where: { source: "quo", threadId: conv.id, messageId: targetQuo.id },
                 order: { generatedAt: "DESC", id: "DESC" },
@@ -955,7 +963,11 @@ export class InboxAIService {
         if (!target) throw new Error("Target message not found after mapping");
 
         const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
-        let context = await this.buildContext(conversation, messages, target, { includeKnowledge: true });
+        let context = await this.buildContext(conversation, messages, target, {
+            includeKnowledge: true,
+            instructions: opts.instructions ?? null,
+            baseDraft: opts.baseDraft ?? null,
+        });
         context +=
             "\n\n## Delivery channel note\nThis reply is sent as a plain SMS text message. Keep it tight (1-3 sentences unless the question needs more), no links unless they were already shared in this thread, no markdown or formatting.";
         if (!conv.reservationId) {
@@ -1053,6 +1065,25 @@ export class InboxAIService {
             `[InboxAI] Quo suggestion ${suggestion.id} for ${conversationId} ` +
                 `(linked=${Boolean(conv.reservationId)}, conf=${confidencePct ?? "n/a"}, verified=${verifier?.confidence ?? "n/a"})`
         );
+
+        // Knowledge gap flagged → raise a learning prompt on this SMS thread,
+        // exactly like the Hostify inbox. Best-effort; never blocks the reply.
+        if (output.learning_question && String(output.learning_question).trim()) {
+            try {
+                const { AILearningPromptService } = await import("./AILearningPromptService");
+                await new AILearningPromptService().raise({
+                    threadId: conv.id,
+                    source: "quo",
+                    listingId: conv.listingId ? Number(conv.listingId) : null,
+                    listingName: conv.listingName ?? null,
+                    question: String(output.learning_question),
+                    topic: output.learning_topic ? String(output.learning_topic) : null,
+                    sampleSuggestionId: suggestion.id,
+                });
+            } catch (e: any) {
+                logger.warn(`[InboxAI] Quo learning prompt raise failed: ${e.message}`);
+            }
+        }
         return this.quoResult(suggestion, conv);
     }
 
@@ -1093,7 +1124,11 @@ export class InboxAIService {
             escalationReason: s.escalationReason || null,
             warnings: this.safeJsonArray(s.warnings),
             sourcesUsed: this.safeJsonArray(s.sourcesUsed),
+            suggestedActionItems: this.safeJsonArray(s.suggestedActionItems),
             internalSummary: s.internalSummary || null,
+            status: s.status || "suggested",
+            modelName: s.modelName || null,
+            promptVersion: s.promptVersion || null,
             linked: Boolean(conv.reservationId),
         };
     }

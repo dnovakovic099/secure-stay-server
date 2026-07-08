@@ -74,7 +74,33 @@ export class QuoInboxController {
             const user: any = (req as any).user;
             const senderName = user?.firstName ? `${user.firstName} ${user.lastName || ""}`.trim() : null;
             const message = await this.service.sendReply(String(req.params.conversationId), body, senderName);
+
+            // Sent from the AI composer → record the suggestion outcome
+            // (accepted verbatim vs edited), same lifecycle as Inbox V2.
+            const suggestionId = Number(req.body?.suggestionId);
+            if (Number.isFinite(suggestionId) && suggestionId > 0) {
+                const aiStatus = req.body?.aiStatus === "edited" ? "edited" : "accepted";
+                new InboxAIService()
+                    .updateSuggestionStatus(suggestionId, aiStatus, {
+                        acceptedByUserId: Number(user?.secureStayUserId) || null,
+                        finalSentMessageId: message?.id ?? null,
+                    })
+                    .catch((err) => logger.warn(`[QuoInbox] Suggestion status update failed: ${err?.message}`));
+            }
             res.status(200).json({ status: true, data: message });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    /** Pending "help the bot learn" prompt for a Quo thread (answer/dismiss reuse the inbox-v2 endpoints by prompt id). */
+    getLearningPrompt = async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const conv = await this.service.getConversationRow(String(req.params.conversationId));
+            if (!conv) return res.status(404).json({ status: false, message: "Conversation not found" });
+            const { AILearningPromptService } = await import("../services/AILearningPromptService");
+            const prompt = await new AILearningPromptService().getPendingForThread(Number(conv.id), "quo");
+            res.status(200).json({ status: true, data: prompt || null });
         } catch (error) {
             next(error);
         }
@@ -104,7 +130,9 @@ export class QuoInboxController {
             }
             const conversationId = String(req.params.conversationId);
             const force = req.body?.force === true;
-            const result = await new InboxAIService().quoSuggestReply(conversationId, { force });
+            const instructions = typeof req.body?.instructions === "string" && req.body.instructions.trim() ? req.body.instructions.trim() : null;
+            const baseDraft = typeof req.body?.baseDraft === "string" && req.body.baseDraft.trim() ? req.body.baseDraft.trim() : null;
+            const result = await new InboxAIService().quoSuggestReply(conversationId, { force, instructions, baseDraft });
             if (!result) return res.status(400).json({ status: false, message: "No inbound message to reply to" });
             const { suggestion, ...payload } = result;
             res.status(200).json({ status: true, data: { ...payload, suggestionId: suggestion.id } });

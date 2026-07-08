@@ -710,13 +710,14 @@ export class InboxAnalyticsService {
                   listingIds
               )
             : [];
-        // Learning prompts are keyed on Hostify thread ids — no Quo equivalent.
-        const prompts: any[] = threadIds.length && source !== "quo"
+        // Learning prompts are scoped per inbox (threadId means a Hostify thread
+        // for 'hostify' rows and a quo_conversations.id for 'quo' rows).
+        const prompts: any[] = threadIds.length
             ? await appDatabase.query(
                   `SELECT threadId, question, status, answerText, answeredByUserId FROM ai_learning_prompts
-                   WHERE threadId IN (${threadIds.map(() => "?").join(",")})
+                   WHERE source = ? AND threadId IN (${threadIds.map(() => "?").join(",")})
                    ORDER BY createdAt DESC`,
-                  threadIds
+                  [source === "quo" ? "quo" : "hostify", ...threadIds]
               )
             : [];
         // Attribution: resolve the user ids behind facts/prompt answers to names,
@@ -888,16 +889,14 @@ export class InboxAnalyticsService {
         );
         // If the AI had raised a learning question on this thread, the manager's
         // answer covers it — close it so the team isn't asked again in the inbox.
-        // (Hostify only — learning prompts key on Hostify thread ids.)
-        if (!isQuo) {
-            await appDatabase.query(
-                `UPDATE ai_learning_prompts
-                 SET status = 'answered', answerText = ?, answerScope = ?, answeredByUserId = COALESCE(?, answeredByUserId),
-                     resolvedAt = NOW(), resolvedVia = 'staff'
-                 WHERE threadId = ? AND status = 'pending'`,
-                [text, scope === "portfolio" ? "portfolio" : "property", byUser.id, r.threadId]
-            );
-        }
+        // (threadId is scoped per source: Hostify thread id vs quo_conversations.id.)
+        await appDatabase.query(
+            `UPDATE ai_learning_prompts
+             SET status = 'answered', answerText = ?, answerScope = ?, answeredByUserId = COALESCE(?, answeredByUserId),
+                 resolvedAt = NOW(), resolvedVia = 'staff'
+             WHERE source = ? AND threadId = ? AND status = 'pending'`,
+            [text, scope === "portfolio" ? "portfolio" : "property", byUser.id, isQuo ? "quo" : "hostify", r.threadId]
+        );
         return { saved: true, resolvedBy: byUser.name };
     }
 
