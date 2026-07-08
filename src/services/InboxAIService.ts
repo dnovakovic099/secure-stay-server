@@ -960,7 +960,9 @@ export class InboxAIService {
             "\n\n## Delivery channel note\nThis reply is sent as a plain SMS text message. Keep it tight (1-3 sentences unless the question needs more), no links unless they were already shared in this thread, no markdown or formatting.";
         if (!conv.reservationId) {
             context +=
-                "\nThis SMS thread is NOT linked to a reservation, so there is no listing/reservation context. Answer only from the conversation itself; if the guest asks something property-specific you can't answer, say you'll check and follow up.";
+                "\nThis SMS thread is NOT linked to a reservation, so there is no listing/reservation context. Answer only from the conversation itself. " +
+                "EXCEPTION: if the context contains a 'LIVE listing search results' block, that search has already been run — share those results per its instructions. " +
+                "Otherwise, if the guest asks something property-specific you can't answer, say you'll check and follow up.";
         }
 
         const client = this.getClient();
@@ -1713,6 +1715,138 @@ export class InboxAIService {
         return out.join("\n");
     }
 
+    /**
+     * Cross-portfolio listing search. When a guest is SHOPPING for a place
+     * ("looking for an apartment in Wicker Park, July 16-19, 4 people"), extract
+     * the criteria, match our listings by area/capacity, check each candidate's
+     * live calendar for those exact nights, and hand the model a concrete list
+     * of bookable options — so the reply shares real results instead of
+     * promising to "check and get back to you".
+     */
+    private async buildListingSearchBlock(guestText: string): Promise<string | null> {
+        if (!guestText || !this.hostifyApiKey) return null;
+        const t = guestText.toLowerCase();
+        // Cheap gate before spending an LLM call on extraction.
+        const wantsPlace = /(looking for|searching for|do you have|got any|need|find me|help me find|interested in)[\s\S]{0,80}(apartment|house|home|condo|place|rental|listing|propert|room|somewhere)|apartment for rent|place to stay/.test(t);
+        const hasDates = /(\d{1,2}[\/\-.]\d{1,2})|\b(jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|\bmay\b|check.?in|check.?out|night/.test(t);
+        if (!wantsPlace || !hasDates) return null;
+
+        // 1) Structured criteria extraction (dates, party size, city, areas).
+        let crit: any = null;
+        try {
+            const client = this.getClient();
+            const completion = await client.chat.completions.create({
+                model: process.env.AI_EXTRACT_MODEL || "gpt-4.1-mini",
+                temperature: 0,
+                response_format: { type: "json_object" },
+                messages: [
+                    {
+                        role: "system",
+                        content:
+                            `Decide whether the guest message is a search for a place to stay (NOT a question about an existing booking). Today is ${new Date().toISOString().slice(0, 10)}. ` +
+                            `Reply with JSON exactly: {"is_search": boolean, "checkin": "YYYY-MM-DD" or null, "checkout": "YYYY-MM-DD" or null, "guests": number or null, "city": string or null, "areas": string[]} ` +
+                            `where areas are neighborhoods/districts/suburbs mentioned. Resolve relative dates against today; if the year is ambiguous choose the next future occurrence.`,
+                    },
+                    { role: "user", content: guestText.slice(0, 1200) },
+                ],
+            });
+            crit = JSON.parse(completion.choices[0]?.message?.content?.trim() || "{}");
+        } catch {
+            return null;
+        }
+        if (!crit?.is_search || !crit.checkin || !crit.checkout) return null;
+        const checkin = new Date(`${crit.checkin}T00:00:00Z`);
+        const checkout = new Date(`${crit.checkout}T00:00:00Z`);
+        if (isNaN(checkin.getTime()) || isNaN(checkout.getTime()) || checkout <= checkin) return null;
+        const nights = Math.round((checkout.getTime() - checkin.getTime()) / 86400000);
+        const wantedGuests = Number(crit.guests) || null;
+        const tokens = [...(Array.isArray(crit.areas) ? crit.areas : []), crit.city]
+            .filter(Boolean)
+            .map((s: any) => String(s).toLowerCase().trim())
+            .filter((s: string) => s.length >= 3);
+
+        // 2) Candidate listings by area + capacity.
+        const all = await this.listingRepo.find({ take: 3000 });
+        const hayOf = (l: Listing) =>
+            `${l.name || ""} ${l.internalListingName || ""} ${l.externalListingName || ""} ${l.address || ""} ${l.city || ""} ${l.state || ""}`.toLowerCase();
+        const capOk = (l: Listing) => {
+            const cap = Number(l.personCapacity || l.guests || 0);
+            return !wantedGuests || !cap || cap >= wantedGuests;
+        };
+        const matched = tokens.length
+            ? all.filter((l) => capOk(l) && tokens.some((tok) => hayOf(l).includes(tok)))
+            : [];
+
+        const header =
+            `## LIVE listing search results — the search has ALREADY been run for the guest's request ` +
+            `(${tokens.length ? tokens.join(", ") : "any area"}; ${crit.checkin} → ${crit.checkout}, ${nights} night${nights === 1 ? "" : "s"}${wantedGuests ? `, ${wantedGuests} guests` : ""})`;
+
+        if (!matched.length) {
+            // Honest miss: tell the model what we actually cover so it can offer
+            // real alternatives instead of inventing or stalling.
+            const cities = [...new Set(all.map((l) => (l.city || "").trim()).filter(Boolean))].slice(0, 20);
+            return [
+                header,
+                `RESULT: our portfolio has NO listings matching the requested area(s).`,
+                cities.length ? `Cities we DO have properties in: ${cities.join(", ")}.` : "",
+                `INSTRUCTIONS: Tell the guest plainly that we don't have properties in that area. If a nearby city from the list above could work, offer it. Do NOT say you will check or get back to them — this IS the result. Never invent listings.`,
+            ].filter(Boolean).join("\n");
+        }
+
+        // 3) Live calendar check for the exact nights, in parallel (bounded).
+        const toKey = (d: Date) => d.toISOString().slice(0, 10);
+        const lastNight = toKey(new Date(checkout.getTime() - 86400000));
+        const candidates = matched.slice(0, 12);
+        const checks = await Promise.all(
+            candidates.map(async (l) => {
+                if (l.minNights && nights < Number(l.minNights)) {
+                    return { l, ok: false, reason: `min stay ${l.minNights} nights`, avg: 0 };
+                }
+                try {
+                    const days: any[] = await this.hostify.getCalendar(this.hostifyApiKey, Number(l.id), crit.checkin, lastNight);
+                    const wanted = (days || []).filter((d) => {
+                        const k = String(d.date).slice(0, 10);
+                        return k >= crit.checkin && k <= lastNight;
+                    });
+                    if (!wanted.length) return { l, ok: false, reason: "no calendar data", avg: 0 };
+                    const open = wanted.every((d) => String(d?.status || "").toLowerCase() === "available");
+                    const prices = wanted.map((d) => Number(d.price) || 0).filter((p) => p > 0);
+                    const avg = prices.length ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) : 0;
+                    return { l, ok: open, reason: open ? "" : "booked/blocked", avg };
+                } catch {
+                    return { l, ok: false, reason: "calendar unavailable", avg: 0 };
+                }
+            })
+        );
+
+        const out: string[] = [header];
+        const bookable = checks.filter((c) => c.ok);
+        if (bookable.length) {
+            out.push(`BOOKABLE for those exact dates:`);
+            for (const c of bookable.slice(0, 6)) {
+                const bits = [
+                    c.l.city ? `${c.l.address || c.l.city}` : c.l.address || "",
+                    c.l.personCapacity || c.l.guests ? `sleeps ${c.l.personCapacity || c.l.guests}` : "",
+                    c.l.bedroomsNumber != null ? `${c.l.bedroomsNumber} BR` : "",
+                    c.avg ? `~$${c.avg}/night (≈$${c.avg * nights} for ${nights} nights, before fees)` : "",
+                ].filter(Boolean);
+                out.push(`- ${c.l.name || c.l.internalListingName}: ${bits.join("; ")}`);
+            }
+        } else {
+            out.push(`RESULT: we have ${candidates.length} propert${candidates.length === 1 ? "y" : "ies"} in that area, but NONE are open for those exact dates.`);
+        }
+        const misses = checks.filter((c) => !c.ok);
+        if (misses.length && bookable.length) {
+            out.push(`Not available those dates: ${misses.map((c) => c.l.name || c.l.internalListingName).slice(0, 6).join(", ")}.`);
+        }
+        out.push(
+            `INSTRUCTIONS: These are live results — share the best matching option(s) concretely (name/area, sleeps, approximate nightly rate). ` +
+            `Do NOT say "I'll check", "let me look into it" or "we'll get back to you" — the search is already done. ` +
+            `If nothing is bookable, say so honestly and suggest flexible dates or another area from the list. Never invent listings or prices beyond this block.`
+        );
+        return out.join("\n");
+    }
+
     /** Build the user-message context block from conversation + reservation + listing. */
     /** Short-lived cache so repeated previews of the same thread don't refetch Hostify. */
     private static reservationCache = new Map<number, { at: number; block: string | null }>();
@@ -2351,6 +2485,19 @@ export class InboxAIService {
             }
         } catch (err: any) {
             logger.warn(`[InboxAI] Availability block failed for thread ${conversation.threadId}: ${err?.message}`);
+        }
+
+        // Cross-portfolio search: guest shopping for a place (typical on unlinked
+        // SMS leads) → run the real search and inject bookable options.
+        if (includeKnowledge) try {
+            const guestText = (targetMessage?.body || conversation.lastMessageText || "").toString();
+            const searchBlock = await this.buildListingSearchBlock(guestText);
+            if (searchBlock) {
+                lines.push("");
+                lines.push(searchBlock);
+            }
+        } catch (err: any) {
+            logger.warn(`[InboxAI] Listing search block failed for thread ${conversation.threadId}: ${err?.message}`);
         }
 
         lines.push("");
