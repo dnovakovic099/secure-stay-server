@@ -62,6 +62,10 @@ export class AILearnedFactEntity {
     @Column({ type: "int", nullable: true })
     reviewedByUserId: number | null;
 
+    /** users.id of the staff member who taught this fact (NULL when auto-extracted). */
+    @Column({ type: "int", nullable: true })
+    createdByUserId: number | null;
+
     @Column({ type: "datetime", nullable: true })
     lastSeenAt: Date | null;
 

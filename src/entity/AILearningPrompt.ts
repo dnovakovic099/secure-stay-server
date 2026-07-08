@@ -36,6 +36,7 @@ export class AILearningPromptEntity {
 
     @Column({ type: "text", nullable: true }) answerText: string | null;
     @Column({ length: 20, nullable: true }) answerScope: string | null; // property | portfolio
+    /** users.id of whoever answered — or dismissed — the prompt. */
     @Column({ type: "int", nullable: true }) answeredByUserId: number | null;
     @Column({ type: "datetime", nullable: true }) resolvedAt: Date | null;
     /** How it was resolved: staff | auto_learned */

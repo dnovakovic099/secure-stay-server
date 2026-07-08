@@ -11,6 +11,8 @@ export interface LearnedFactInput {
     answer?: string | null;
     sampleThreadId?: number | null;
     source?: string;
+    /** users.id of the staff member who taught this fact (manual paths only). */
+    createdByUserId?: number | null;
 }
 
 const slug = (s: string) =>
@@ -127,6 +129,7 @@ export class AILearnedFactsService {
             existing.lastSeenAt = new Date();
             if (input.answer) existing.answer = input.answer;
             if (input.question) existing.question = input.question;
+            if (input.createdByUserId != null) existing.createdByUserId = input.createdByUserId;
             // Auto-approve keeps still-pending facts flowing to the bot; a rejected
             // fact stays rejected until a human re-approves it. Extracted facts
             // must additionally pass the frequency/coverage gate.
@@ -152,6 +155,7 @@ export class AILearnedFactsService {
             status: autoApproveNew ? "approved" : "pending",
             source: input.source || "nightly_audit",
             sampleThreadId: input.sampleThreadId ?? null,
+            createdByUserId: input.createdByUserId ?? null,
             lastSeenAt: new Date(),
         });
         return this.repo.save(created);

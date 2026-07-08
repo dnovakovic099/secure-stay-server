@@ -197,6 +197,7 @@ export class AICopilotController {
                     question: question || null,
                     answer,
                     source: "simulator",
+                    createdByUserId: userId(request.user),
                 },
                 // Staff explicitly taught this — trusted, no frequency gate.
                 { autoApprove: true, trustedSource: true }

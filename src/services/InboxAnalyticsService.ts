@@ -848,6 +848,7 @@ export class InboxAnalyticsService {
         const { InboxAIAuditService } = await import("./InboxAIAuditService");
         const learned = new AILearnedFactsService();
         const listingId = r.listingId != null ? Number(r.listingId) : null;
+        const byUser = await this.resolveUser(userId);
         await learned.upsert(
             {
                 scope: scope === "portfolio" ? "portfolio" : "property",
@@ -857,13 +858,13 @@ export class InboxAnalyticsService {
                 answer: text,
                 sampleThreadId: Number(r.threadId),
                 source: "manual",
+                createdByUserId: byUser.id,
             },
             { autoApprove: InboxAIAuditService.autoApproveFacts(), trustedSource: true }
         );
-        const resolvedBy = await this.resolveUserName(userId);
         await appDatabase.query(
             `UPDATE ai_message_suggestions SET missResolvedAt = NOW(), missResolvedBy = ? WHERE id = ?`,
-            [resolvedBy, suggestionId]
+            [byUser.name, suggestionId]
         );
         // If the AI had raised a learning question on this thread, the manager's
         // answer covers it — close it so the team isn't asked again in the inbox.
@@ -871,9 +872,10 @@ export class InboxAnalyticsService {
         if (!isQuo) {
             await appDatabase.query(
                 `UPDATE ai_learning_prompts
-                 SET status = 'answered', answerText = ?, answerScope = ?, resolvedAt = NOW(), resolvedVia = 'staff'
+                 SET status = 'answered', answerText = ?, answerScope = ?, answeredByUserId = COALESCE(?, answeredByUserId),
+                     resolvedAt = NOW(), resolvedVia = 'staff'
                  WHERE threadId = ? AND status = 'pending'`,
-                [text, scope === "portfolio" ? "portfolio" : "property", r.threadId]
+                [text, scope === "portfolio" ? "portfolio" : "property", byUser.id, r.threadId]
             );
         }
         return { saved: true };
@@ -894,21 +896,25 @@ export class InboxAnalyticsService {
         return { resolvedAt, resolvedBy };
     }
 
-    /** Resolve a Supabase uid to a display name for attribution; falls back to the raw uid. */
-    private async resolveUserName(userId?: string | null): Promise<string | null> {
+    /** Resolve a Supabase uid to the users row (numeric id + display name); name falls back to the raw uid. */
+    private async resolveUser(userId?: string | null): Promise<{ id: number | null; name: string | null }> {
         const uid = String(userId || "").trim();
-        if (!uid) return null;
+        if (!uid) return { id: null, name: null };
         try {
             const rows: any[] = await appDatabase.query(
-                `SELECT firstName, lastName, email FROM users WHERE uid = ? LIMIT 1`,
+                `SELECT id, firstName, lastName, email FROM users WHERE uid = ? LIMIT 1`,
                 [uid]
             );
             const u = rows?.[0];
             const name = [u?.firstName, u?.lastName].filter(Boolean).join(" ").trim();
-            return name || u?.email || uid;
+            return { id: u?.id != null ? Number(u.id) : null, name: name || u?.email || uid };
         } catch {
-            return uid;
+            return { id: null, name: uid };
         }
+    }
+
+    private async resolveUserName(userId?: string | null): Promise<string | null> {
+        return (await this.resolveUser(userId)).name;
     }
 
     /** Bounded on-demand semantic backfill so the page can populate the chart now. */

@@ -92,6 +92,7 @@ export class AILearningPromptService {
                     answer,
                     sampleThreadId: prompt.threadId,
                     source: "learning_prompt",
+                    createdByUserId: opts.userId ?? null,
                 },
                 // Staff typed this answer themselves — trusted, no frequency gate.
                 { autoApprove: InboxAIAuditService.autoApproveFacts(), trustedSource: true }
@@ -110,6 +111,7 @@ export class AILearningPromptService {
                             answer,
                             sampleThreadId: prompt.threadId,
                             source: "learning_prompt",
+                            createdByUserId: opts.userId ?? null,
                         },
                         { autoApprove: InboxAIAuditService.autoApproveFacts(), trustedSource: true }
                     )
@@ -126,12 +128,13 @@ export class AILearningPromptService {
         return this.repo.save(prompt);
     }
 
-    async dismiss(id: number): Promise<boolean> {
+    async dismiss(id: number, userId?: number | null): Promise<boolean> {
         const prompt = await this.repo.findOne({ where: { id } });
         if (!prompt) return false;
         prompt.status = "dismissed";
         prompt.resolvedAt = new Date();
         prompt.resolvedVia = "dismissed";
+        prompt.answeredByUserId = userId ?? prompt.answeredByUserId;
         await this.repo.save(prompt);
         return true;
     }

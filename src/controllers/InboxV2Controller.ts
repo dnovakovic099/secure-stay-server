@@ -131,13 +131,16 @@ export class InboxV2Controller {
         }
     }
 
-    async dismissLearningPrompt(request: Request, response: Response, next: NextFunction) {
+    async dismissLearningPrompt(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const id = Number(request.params.id);
             if (!Number.isFinite(id)) {
                 return response.status(400).json({ status: false, message: "Invalid id" });
             }
-            const ok = await new AILearningPromptService().dismiss(id);
+            const ok = await new AILearningPromptService().dismiss(
+                id,
+                toNum(request.user?.secureStayUserId ?? request.user?.id)
+            );
             return response.status(200).json({ status: ok });
         } catch (error) {
             return next(error);
