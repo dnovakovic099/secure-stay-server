@@ -30,10 +30,16 @@ export class InboxV2Controller {
                 channel: (request.query.channel as string) || undefined,
                 unreadOnly: request.query.unreadOnly === "true",
                 arrival: (request.query.arrival as string) || undefined,
+                stayTiming: (request.query.stayTiming as string) || undefined,
                 checkinFrom: (request.query.checkinFrom as string) || undefined,
                 checkinTo: (request.query.checkinTo as string) || undefined,
+                checkoutFrom: (request.query.checkoutFrom as string) || undefined,
+                checkoutTo: (request.query.checkoutTo as string) || undefined,
                 propertyType: (request.query.propertyType as string) || undefined,
+                serviceType: (request.query.serviceType as string) || undefined,
+                portfolio: (request.query.portfolio as string) || undefined,
                 reservationStatus: (request.query.reservationStatus as string) || undefined,
+                searchFields: request.query.searchFields as any,
             });
             return response.status(200).json({ status: true, data: result });
         } catch (error) {

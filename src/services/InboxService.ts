@@ -44,6 +44,7 @@ interface ListOptions {
     page?: number;
     perPage?: number;
     keyword?: string;
+    searchFields?: string | string[];
     channel?: string;
     unreadOnly?: boolean;
     /** Quick day filters: guests checking in / checking out today. */
@@ -51,8 +52,13 @@ interface ListOptions {
     /** Check-in date window (YYYY-MM-DD). Same value in both = exact date. */
     checkinFrom?: string;
     checkinTo?: string;
+    checkoutFrom?: string;
+    checkoutTo?: string;
     /** Listing tag bucket: "PM" | "Arb" | "Own" (from listing_info tags). */
     propertyType?: string;
+    serviceType?: string;
+    portfolio?: string;
+    stayTiming?: string;
     /** Reservation status bucket: "inquiry" | "confirmed" | "cancelled". */
     reservationStatus?: string;
 }
@@ -67,6 +73,14 @@ const toDateOrNull = (value: any): Date | null => {
     if (!value) return null;
     const d = new Date(value);
     return Number.isNaN(d.getTime()) ? null : d;
+};
+
+const parseListParam = (value: any): string[] => {
+    if (Array.isArray(value)) return value.flatMap(parseListParam);
+    return String(value || "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
 };
 
 const toDateKey = (value: any): string | null => {
@@ -608,6 +622,8 @@ export class InboxService {
 
         const qb = this.conversationRepo
             .createQueryBuilder("c")
+            .leftJoin(ReservationInfoEntity, "r", "r.id = c.reservationId")
+            .leftJoin(Listing, "l", "l.id = c.listingId")
             .where("c.isArchived = 0");
 
         if (options.channel) {
@@ -629,6 +645,17 @@ export class InboxService {
         }
         if (options.checkinFrom) qb.andWhere("c.checkin >= :cf", { cf: options.checkinFrom });
         if (options.checkinTo) qb.andWhere("c.checkin <= :ct", { ct: options.checkinTo });
+        if (options.checkoutFrom) qb.andWhere("c.checkout >= :cof", { cof: options.checkoutFrom });
+        if (options.checkoutTo) qb.andWhere("c.checkout <= :cot", { cot: options.checkoutTo });
+
+        const stayTiming = String(options.stayTiming || "").toLowerCase();
+        if (stayTiming === "future") {
+            qb.andWhere("c.checkin > :today", { today });
+        } else if (stayTiming === "ongoing") {
+            qb.andWhere("c.checkin <= :today AND c.checkout >= :today", { today });
+        } else if (stayTiming === "past") {
+            qb.andWhere("c.checkout < :today", { today });
+        }
 
         // Reservation status buckets (raw Hostify statuses grouped for the UI).
         const statusBucket = String(options.reservationStatus || "").toLowerCase();
@@ -644,7 +671,6 @@ export class InboxService {
         // priority (own > arb > pm) so filtering agrees with the badge shown.
         const typeBucket = String(options.propertyType || "").toLowerCase();
         if (typeBucket === "pm" || typeBucket === "arb" || typeBucket === "own") {
-            qb.leftJoin(Listing, "l", "l.id = c.listingId");
             const raw = "LOWER(CONCAT(COALESCE(l.tags, ''), ' ', COALESCE(l.propertyType, '')))";
             if (typeBucket === "own") {
                 qb.andWhere(`${raw} LIKE '%own%'`);
@@ -655,14 +681,73 @@ export class InboxService {
             }
         }
 
+        const serviceBucket = String(options.serviceType || "").toLowerCase();
+        if (serviceBucket === "full" || serviceBucket === "pro" || serviceBucket === "launch") {
+            const raw = "LOWER(COALESCE(l.tags, ''))";
+            qb.andWhere(`${raw} LIKE :serviceBucket`, { serviceBucket: `%${serviceBucket}%` });
+        }
+
+        const portfolioBucket = String(options.portfolio || "").toLowerCase();
+        if (portfolioBucket === "g1" || portfolioBucket === "group1" || portfolioBucket === "group 1") {
+            const raw = "LOWER(COALESCE(l.tags, ''))";
+            qb.andWhere(`(${raw} LIKE '%group 1%' OR ${raw} LIKE '%group1%' OR ${raw} LIKE '%g1%')`);
+        } else if (portfolioBucket === "g2" || portfolioBucket === "group2" || portfolioBucket === "group 2") {
+            const raw = "LOWER(COALESCE(l.tags, ''))";
+            qb.andWhere(`(${raw} LIKE '%group 2%' OR ${raw} LIKE '%group2%' OR ${raw} LIKE '%g2%')`);
+        }
+
         if (options.keyword) {
             const kw = `%${options.keyword.trim()}%`;
+            const searchFields = parseListParam(options.searchFields);
+            const fields = searchFields.length ? searchFields : ["guest", "confirmation"];
             qb.andWhere(
                 new Brackets((b) => {
-                    b.where("c.guestName LIKE :kw", { kw })
-                        .orWhere("c.guestPhone LIKE :kw", { kw })
-                        .orWhere("c.listingName LIKE :kw", { kw })
-                        .orWhere("c.lastMessageText LIKE :kw", { kw });
+                    let hasCondition = false;
+                    const addWhere = (condition: string) => {
+                        if (hasCondition) b.orWhere(condition, { kw });
+                        else {
+                            b.where(condition, { kw });
+                            hasCondition = true;
+                        }
+                    };
+
+                    for (const field of fields) {
+                        switch (field) {
+                            case "guest":
+                                addWhere("c.guestName LIKE :kw");
+                                break;
+                            case "confirmation":
+                                addWhere("r.confirmation_code LIKE :kw");
+                                break;
+                            case "conversation":
+                                addWhere(`EXISTS (
+                                    SELECT 1 FROM inbox_messages m
+                                    WHERE m.threadId = c.threadId
+                                    AND (m.body LIKE :kw OR m.note LIKE :kw)
+                                )`);
+                                break;
+                            case "reservationNotes":
+                                addWhere("r.hostNote LIKE :kw");
+                                break;
+                            case "cleaningNotes":
+                                addWhere(`EXISTS (
+                                    SELECT 1 FROM inbox_messages m
+                                    WHERE m.threadId = c.threadId
+                                    AND m.note LIKE :kw
+                                )`);
+                                break;
+                            case "phone":
+                                addWhere("(c.guestPhone LIKE :kw OR r.phone LIKE :kw)");
+                                break;
+                            case "email":
+                                addWhere("(c.guestEmail LIKE :kw OR r.guestEmail LIKE :kw)");
+                                break;
+                        }
+                    }
+
+                    if (!hasCondition) {
+                        b.where("c.guestName LIKE :kw", { kw }).orWhere("r.confirmation_code LIKE :kw", { kw });
+                    }
                 })
             );
         }
