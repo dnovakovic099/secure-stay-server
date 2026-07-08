@@ -766,11 +766,12 @@ export class InboxAIService {
     }
 
     /**
-     * Catch-up sweep: generate shadow suggestions for linked Quo threads whose
-     * latest inbound message never got one. The debounce timers live in-process,
-     * so deploys/restarts drop them, and the webhook can miss events — without
-     * this sweep those threads never enter the analytics dataset. Deduped per
-     * message, so repeat runs are cheap.
+     * Catch-up sweep: generate shadow suggestions for Quo threads whose latest
+     * inbound message never got one. The debounce timers live in-process, so
+     * deploys/restarts drop them, and the webhook can miss events — without
+     * this sweep those threads never get a pre-generated draft (and linked ones
+     * never enter the analytics dataset). Deduped per message, so repeat runs
+     * are cheap.
      */
     async quoCatchUpSweep(hours = Number(process.env.QUO_AI_SWEEP_HOURS || 48)): Promise<{ scanned: number; generated: number }> {
         if (!InboxAIService.quoSuggestionsEnabled()) return { scanned: 0, generated: 0 };
@@ -779,9 +780,11 @@ export class InboxAIService {
         const quoMsgRepo = appDatabase.getRepository(QuoMessageEntity);
         const convs = await quoConvRepo
             .createQueryBuilder("c")
-            .where("c.reservationId IS NOT NULL")
-            .andWhere("c.lastMessageAt >= :since", { since })
-            .orderBy("c.lastMessageAt", "DESC")
+            .where("c.lastMessageAt >= :since", { since })
+            // Threads still waiting on a reply first — they're the ones staff
+            // will open next and expect an instant suggestion in.
+            .orderBy("CASE WHEN c.lastDirection = 'incoming' THEN 0 ELSE 1 END", "ASC")
+            .addOrderBy("c.lastMessageAt", "DESC")
             .take(300)
             .getMany();
 
@@ -818,18 +821,20 @@ export class InboxAIService {
 
     /**
      * Shadow suggestion for a Quo thread: loads the conversation, generates and
-     * PERSISTS a suggestion for the latest inbound message so the nightly audit
-     * can pair it with the team's actual SMS reply — the same learning dataset
-     * the Hostify inbox builds. Only runs for reservation-linked threads:
-     * unlinked SMS (owners, vendors, unknown numbers) has no listing context
-     * and would pollute the quality metrics.
+     * PERSISTS a suggestion for the latest inbound message. For linked threads
+     * the nightly audit pairs it with the team's actual SMS reply — the same
+     * learning dataset the Hostify inbox builds. Unlinked threads get drafts for
+     * inbox UX only; analytics queries filter them out (no property context).
      */
     async quoShadowSuggest(conversationId: string): Promise<AIMessageSuggestionEntity | null> {
         if (!InboxAIService.quoSuggestionsEnabled()) return null;
         const conv = await appDatabase
             .getRepository(QuoConversationEntity)
             .findOne({ where: { conversationId } });
-        if (!conv || !conv.reservationId) return null;
+        // Unlinked threads get drafts too (so the inbox shows a suggestion
+        // instantly instead of "Thinking…"), but analytics scoring stays
+        // linked-only — unlinked drafts have no property context to grade.
+        if (!conv) return null;
         // NOTE: no lastDirection gate here. The team often texts back within the
         // debounce window; the draft is still generated (blind — the transcript is
         // truncated at the guest message) so the audit can grade it against the

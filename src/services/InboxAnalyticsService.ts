@@ -321,6 +321,10 @@ export class InboxAnalyticsService {
                        LEFT JOIN quo_conversations c ON c.id = s.threadId
                        LEFT JOIN quo_messages gm ON gm.id = s.messageId
                        WHERE s.source = 'quo'
+                         -- Linked threads only: unlinked SMS drafts exist for UX
+                         -- (instant suggestions) but have no property context, so
+                         -- grading them would be noise.
+                         AND s.reservationId IS NOT NULL
                          AND s.actualReplyText IS NOT NULL AND s.actualReplyText <> ''
                          AND s.suggestedReply IS NOT NULL AND s.suggestedReply <> ''
                          AND s.generatedAt >= (NOW() - INTERVAL ? DAY)
