@@ -766,6 +766,57 @@ export class InboxAIService {
     }
 
     /**
+     * Catch-up sweep: generate shadow suggestions for linked Quo threads whose
+     * latest inbound message never got one. The debounce timers live in-process,
+     * so deploys/restarts drop them, and the webhook can miss events — without
+     * this sweep those threads never enter the analytics dataset. Deduped per
+     * message, so repeat runs are cheap.
+     */
+    async quoCatchUpSweep(hours = Number(process.env.QUO_AI_SWEEP_HOURS || 48)): Promise<{ scanned: number; generated: number }> {
+        if (!InboxAIService.quoSuggestionsEnabled()) return { scanned: 0, generated: 0 };
+        const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+        const quoConvRepo = appDatabase.getRepository(QuoConversationEntity);
+        const quoMsgRepo = appDatabase.getRepository(QuoMessageEntity);
+        const convs = await quoConvRepo
+            .createQueryBuilder("c")
+            .where("c.reservationId IS NOT NULL")
+            .andWhere("c.lastMessageAt >= :since", { since })
+            .orderBy("c.lastMessageAt", "DESC")
+            .take(300)
+            .getMany();
+
+        let generated = 0;
+        for (const conv of convs) {
+            try {
+                const latest = await quoMsgRepo
+                    .createQueryBuilder("m")
+                    .where("m.conversationId = :cid", { cid: conv.conversationId })
+                    .andWhere("m.direction = :dir", { dir: "incoming" })
+                    .andWhere("TRIM(COALESCE(m.body, '')) != ''")
+                    .orderBy("m.sentAt", "DESC")
+                    .getOne();
+                if (!latest || (latest.sentAt && latest.sentAt < since)) continue;
+                // Skip bursts still inside the debounce window; the timer (or the
+                // next sweep) will pick them up once the thread settles.
+                if (latest.sentAt && Date.now() - latest.sentAt.getTime() < InboxAIService.QUO_SUGGEST_DEBOUNCE_MS) continue;
+                const existing = await this.suggestionRepo.findOne({
+                    where: { source: "quo", threadId: conv.id, messageId: latest.id },
+                });
+                if (existing) continue;
+                const s = await this.quoShadowSuggest(conv.conversationId);
+                if (s) {
+                    generated++;
+                    await new Promise((r) => setTimeout(r, 400)); // pace OpenAI calls
+                }
+            } catch (err: any) {
+                logger.warn(`[InboxAI] Quo catch-up sweep failed for ${conv.conversationId}: ${err?.message}`);
+            }
+        }
+        if (generated) logger.info(`[InboxAI] Quo catch-up sweep generated ${generated} shadow suggestion(s) (scanned ${convs.length})`);
+        return { scanned: convs.length, generated };
+    }
+
+    /**
      * Shadow suggestion for a Quo thread: loads the conversation, generates and
      * PERSISTS a suggestion for the latest inbound message so the nightly audit
      * can pair it with the team's actual SMS reply — the same learning dataset
@@ -779,7 +830,10 @@ export class InboxAIService {
             .getRepository(QuoConversationEntity)
             .findOne({ where: { conversationId } });
         if (!conv || !conv.reservationId) return null;
-        if (conv.lastDirection !== "incoming") return null;
+        // NOTE: no lastDirection gate here. The team often texts back within the
+        // debounce window; the draft is still generated (blind — the transcript is
+        // truncated at the guest message) so the audit can grade it against the
+        // team's actual reply. Skipping fast-answered threads starved analytics.
         // Webhook (API cluster) and the 3-min poll (cron worker) both schedule
         // this; a named MySQL lock makes one worker win, the loser skips.
         const runner = appDatabase.createQueryRunner();
@@ -824,7 +878,7 @@ export class InboxAIService {
         const quoMsgRepo = appDatabase.getRepository(QuoMessageEntity);
         const conv = await quoConvRepo.findOne({ where: { conversationId } });
         if (!conv) throw new Error(`Quo conversation ${conversationId} not found`);
-        const quoMessages = await quoMsgRepo.find({
+        let quoMessages = await quoMsgRepo.find({
             where: { conversationId },
             order: { sentAt: "ASC" },
             take: 500,
@@ -841,6 +895,14 @@ export class InboxAIService {
         if (!targetQuo) {
             if (opts.persistOnly) return null;
             throw new Error("No inbound guest message to reply to");
+        }
+
+        // Draft "as of" the guest message: drop anything sent after it (e.g. the
+        // team's reply when they beat the debounce timer). Keeps shadow drafts
+        // blind so the audit's suggestion-vs-team comparison stays honest.
+        const targetIdx = quoMessages.indexOf(targetQuo);
+        if (targetIdx >= 0 && targetIdx < quoMessages.length - 1) {
+            quoMessages = quoMessages.slice(0, targetIdx + 1);
         }
 
         // Dedupe: reuse the stored suggestion for this exact message unless forced.

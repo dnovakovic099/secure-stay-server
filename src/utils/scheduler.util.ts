@@ -613,6 +613,25 @@ export function scheduleGetReservation() {
     }
   );
 
+  // Quo shadow-suggestion catch-up — every 15 minutes. The per-message debounce
+  // timers are in-process (lost on deploy/restart) and threads answered inside
+  // the debounce window used to be skipped entirely; this sweep generates any
+  // missing shadow suggestion for recently-active linked threads so the
+  // audit/analytics dataset stays complete. Deduped per message = cheap reruns.
+  schedule.scheduleJob(
+    "7-59/15 * * * *",
+    async () => {
+      if (String(process.env.QUO_INBOX_SYNC_ENABLED || "true").toLowerCase() === "false") return;
+      if (!QuoInboxService.isConfigured()) return;
+      try {
+        const { InboxAIService } = require("../services/InboxAIService");
+        await new InboxAIService().quoCatchUpSweep();
+      } catch (error) {
+        logger.error("[QuoInbox] Error in shadow-suggestion catch-up sweep:", error);
+      }
+    }
+  );
+
   // GR Tasks Overdue Escalation - Every 5 minutes (offset by 2 min to avoid colliding with checkUnasweredMessagesHostify)
   schedule.scheduleJob(
     "2-59/5 * * * *",

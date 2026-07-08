@@ -115,11 +115,21 @@ export class InboxAIAuditService {
     ): Promise<{ body: string | null; externalId: number | null; sentAt: Date | null } | null> {
         if (s.source === "quo") {
             if (!s.quoConversationId) return null;
+            // Anchor on the guest message time, not generatedAt: shadow drafts are
+            // often generated AFTER the team already texted back (debounce race /
+            // catch-up sweep), and those replies must still pair up.
+            let anchor: Date = s.generatedAt;
+            if (s.messageId != null) {
+                const gm = await this.quoMessageRepo
+                    .findOne({ where: { id: Number(s.messageId) } })
+                    .catch(() => null);
+                if (gm?.sentAt) anchor = gm.sentAt;
+            }
             const m = await this.quoMessageRepo
                 .createQueryBuilder("m")
                 .where("m.conversationId = :cid", { cid: s.quoConversationId })
                 .andWhere("m.direction = :dir", { dir: "outgoing" })
-                .andWhere("m.sentAt > :genAt", { genAt: s.generatedAt })
+                .andWhere("m.sentAt > :anchor", { anchor })
                 .orderBy("m.sentAt", "ASC")
                 .getOne();
             return m ? { body: m.body, externalId: m.id, sentAt: m.sentAt } : null;
