@@ -138,12 +138,13 @@ export class HostifyOwnerSyncService {
 
             for (const owner of owners) {
                 try {
-                    // Check if client already exists (by email or hostify source)
+                    // Check if client already exists (by hostify source, or email
+                    // when the owner actually has one — an empty email must never
+                    // match another client's empty email).
+                    const where: any[] = [{ source: `hostify:${owner.hostifyId}` }];
+                    if (owner.email && owner.email.trim()) where.push({ email: owner.email });
                     let existingClient = await this.clientRepo.findOne({
-                        where: [
-                            { email: owner.email },
-                            { source: `hostify:${owner.hostifyId}` }
-                        ],
+                        where,
                         relations: ['properties']
                     });
 

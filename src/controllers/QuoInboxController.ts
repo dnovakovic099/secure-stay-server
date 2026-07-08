@@ -161,6 +161,19 @@ export class QuoInboxController {
         }
     };
 
+    /** Manually link/unlink a PM client (owner) to a conversation. */
+    linkClient = async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const raw = req.body?.clientId;
+            const clientId = raw != null && String(raw).trim() ? String(raw).trim() : null;
+            const conv = await this.service.manualLinkClient(String(req.params.conversationId), clientId);
+            if (!conv) return res.status(404).json({ status: false, message: "Conversation or client not found" });
+            res.status(200).json({ status: true, data: conv });
+        } catch (error) {
+            next(error);
+        }
+    };
+
     /** Inbound Quo message webhook — authenticated by the token in the URL. */
     webhook = async (req: Request, res: Response) => {
         // Always 200 quickly; Quo retries/disables noisy endpoints otherwise.

@@ -580,6 +580,20 @@ export function scheduleGetReservation() {
         logger.error('[QuoInbox] Webhook registration failed:', error);
       }
     }, 15 * 1000);
+
+    // One-time PM client backfill shortly after boot: link existing PM-line
+    // conversations to clients so the AI context works from day one instead of
+    // waiting for the nightly pipeline.
+    setTimeout(async () => {
+      try {
+        const relink = await new QuoInboxService().relinkPmClients();
+        if (relink.linked) {
+          logger.info(`[PMClientSync] Boot relink — linked=${relink.linked}/${relink.scanned}`);
+        }
+      } catch (error) {
+        logger.error('[PMClientSync] Boot relink failed:', error);
+      }
+    }, 60 * 1000);
   }
 
   // Quo (OpenPhone) SMS inbox sync — every 3 minutes, PM/GR lines only.
@@ -628,6 +642,33 @@ export function scheduleGetReservation() {
         await new InboxAIService().quoCatchUpSweep();
       } catch (error) {
         logger.error("[QuoInbox] Error in shadow-suggestion catch-up sweep:", error);
+      }
+    }
+  );
+
+  // PM client data pipeline — daily at 4:40 AM ET:
+  //  1. Sync Hostify owners into client_management/client_properties (the
+  //     "client data" table the PM-inbox AI reads its context from).
+  //  2. Re-link PM-line Quo conversations to clients (new phone numbers land).
+  // Kill switch: PM_CLIENT_SYNC_ENABLED=false.
+  schedule.scheduleJob(
+    { hour: 4, minute: 40, tz: "America/New_York" },
+    async () => {
+      if (String(process.env.PM_CLIENT_SYNC_ENABLED || "true").toLowerCase() === "false") return;
+      try {
+        const { HostifyOwnerSyncService } = require("../services/HostifyOwnerSyncService");
+        const result = await new HostifyOwnerSyncService().syncOwners("system-cron");
+        logger.info(`[PMClientSync] Owner sync — created=${result.created}, updated=${result.updated}, skipped=${result.skipped}`);
+      } catch (error) {
+        logger.error("[PMClientSync] Owner sync failed:", error);
+      }
+      try {
+        if (QuoInboxService.isConfigured()) {
+          const relink = await new QuoInboxService().relinkPmClients();
+          logger.info(`[PMClientSync] PM conversation relink — linked=${relink.linked}/${relink.scanned}`);
+        }
+      } catch (error) {
+        logger.error("[PMClientSync] PM conversation relink failed:", error);
       }
     }
   );

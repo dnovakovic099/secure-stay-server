@@ -61,6 +61,18 @@ export class QuoConversationEntity {
     @Column({ length: 20, nullable: true })
     linkMethod: string | null;
 
+    // --- PM client link (owner chats on PM lines → client_management) ---
+    @Index()
+    @Column({ length: 36, nullable: true })
+    pmClientId: string | null;
+
+    @Column({ length: 255, nullable: true })
+    pmClientName: string | null;
+
+    /** phone | manual */
+    @Column({ length: 20, nullable: true })
+    pmClientLinkMethod: string | null;
+
     @Column({ type: "text", nullable: true })
     lastMessageText: string | null;
 

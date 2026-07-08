@@ -6,6 +6,7 @@ import { QuoPhoneLineEntity } from "../entity/QuoPhoneLine";
 import { QuoConversationEntity } from "../entity/QuoConversation";
 import { QuoMessageEntity } from "../entity/QuoMessage";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
+import { ClientEntity } from "../entity/Client";
 
 /**
  * QuoInboxService — separate SMS inbox for our Quo (OpenPhone) PM/GR lines.
@@ -119,7 +120,10 @@ export class QuoInboxService {
         const line = await this.lineRepo.findOne({ where: { id } });
         if (!line) return null;
         if (patch.enabled !== undefined) line.enabled = patch.enabled ? 1 : 0;
-        if (patch.category !== undefined) line.category = patch.category;
+        if (patch.category !== undefined) {
+            line.category = patch.category;
+            QuoInboxService.lineCategoryCache = null; // AI persona routing reads this
+        }
         if (patch.name !== undefined) line.name = patch.name;
         return this.lineRepo.save(line);
     }
@@ -345,11 +349,23 @@ export class QuoInboxService {
         conv = await this.conversationRepo.save(conv);
 
         // Reservation linking — on new conversations or when still unlinked.
-        if ((isNew || !conv.reservationId) && conv.linkMethod !== "manual") {
+        // Skipped on PM lines: those are owner chats, and owner-block
+        // reservations carry the owner's phone, which would false-link the
+        // thread to a "reservation" and flip the AI into guest mode.
+        if (line.category !== "PM" && (isNew || !conv.reservationId) && conv.linkMethod !== "manual") {
             try {
                 await this.resolveReservationLink(conv);
             } catch (err: any) {
                 logger.warn(`[QuoInbox] Reservation link failed for ${conv.conversationId}: ${err?.message}`);
+            }
+        }
+
+        // PM client linking — PM lines carry owner chats; match against clients.
+        if (!conv.pmClientId && conv.pmClientLinkMethod !== "manual" && line.category === "PM") {
+            try {
+                await this.resolvePmClientLink(conv);
+            } catch (err: any) {
+                logger.warn(`[QuoInbox] PM client link failed for ${conv.conversationId}: ${err?.message}`);
             }
         }
 
@@ -455,6 +471,117 @@ export class QuoInboxService {
         conv.listingName = r.listingName || null;
         conv.guestName = r.guestName || null;
         conv.linkMethod = method;
+    }
+
+    // -------------------------------------------------------------------------
+    // PM client linking — conversations on PM lines are chats with property
+    // OWNERS (our management clients), not guests. Link them to
+    // client_management so the AI gets the client's profile + portfolio.
+    // -------------------------------------------------------------------------
+
+    /** phoneNumberId -> line category, cached per process for 10 minutes. */
+    private static lineCategoryCache: { map: Map<string, string>; fetchedAt: number } | null = null;
+
+    async lineCategory(phoneNumberId: string): Promise<string | null> {
+        const now = Date.now();
+        if (!QuoInboxService.lineCategoryCache || now - QuoInboxService.lineCategoryCache.fetchedAt > 10 * 60 * 1000) {
+            const lines = await this.lineRepo.find();
+            QuoInboxService.lineCategoryCache = {
+                map: new Map(lines.map((l) => [l.phoneNumberId, l.category])),
+                fetchedAt: now,
+            };
+        }
+        return QuoInboxService.lineCategoryCache.map.get(phoneNumberId) || null;
+    }
+
+    /**
+     * Match the participant phone against client_management (primary phone) and
+     * client_secondary_contacts. Last-10-digit comparison, same as reservations.
+     */
+    async resolvePmClientLink(conv: QuoConversationEntity): Promise<boolean> {
+        const d = QuoInboxService.digits(conv.participantPhone);
+        if (d.length < 10) return false;
+        const last10 = d.slice(-10);
+        const norm = (col: string) =>
+            `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(${col},''),' ',''),'-',''),'(',''),')',''),'+','')`;
+        const displayName = (c: { preferredName?: string | null; firstName?: string | null; lastName?: string | null }) =>
+            [c.preferredName || c.firstName, c.lastName].filter(Boolean).join(" ").trim() || null;
+
+        // Primary contact first, then secondary contacts (spouse/assistant).
+        let clientId: string | null = null;
+        let clientName: string | null = null;
+        const primary = await appDatabase
+            .getRepository(ClientEntity)
+            .createQueryBuilder("c")
+            .where(`${norm("c.phone")} LIKE :p`, { p: `%${last10}` })
+            .getOne();
+        if (primary) {
+            clientId = primary.id;
+            clientName = displayName(primary);
+        } else {
+            const { ClientSecondaryContact } = await import("../entity/ClientSecondaryContact");
+            const sec = await appDatabase
+                .getRepository(ClientSecondaryContact)
+                .createQueryBuilder("s")
+                .innerJoinAndSelect("s.client", "c")
+                .where(`${norm("s.phone")} LIKE :p`, { p: `%${last10}` })
+                .getOne();
+            if (sec?.client) {
+                clientId = sec.client.id;
+                const primaryName = displayName(sec.client);
+                const contactName = [sec.firstName, sec.lastName].filter(Boolean).join(" ").trim();
+                clientName = contactName && contactName !== primaryName ? `${contactName} (for ${primaryName})` : primaryName;
+            }
+        }
+        if (!clientId) return false;
+        conv.pmClientId = clientId;
+        conv.pmClientName = clientName;
+        conv.pmClientLinkMethod = "phone";
+        await this.conversationRepo.save(conv);
+        return true;
+    }
+
+    /** Manual PM-client link/unlink from the dashboard. */
+    async manualLinkClient(conversationId: string, clientId: string | null): Promise<QuoConversationEntity | null> {
+        const conv = await this.conversationRepo.findOne({ where: { conversationId } });
+        if (!conv) return null;
+        if (!clientId) {
+            conv.pmClientId = null;
+            conv.pmClientName = null;
+            conv.pmClientLinkMethod = null;
+        } else {
+            const client = await appDatabase.getRepository(ClientEntity).findOne({ where: { id: clientId } });
+            if (!client) return null;
+            conv.pmClientId = client.id;
+            conv.pmClientName =
+                [client.preferredName || client.firstName, client.lastName].filter(Boolean).join(" ").trim() || null;
+            conv.pmClientLinkMethod = "manual";
+        }
+        return this.conversationRepo.save(conv);
+    }
+
+    /**
+     * Backfill sweep: link any PM-line conversation that has no client yet.
+     * Runs after the daily owner sync so fresh client phone numbers take effect;
+     * cheap to rerun (skips manual links and already-linked threads).
+     */
+    async relinkPmClients(): Promise<{ scanned: number; linked: number }> {
+        const convs = await this.conversationRepo
+            .createQueryBuilder("c")
+            .where("c.pmClientId IS NULL")
+            .andWhere("(c.pmClientLinkMethod IS NULL OR c.pmClientLinkMethod != 'manual')")
+            .andWhere("c.phoneNumberId IN (SELECT phoneNumberId FROM quo_phone_lines WHERE category = 'PM')")
+            .getMany();
+        let linked = 0;
+        for (const conv of convs) {
+            try {
+                if (await this.resolvePmClientLink(conv)) linked++;
+            } catch (err: any) {
+                logger.warn(`[QuoInbox] PM client relink failed for ${conv.conversationId}: ${err?.message}`);
+            }
+        }
+        if (linked) logger.info(`[QuoInbox] PM client relink: linked ${linked}/${convs.length} conversation(s)`);
+        return { scanned: convs.length, linked };
     }
 
     /** Manual link/unlink from the dashboard. */
@@ -705,11 +832,20 @@ export class QuoInboxService {
         conv.syncedAt = new Date();
         conv = await this.conversationRepo.save(conv);
 
-        if ((isNew || !conv.reservationId) && conv.linkMethod !== "manual") {
+        // (Same PM-line skip as the poll path — owner phones false-match reservations.)
+        if (line.category !== "PM" && (isNew || !conv.reservationId) && conv.linkMethod !== "manual") {
             try {
                 await this.resolveReservationLink(conv);
             } catch (err: any) {
                 logger.warn(`[QuoInbox] Reservation link failed for ${conversationId}: ${err?.message}`);
+            }
+        }
+
+        if (!conv.pmClientId && conv.pmClientLinkMethod !== "manual" && line.category === "PM") {
+            try {
+                await this.resolvePmClientLink(conv);
+            } catch (err: any) {
+                logger.warn(`[QuoInbox] PM client link failed for ${conversationId}: ${err?.message}`);
             }
         }
 

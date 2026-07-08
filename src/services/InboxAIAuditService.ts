@@ -130,6 +130,9 @@ export class InboxAIAuditService {
                 .where("m.conversationId = :cid", { cid: s.quoConversationId })
                 .andWhere("m.direction = :dir", { dir: "outgoing" })
                 .andWhere("m.sentAt > :anchor", { anchor })
+                // AI auto-sent replies are not "the team's reply" — pairing a
+                // suggestion with itself would fake a 100% similarity score.
+                .andWhere("(m.senderName IS NULL OR m.senderName != :ai)", { ai: "SecureStay AI" })
                 .orderBy("m.sentAt", "ASC")
                 .getOne();
             return m ? { body: m.body, externalId: m.id, sentAt: m.sentAt } : null;

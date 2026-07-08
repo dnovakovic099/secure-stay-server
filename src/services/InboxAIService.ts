@@ -741,6 +741,20 @@ export class InboxAIService {
         );
     }
 
+    /** Sender label on AI-delivered Quo replies (also filters them out of audit pairing). */
+    static readonly QUO_AI_SENDER = "SecureStay AI";
+
+    /**
+     * PM-client auto-respond gate. ON by default when AI messaging is on;
+     * QUO_PM_AUTORESPOND_ENABLED=false turns it off, and the global
+     * AI_MESSAGING_AUTOSEND_ENABLED=false hard kill also applies.
+     */
+    static quoPmAutoRespondEnabled(): boolean {
+        if (!InboxAIService.quoSuggestionsEnabled()) return false;
+        if (String(process.env.AI_MESSAGING_AUTOSEND_ENABLED || "").toLowerCase() === "false") return false;
+        return String(process.env.QUO_PM_AUTORESPOND_ENABLED || "true").toLowerCase() !== "false";
+    }
+
     // SMS arrives in bursts; wait for the thread to settle and generate one
     // suggestion against the latest inbound instead of one per text.
     private static quoPendingTimers = new Map<string, NodeJS.Timeout>();
@@ -757,8 +771,9 @@ export class InboxAIService {
         if (existing) clearTimeout(existing);
         const timer = setTimeout(() => {
             InboxAIService.quoPendingTimers.delete(conversationId);
-            new InboxAIService()
-                .quoShadowSuggest(conversationId)
+            const svc = new InboxAIService();
+            svc.quoShadowSuggest(conversationId)
+                .then(() => svc.quoMaybeAutoRespond(conversationId)) // PM client threads only; self-gates
                 .catch((err) => logger.warn(`[InboxAI] Quo shadow suggestion failed for ${conversationId}: ${err?.message}`));
         }, InboxAIService.QUO_SUGGEST_DEBOUNCE_MS);
         timer.unref?.();
@@ -805,10 +820,22 @@ export class InboxAIService {
                 const existing = await this.suggestionRepo.findOne({
                     where: { source: "quo", threadId: conv.id, messageId: latest.id },
                 });
-                if (existing) continue;
+                if (existing) {
+                    // Suggestion exists but a restart may have dropped the
+                    // auto-send step for PM client threads — retry it (self-gates
+                    // on line category, freshness, status and confidence).
+                    if (existing.status === "suggested" && conv.lastDirection === "incoming") {
+                        await this.quoMaybeAutoRespond(conv.conversationId);
+                    }
+                    continue;
+                }
                 const s = await this.quoShadowSuggest(conv.conversationId);
                 if (s) {
                     generated++;
+                    // PM client threads: the sweep is also the auto-respond safety
+                    // net when the debounce timer was lost (deploy/restart).
+                    // Self-gates on line category, freshness and confidence.
+                    await this.quoMaybeAutoRespond(conv.conversationId);
                     await new Promise((r) => setTimeout(r, 400)); // pace OpenAI calls
                 }
             } catch (err: any) {
@@ -852,6 +879,122 @@ export class InboxAIService {
         } finally {
             await runner.query("SELECT RELEASE_LOCK(?)", [lockName]).catch(() => undefined);
             await runner.release().catch(() => undefined);
+        }
+    }
+
+    /**
+     * Auto-respond to PM CLIENT (owner) SMS threads. Runs after the shadow
+     * suggestion is persisted; delivers it only when ALL guardrails pass:
+     *   - feature enabled (quoPmAutoRespondEnabled)
+     *   - PM line AND a linked client (never auto-text unknown numbers)
+     *   - the thread is still awaiting a reply (no human beat us to it)
+     *   - the inbound message is fresh (default < 6h — no 2-day-late texts)
+     *   - no escalation flag, no model warnings, non-empty reply
+     *   - min(self-confidence, verifier confidence) ≥ the configured threshold;
+     *     a missing verifier score fails closed
+     * Same guardrail set as the Hostify auto-send. Never throws.
+     */
+    async quoMaybeAutoRespond(
+        conversationId: string
+    ): Promise<{ sent: boolean; reason: string; suggestionId?: number }> {
+        try {
+            if (!InboxAIService.quoPmAutoRespondEnabled()) return { sent: false, reason: "disabled" };
+            const { QuoInboxService } = await import("./QuoInboxService");
+            const quoService = new QuoInboxService();
+            const conv = await appDatabase
+                .getRepository(QuoConversationEntity)
+                .findOne({ where: { conversationId } });
+            if (!conv) return { sent: false, reason: "conversation_not_found" };
+            const category = await quoService.lineCategory(conv.phoneNumberId).catch(() => null);
+            if (category !== "PM") return { sent: false, reason: "not_pm_line" };
+            if (!conv.pmClientId) return { sent: false, reason: "no_client_link" };
+            if (conv.lastDirection !== "incoming") return { sent: false, reason: "already_answered" };
+
+            // Latest inbound with a body = the message we'd be answering.
+            const target = await appDatabase
+                .getRepository(QuoMessageEntity)
+                .createQueryBuilder("m")
+                .where("m.conversationId = :cid", { cid: conversationId })
+                .andWhere("m.direction = 'incoming'")
+                .andWhere("TRIM(COALESCE(m.body, '')) != ''")
+                .orderBy("m.sentAt", "DESC")
+                .getOne();
+            if (!target) return { sent: false, reason: "no_inbound" };
+            const maxAgeMs = Number(process.env.QUO_PM_AUTORESPOND_MAX_AGE_HOURS || 6) * 60 * 60 * 1000;
+            if (target.sentAt && Date.now() - target.sentAt.getTime() > maxAgeMs) {
+                return { sent: false, reason: "message_too_old" };
+            }
+
+            // The shadow pipeline persists the suggestion first; reuse it.
+            let suggestion = await this.suggestionRepo.findOne({
+                where: { source: "quo", threadId: conv.id, messageId: target.id },
+                order: { generatedAt: "DESC", id: "DESC" },
+            });
+            if (!suggestion) {
+                const gen = await this.quoSuggestReply(conversationId, { persistOnly: true });
+                suggestion = gen?.suggestion ?? null;
+            }
+            if (!suggestion) return { sent: false, reason: "no_suggestion" };
+            if (suggestion.status !== "suggested") {
+                return { sent: false, reason: `status_${suggestion.status}`, suggestionId: suggestion.id };
+            }
+
+            // ---- Hard guardrails (any failure => leave for a human) ----
+            const reply = (suggestion.suggestedReply || "").trim();
+            const warnings = this.safeJsonArray(suggestion.warnings);
+            const selfConf = suggestion.confidence != null ? Number(suggestion.confidence) : null;
+            const verConf = suggestion.verifierConfidence != null ? Number(suggestion.verifierConfidence) : null;
+            const conf = selfConf != null && verConf != null ? Math.min(selfConf, verConf) : null;
+            const minConf = await InboxAIService.autosendMinConfidenceAsync();
+            const skip = (reason: string) => {
+                logger.info(`[InboxAI] Quo PM auto-respond skipped for ${conversationId}: ${reason}`);
+                return { sent: false, reason, suggestionId: suggestion!.id };
+            };
+            if (suggestion.escalationRequired) return skip("escalation_required");
+            if (!reply) return skip("empty_reply");
+            if (warnings.length > 0) return skip("model_warnings");
+            if (conf == null || conf < minConf) {
+                return skip(`low_confidence:self=${selfConf ?? "?"},verified=${verConf ?? "?"}<${minConf}`);
+            }
+
+            // Cross-worker dedupe + last-second race check (team may have replied
+            // while we were generating/verifying).
+            const runner = appDatabase.createQueryRunner();
+            const lockName = `ss_quoautosend_${conversationId}`;
+            try {
+                await runner.connect();
+                const lockRows: any[] = await runner.query("SELECT GET_LOCK(?, 0) AS l", [lockName]);
+                if (!Number(lockRows?.[0]?.l)) return { sent: false, reason: "locked" };
+
+                const replied = await appDatabase
+                    .getRepository(QuoMessageEntity)
+                    .createQueryBuilder("m")
+                    .where("m.conversationId = :cid", { cid: conversationId })
+                    .andWhere("m.direction = 'outgoing'")
+                    .andWhere("m.sentAt > :after", { after: target.sentAt })
+                    .getOne();
+                if (replied) return { sent: false, reason: "human_replied", suggestionId: suggestion.id };
+                const fresh = await this.suggestionRepo.findOne({ where: { id: suggestion.id } });
+                if (!fresh || fresh.status !== "suggested") {
+                    return { sent: false, reason: "status_changed", suggestionId: suggestion.id };
+                }
+
+                const msg = await quoService.sendReply(conversationId, reply, InboxAIService.QUO_AI_SENDER);
+                suggestion.status = "auto_sent";
+                suggestion.finalSentMessageId = msg?.id ?? null;
+                await this.suggestionRepo.save(suggestion);
+                logger.info(
+                    `[InboxAI] Quo PM auto-respond SENT for ${conversationId} ` +
+                        `(client ${conv.pmClientName || conv.pmClientId}, suggestion ${suggestion.id}, conf ${conf})`
+                );
+                return { sent: true, reason: "sent", suggestionId: suggestion.id };
+            } finally {
+                await runner.query("SELECT RELEASE_LOCK(?)", [lockName]).catch(() => undefined);
+                await runner.release().catch(() => undefined);
+            }
+        } catch (err: any) {
+            logger.error(`[InboxAI] Quo PM auto-respond failed for ${conversationId}: ${err?.message}`);
+            return { sent: false, reason: `error:${err?.message}` };
         }
     }
 
@@ -936,13 +1079,26 @@ export class InboxAIService {
             reservationStatus = r?.status || null;
         }
 
+        // PM-line threads are chats with our management CLIENTS (owners), not
+        // guests — different persona, different context (their portfolio). The
+        // persona applies to EVERY thread on a PM line (guest sales mode must
+        // never fire there); the client data block additionally needs a link.
+        const { QuoInboxService } = await import("./QuoInboxService");
+        const lineCategory = await new QuoInboxService()
+            .lineCategory(conv.phoneNumberId)
+            .catch(() => null);
+        const isPmLine = lineCategory === "PM";
+        const isPmClientThread = isPmLine && Boolean(conv.pmClientId);
+
         const conversation = this.conversationRepo.create({
             threadId: 0,
             listingId: conv.listingId ? Number(conv.listingId) : null,
             listingName: conv.listingName || null,
             reservationId: conv.reservationId ? Number(conv.reservationId) : null,
-            guestName: conv.guestName || conv.contactName || "Guest",
-            channel: "SMS (Quo)",
+            guestName: isPmLine
+                ? conv.pmClientName || conv.contactName || "Client"
+                : conv.guestName || conv.contactName || "Guest",
+            channel: isPmLine ? "SMS (Quo · PM client)" : "SMS (Quo)",
             reservationStatus,
         }) as InboxConversationEntity;
 
@@ -964,13 +1120,27 @@ export class InboxAIService {
 
         const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
         let context = await this.buildContext(conversation, messages, target, {
-            includeKnowledge: true,
+            // PM-line threads skip the guest-oriented knowledge blocks (KB,
+            // upsells, exemplars) — the client block below carries their context.
+            includeKnowledge: !isPmLine,
             instructions: opts.instructions ?? null,
             baseDraft: opts.baseDraft ?? null,
         });
         context +=
             "\n\n## Delivery channel note\nThis reply is sent as a plain SMS text message. Keep it tight (1-3 sentences unless the question needs more), no links unless they were already shared in this thread, no markdown or formatting.";
-        if (!conv.reservationId) {
+        if (isPmClientThread) {
+            // Owner context: profile + portfolio + live booking picture.
+            const clientBlock = await this.buildPmClientBlock(conv.pmClientId!).catch((err) => {
+                logger.warn(`[InboxAI] PM client block failed for ${conversationId}: ${err?.message}`);
+                return null;
+            });
+            if (clientBlock) context += `\n\n${clientBlock}`;
+        } else if (isPmLine) {
+            context +=
+                "\nThis PM-line thread could not be matched to a client record, so you have NO account context. " +
+                "Answer only from the conversation itself, never guess about their properties or bookings, and " +
+                "set escalation_required=true if they ask anything account-specific so the team can identify them.";
+        } else if (!conv.reservationId) {
             context +=
                 "\nThis SMS thread is NOT linked to a reservation, so there is no listing/reservation context. Answer only from the conversation itself. " +
                 "EXCEPTION: if the context contains a 'LIVE listing search results' block, that search has already been run — share those results per its instructions. " +
@@ -986,7 +1156,8 @@ export class InboxAIService {
                 {
                     role: "system",
                     content: this.systemPrompt(settings, {
-                        inquirySales: InboxAIService.isInquiryStatus(reservationStatus),
+                        inquirySales: !isPmLine && InboxAIService.isInquiryStatus(reservationStatus),
+                        pmClient: isPmLine,
                     }),
                 },
                 { role: "user", content: context },
@@ -1068,7 +1239,9 @@ export class InboxAIService {
 
         // Knowledge gap flagged → raise a learning prompt on this SMS thread,
         // exactly like the Hostify inbox. Best-effort; never blocks the reply.
-        if (output.learning_question && String(output.learning_question).trim()) {
+        // PM-line threads are excluded: their gaps are client-business facts,
+        // not reusable property facts for guest messaging.
+        if (!isPmLine && output.learning_question && String(output.learning_question).trim()) {
             try {
                 const { AILearningPromptService } = await import("./AILearningPromptService");
                 await new AILearningPromptService().raise({
@@ -1129,8 +1302,142 @@ export class InboxAIService {
             status: s.status || "suggested",
             modelName: s.modelName || null,
             promptVersion: s.promptVersion || null,
-            linked: Boolean(conv.reservationId),
+            // "Linked" = the AI had real context: a reservation (guest threads)
+            // or a client profile (PM owner threads).
+            linked: Boolean(conv.reservationId) || Boolean(conv.pmClientId),
         };
+    }
+
+    /**
+     * Owner context for PM-client SMS threads: the client's profile, their
+     * managed properties, and the live booking picture (current guests, upcoming
+     * arrivals, recent checkouts) across their portfolio. This is what lets the
+     * AI answer "how's my calendar looking?" / "who's in the house this weekend?"
+     * with real data instead of deflecting.
+     */
+    private async buildPmClientBlock(clientId: string): Promise<string | null> {
+        const { ClientEntity } = await import("../entity/Client");
+        const client = await appDatabase
+            .getRepository(ClientEntity)
+            .findOne({ where: { id: clientId }, relations: ["properties", "secondaryContacts"] });
+        if (!client) return null;
+
+        const lines: string[] = [];
+        lines.push("## CLIENT PROFILE (the person you are texting — our property-management client)");
+        const name = [client.preferredName || client.firstName, client.lastName].filter(Boolean).join(" ").trim();
+        lines.push(`- Name: ${name || "unknown"}${client.preferredName ? ` (goes by ${client.preferredName})` : ""}`);
+        if (client.companyName) lines.push(`- Company: ${client.companyName}`);
+        if (client.status) lines.push(`- Client status: ${client.status}`);
+        if (client.serviceType) lines.push(`- Service type: ${client.serviceType}`);
+        if (client.timezone) lines.push(`- Timezone: ${client.timezone}`);
+        const notes = String(client.notes || "").replace(/\s+/g, " ").trim();
+        if (notes) lines.push(`- Team notes on this client: ${notes.slice(0, 800)}`);
+        const contacts = (client.secondaryContacts || []).filter((c) => !c.deletedAt);
+        if (contacts.length) {
+            lines.push(
+                `- Other contacts on the account: ${contacts
+                    .map((c) => [c.firstName, c.lastName].filter(Boolean).join(" ") + (c.type ? ` (${c.type})` : ""))
+                    .join(", ")}`
+            );
+        }
+
+        // Portfolio: their managed properties, joined to our listing records.
+        const props = (client.properties || []).filter((p) => !p.deletedAt);
+        const listingIds = [
+            ...new Set(props.map((p) => Number(p.listingId)).filter((n) => Number.isFinite(n) && n > 0)),
+        ];
+        const listings = listingIds.length
+            ? await this.listingRepo
+                  .createQueryBuilder("l")
+                  .where("l.id IN (:...ids)", { ids: listingIds })
+                  .withDeleted()
+                  .getMany()
+            : [];
+        const listingById = new Map(listings.map((l) => [Number(l.id), l]));
+        lines.push("");
+        lines.push(`## CLIENT'S PROPERTIES (${listingIds.length} under management — you may discuss these freely with them)`);
+        if (!listingIds.length) {
+            lines.push("(no properties linked to this client in our records — if they ask property specifics, say the team will follow up)");
+        }
+        for (const id of listingIds.slice(0, 15)) {
+            const l: any = listingById.get(id);
+            if (!l) continue;
+            const bits: string[] = [];
+            const loc = [l.address, l.city, l.state].filter((v: any) => v && String(v).trim() && String(v) !== "(NOT SPECIFIED)");
+            if (loc.length) bits.push(loc.join(", "));
+            if (l.bedroomsNumber != null) bits.push(`${l.bedroomsNumber}BR`);
+            if (l.bathroomsNumber != null) bits.push(`${l.bathroomsNumber}BA`);
+            if (l.personCapacity != null) bits.push(`sleeps ${l.personCapacity}`);
+            lines.push(`- ${l.internalListingName || l.name || `Listing ${id}`}${bits.length ? ` — ${bits.join(", ")}` : ""}`);
+        }
+
+        // Live booking picture across their portfolio: who's in now, who's
+        // arriving, what just checked out. Payout figures included — this is the
+        // owner of these properties, these are their numbers.
+        if (listingIds.length) {
+            const now = new Date();
+            const fmt = (d: any) => {
+                const dt = d instanceof Date ? d : new Date(d);
+                return Number.isNaN(dt.getTime()) ? "?" : dt.toISOString().slice(0, 10);
+            };
+            const money = (v: any) => (v != null && Number(v) > 0 ? ` · owner revenue $${Number(v).toFixed(0)}` : "");
+            const activeStatuses = "('accepted','confirmed','new','modified')";
+            const resvLine = (r: ReservationInfoEntity) =>
+                `- ${r.listingName || `Listing ${r.listingMapId}`}: ${r.guestName || "guest"}, ${fmt(r.arrivalDate)} → ${fmt(
+                    r.departureDate
+                )} (${r.source || "direct"}, ${r.status})${money(r.owner_revenue)}`;
+
+            const current = await this.reservationRepo
+                .createQueryBuilder("r")
+                .where("r.listingMapId IN (:...ids)", { ids: listingIds })
+                .andWhere(`r.status IN ${activeStatuses}`)
+                .andWhere("r.arrivalDate <= :now AND r.departureDate >= :now", { now })
+                .orderBy("r.departureDate", "ASC")
+                .take(15)
+                .getMany()
+                .catch(() => [] as ReservationInfoEntity[]);
+            const upcoming = await this.reservationRepo
+                .createQueryBuilder("r")
+                .where("r.listingMapId IN (:...ids)", { ids: listingIds })
+                .andWhere(`r.status IN ${activeStatuses}`)
+                .andWhere("r.arrivalDate > :now", { now })
+                .andWhere("r.arrivalDate <= DATE_ADD(:now, INTERVAL 45 DAY)", { now })
+                .orderBy("r.arrivalDate", "ASC")
+                .take(20)
+                .getMany()
+                .catch(() => [] as ReservationInfoEntity[]);
+            const recent = await this.reservationRepo
+                .createQueryBuilder("r")
+                .where("r.listingMapId IN (:...ids)", { ids: listingIds })
+                .andWhere("r.departureDate < :now", { now })
+                .andWhere("r.departureDate >= DATE_SUB(:now, INTERVAL 14 DAY)", { now })
+                .andWhere(`r.status IN ${activeStatuses}`)
+                .orderBy("r.departureDate", "DESC")
+                .take(10)
+                .getMany()
+                .catch(() => [] as ReservationInfoEntity[]);
+
+            lines.push("");
+            lines.push("## LIVE BOOKINGS ON THEIR PROPERTIES (from our reservation system — you MAY share these with this client)");
+            lines.push(`As of ${fmt(now)}:`);
+            lines.push(current.length ? "Currently hosting:" : "Currently hosting: (no guests in-house right now)");
+            for (const r of current) lines.push(resvLine(r));
+            if (upcoming.length) {
+                lines.push("Upcoming arrivals (next 45 days):");
+                for (const r of upcoming) lines.push(resvLine(r));
+            } else {
+                lines.push("Upcoming arrivals (next 45 days): none on the books yet.");
+            }
+            if (recent.length) {
+                lines.push("Recent checkouts (last 14 days):");
+                for (const r of recent) lines.push(resvLine(r));
+            }
+            lines.push(
+                "INSTRUCTIONS: answer questions about their bookings, occupancy and dates from this data. " +
+                    "If they ask about a period beyond it, or about statements/money transfers, say the team will pull the details and follow up (escalate)."
+            );
+        }
+        return lines.join("\n");
     }
 
     /** Update a suggestion's lifecycle status (accepted/edited/ignored/rejected). */
@@ -1487,7 +1794,7 @@ export class InboxAIService {
 
     private systemPrompt(
         settings?: AIMessagingSettingsEntity | null,
-        opts: { airbnbSupport?: boolean; inquirySales?: boolean } = {}
+        opts: { airbnbSupport?: boolean; inquirySales?: boolean; pmClient?: boolean } = {}
     ): string {
         const toneLabel = (settings?.tone || "warm").trim();
         const customRules = (settings?.communicationRules || "").trim();
@@ -1515,7 +1822,21 @@ export class InboxAIService {
                 settingsBlock.push(airbnbSupportRules);
             }
         }
-        if (opts.inquirySales && !opts.airbnbSupport) {
+        if (opts.pmClient) {
+            settingsBlock.push(
+                [
+                    "THIS CONVERSATION IS WITH A PROPERTY-MANAGEMENT CLIENT — the OWNER of properties we manage — NOT a guest.",
+                    "You are their property manager's assistant texting them back. They pay us to manage their rentals; treat them as a business partner who deserves straight answers about THEIR OWN properties.",
+                    "- The transcript labels the other party 'GUEST' for technical reasons — they are the CLIENT (owner). Never use guest hospitality phrasing (no 'we hope you enjoy your stay', no booking upsells, no 'we'd love to host you').",
+                    "- You MAY share operational details about the client's OWN properties from the provided context: bookings and dates, guest names on their reservations, occupancy, statuses, maintenance items, payout/revenue figures that appear in context.",
+                    "- NEVER share information about OTHER clients, other owners' properties, internal margins, or staff/vendor internal pricing.",
+                    "- If they ask about money we owe them, statements, contract terms, management fees, offboarding, or anything legal/financial beyond the figures in context: acknowledge, say the team will follow up with specifics, and set escalation_required=true.",
+                    "- If the answer isn't in the provided context, say the team will check and get back to them — never guess about their business.",
+                    "- Tone: professional, warm, concise. Use their first name naturally. SMS style — short.",
+                ].join("\n")
+            );
+        }
+        if (opts.inquirySales && !opts.airbnbSupport && !opts.pmClient) {
             settingsBlock.push(
                 [
                     "NEW INQUIRY — SALES MODE (this guest has NOT booked yet; your reply is a sales conversation and its job is to win the booking).",

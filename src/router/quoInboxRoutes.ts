@@ -15,6 +15,7 @@ router.post("/conversations/:conversationId/suggest", verifySession, controller.
 router.get("/conversations/:conversationId/learning-prompt", verifySession, controller.getLearningPrompt);
 router.post("/conversations/:conversationId/read", verifySession, controller.markRead);
 router.post("/conversations/:conversationId/link", verifySession, controller.link);
+router.post("/conversations/:conversationId/link-client", verifySession, controller.linkClient);
 router.post("/sync", verifySession, controller.sync);
 
 // Inbound webhook from Quo — no session; authenticated by URL token.
