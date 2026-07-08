@@ -180,7 +180,40 @@ export class AILearnedFactsService {
         if (opts.status) where.status = opts.status;
         if (opts.scope) where.scope = opts.scope;
         if (opts.listingId != null) where.listingId = opts.listingId;
-        return this.repo.find({ where, order: { frequency: "DESC", updatedAt: "DESC" }, take: 500 });
+        const rows = await this.repo.find({ where, order: { frequency: "DESC", updatedAt: "DESC" }, take: 500 });
+
+        // Attribution: resolve who taught / reviewed each fact to display names,
+        // so the Learned tab can show "Taught by X" instead of a bare user id.
+        const ids = new Set<number>();
+        for (const f of rows) {
+            if (f.createdByUserId != null) ids.add(Number(f.createdByUserId));
+            if (f.reviewedByUserId != null) ids.add(Number(f.reviewedByUserId));
+        }
+        const nameById = await AILearnedFactsService.userNames([...ids]);
+        return rows.map((f) => ({
+            ...f,
+            taughtByName: f.createdByUserId != null ? nameById.get(Number(f.createdByUserId)) ?? null : null,
+            reviewedByName: f.reviewedByUserId != null ? nameById.get(Number(f.reviewedByUserId)) ?? null : null,
+        }));
+    }
+
+    /** users.id -> display name (firstName lastName, falling back to email). */
+    static async userNames(ids: number[]): Promise<Map<number, string>> {
+        const map = new Map<number, string>();
+        if (!ids.length) return map;
+        try {
+            const rows: any[] = await appDatabase.query(
+                `SELECT id, firstName, lastName, email FROM users WHERE id IN (${ids.map(() => "?").join(",")})`,
+                ids
+            );
+            for (const u of rows) {
+                const name = [u.firstName, u.lastName].filter(Boolean).join(" ").trim();
+                map.set(Number(u.id), name || u.email || `user ${u.id}`);
+            }
+        } catch {
+            /* attribution is best-effort */
+        }
+        return map;
     }
 
     async setStatus(id: number, status: "approved" | "rejected" | "pending", userId?: number | null) {

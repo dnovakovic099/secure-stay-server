@@ -701,7 +701,7 @@ export class InboxAnalyticsService {
         const listingIds = [...new Set(listingRows.map((r) => Number(r.listingId)).filter(Boolean))];
         const facts: any[] = listingIds.length
             ? await appDatabase.query(
-                  `SELECT listingId, scope, topic, question, answer, status, createdAt FROM ai_learned_facts
+                  `SELECT listingId, scope, topic, question, answer, status, createdAt, createdByUserId FROM ai_learned_facts
                    WHERE status IN ('approved','pending') AND (scope = 'portfolio' OR listingId IN (${listingIds.map(() => "?").join(",")}))`,
                   listingIds
               )
@@ -709,12 +709,22 @@ export class InboxAnalyticsService {
         // Learning prompts are keyed on Hostify thread ids — no Quo equivalent.
         const prompts: any[] = threadIds.length && source !== "quo"
             ? await appDatabase.query(
-                  `SELECT threadId, question, status, answerText FROM ai_learning_prompts
+                  `SELECT threadId, question, status, answerText, answeredByUserId FROM ai_learning_prompts
                    WHERE threadId IN (${threadIds.map(() => "?").join(",")})
                    ORDER BY createdAt DESC`,
                   threadIds
               )
             : [];
+        // Attribution: resolve the user ids behind facts/prompt answers to names,
+        // so each remediation can say WHO taught the AI the fix.
+        const { AILearnedFactsService } = await import("./AILearnedFactsService");
+        const attributionIds = [
+            ...facts.map((f) => f.createdByUserId),
+            ...prompts.map((p) => p.answeredByUserId),
+        ]
+            .filter((v) => v != null)
+            .map(Number);
+        const attributionNames = await AILearnedFactsService.userNames([...new Set(attributionIds)]);
         const promptByThread = new Map<number, any>();
         for (const pr of prompts) {
             if (!promptByThread.has(Number(pr.threadId))) promptByThread.set(Number(pr.threadId), pr);
@@ -769,6 +779,8 @@ export class InboxAnalyticsService {
                 return {
                     status: best.status === "approved" ? "learned" : "learned_pending_review",
                     detail: String(best.answer || best.question || best.topic).replace(/\s+/g, " ").slice(0, 220),
+                    // Who taught the fact (null for facts the nightly audit extracted itself).
+                    by: best.createdByUserId != null ? attributionNames.get(Number(best.createdByUserId)) ?? null : null,
                 };
             }
             const prompt = promptByThread.get(p.threadId);
@@ -778,9 +790,13 @@ export class InboxAnalyticsService {
                     detail: String(prompt.status === "pending" ? prompt.question : prompt.answerText || prompt.question)
                         .replace(/\s+/g, " ")
                         .slice(0, 220),
+                    by:
+                        prompt.status !== "pending" && prompt.answeredByUserId != null
+                            ? attributionNames.get(Number(prompt.answeredByUserId)) ?? null
+                            : null,
                 };
             }
-            return { status: "none", detail: null as string | null };
+            return { status: "none", detail: null as string | null, by: null as string | null };
         };
 
         return {
@@ -878,7 +894,7 @@ export class InboxAnalyticsService {
                 [text, scope === "portfolio" ? "portfolio" : "property", byUser.id, r.threadId]
             );
         }
-        return { saved: true };
+        return { saved: true, resolvedBy: byUser.name };
     }
 
     /** Mark / unmark a miss as handled so the fix queue shrinks as it's worked. */
