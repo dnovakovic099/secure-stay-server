@@ -309,15 +309,19 @@ export class AdminWorkloadService {
         }
 
         // SS AI events: feedback given, learning prompts answered, facts taught/reviewed
+        // The three tables have mixed collations (general_ci vs unicode_ci) —
+        // normalize every text column or the UNION fails with
+        // ER_CANT_AGGREGATE_NCOLLATIONS.
+        const norm = (expr: string) => `CONVERT(${expr} USING utf8mb4) COLLATE utf8mb4_general_ci`;
         const aiEvents: any[] = await appDatabase.query(
-            `SELECT userId, createdAt AS at, CONCAT('ai_feedback:', COALESCE(rating,'text')) AS kind,
-                    LEFT(COALESCE(feedbackText, correctedResponse, ''), 160) AS detail
+            `SELECT userId, createdAt AS at, ${norm(`CONCAT('ai_feedback:', COALESCE(rating,'text'))`)} AS kind,
+                    ${norm(`LEFT(COALESCE(feedbackText, correctedResponse, ''), 160)`)} AS detail
              FROM ai_message_feedback WHERE userId IS NOT NULL AND createdAt >= ?
              UNION ALL
-             SELECT answeredByUserId, resolvedAt, CONCAT('learning_', status), LEFT(COALESCE(answerText,''), 160)
+             SELECT answeredByUserId, resolvedAt, ${norm(`CONCAT('learning_', status)`)}, ${norm(`LEFT(COALESCE(answerText,''), 160)`)}
              FROM ai_learning_prompts WHERE answeredByUserId IS NOT NULL AND resolvedAt >= ?
              UNION ALL
-             SELECT createdByUserId, createdAt, 'fact_taught', LEFT(COALESCE(answer,''), 160)
+             SELECT createdByUserId, createdAt, ${norm(`'fact_taught'`)}, ${norm(`LEFT(COALESCE(answer,''), 160)`)}
              FROM ai_learned_facts WHERE createdByUserId IS NOT NULL AND createdAt >= ?`,
             [since, since, since]
         );
