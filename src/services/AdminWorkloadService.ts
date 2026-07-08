@@ -131,7 +131,22 @@ export class AdminWorkloadService {
 
         let saved = 0;
         const seen = new Set<string>();
-        const batchSize = 5;
+        const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+        // OpenPhone allows ~10 req/s per key (shared with the message sync) —
+        // small batches with a pause keep the sweep well under the limit, and
+        // 429s get one retry before the conversation is skipped.
+        const batchSize = 3;
+        const fetchPage = async (params: any, attempt = 0): Promise<any> => {
+            try {
+                return await this.op.getCalls(params);
+            } catch (err: any) {
+                if (attempt < 1 && Number(err?.response?.status) === 429) {
+                    await sleep(1500);
+                    return fetchPage(params, attempt + 1);
+                }
+                throw err;
+            }
+        };
         for (let i = 0; i < convs.length; i += batchSize) {
             const batch = convs.slice(i, i + batchSize);
             await Promise.all(
@@ -142,7 +157,7 @@ export class AdminWorkloadService {
                         try {
                             let pageToken: string | undefined;
                             for (let page = 0; page < 10; page++) {
-                                const res = await this.op.getCalls({
+                                const res = await fetchPage({
                                     phoneNumberId: c.phoneNumberId,
                                     participants: [p],
                                     createdAfter: sinceISO,
@@ -158,13 +173,14 @@ export class AdminWorkloadService {
                                 if (!pageToken || !(res.data || []).length) break;
                             }
                         } catch (err: any) {
-                            // 429s / transient failures on one conversation shouldn't abort the sweep
+                            // transient failures on one conversation shouldn't abort the sweep
                             logger.warn(`[AdminWorkload] calls fetch failed for ${c.conversationId}/${p}: ${err?.message}`);
                         }
                     }
                 })
             );
             AdminWorkloadService.status.done = Math.min(i + batchSize, convs.length);
+            await sleep(350);
         }
         logger.info(`[AdminWorkload] call sync: ${convs.length} conversations scanned, ${saved} new calls`);
         return { conversations: convs.length, calls: saved };
