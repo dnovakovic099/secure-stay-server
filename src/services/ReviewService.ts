@@ -1222,6 +1222,10 @@ export class ReviewService {
     ): Promise<Map<number, unknown>> {
         const result = new Map<number, unknown>();
 
+        // Seed the result with the parent listing's is_listed. This is the fallback that stays
+        // in place if the per-listing Hostify fetch times out — the mitigation view still
+        // renders, we just lose the child-level precision (a parent-listed / child-unlisted
+        // combo won't get its unlisted marker until Hostify responds and the cache warms).
         reservations.forEach((reservation) => {
             const reservationId = Number(reservation?.id);
             if (!reservationId) return;
@@ -1235,23 +1239,67 @@ export class ReviewService {
                 .filter(Boolean)
         ));
 
+        // Time budgets keep the /reviewcheckout endpoint from being held hostage by Hostify
+        // on a cold cache. Per-listing cap ensures one slow listing can't dominate; overall
+        // cap ensures fan-out across many listings can't collectively dominate either. Both
+        // limits are conservative: warm-cache calls resolve in <50ms so we're never anywhere
+        // near them, and cold-cache calls that miss the cap simply fall back to the parent's
+        // is_listed value we already seeded above (still correct for the common case where
+        // all children share the parent's listing status).
+        const PER_LISTING_TIMEOUT_MS = 2500;
+        const OVERALL_TIMEOUT_MS = 4000;
         const listingService = new ListingService();
         const childListingsByParentId = new Map<number, any[]>();
+
+        const startedAt = Date.now();
+        let timedOutCount = 0;
+        const raceWithTimeout = <T>(promise: Promise<T>, ms: number): Promise<T | typeof TIMEOUT_SENTINEL> => (
+            Promise.race([
+                promise,
+                new Promise<typeof TIMEOUT_SENTINEL>((resolve) => setTimeout(() => resolve(TIMEOUT_SENTINEL), ms)),
+            ])
+        );
+        const TIMEOUT_SENTINEL = Symbol("timeout");
+
         await Promise.all(uniqueParentListingIds.map(async (listingId) => {
+            // If the overall budget is already blown, skip issuing new fetches. Any earlier
+            // successful entries stay in the map; unprocessed listings just retain the
+            // parent-derived seed value from above.
+            if (Date.now() - startedAt > OVERALL_TIMEOUT_MS) {
+                timedOutCount++;
+                return;
+            }
             try {
-                const childListings = await listingService.getChildListings(listingId);
-                childListingsByParentId.set(listingId, Array.isArray(childListings) ? childListings : []);
+                const outcome = await raceWithTimeout(
+                    listingService.getChildListings(listingId),
+                    PER_LISTING_TIMEOUT_MS,
+                );
+                if (outcome === TIMEOUT_SENTINEL) {
+                    timedOutCount++;
+                    return;
+                }
+                childListingsByParentId.set(listingId, Array.isArray(outcome) ? outcome : []);
             } catch (error) {
                 logger.warn(`Unable to resolve child listing listed status for listing ${listingId}:`, error);
                 childListingsByParentId.set(listingId, []);
             }
         }));
 
+        if (timedOutCount > 0) {
+            logger.warn(
+                `[getReservationListingListedStatusMap] ${timedOutCount}/${uniqueParentListingIds.length} parent listings timed out (per-listing cap ${PER_LISTING_TIMEOUT_MS}ms, overall cap ${OVERALL_TIMEOUT_MS}ms). Affected reservations retain the parent listing's is_listed value.`,
+            );
+        }
+
         reservations.forEach((reservation) => {
             const reservationId = Number(reservation?.id);
             if (!reservationId) return;
 
-            const childListings = childListingsByParentId.get(Number(reservation.listingMapId)) || [];
+            const childListings = childListingsByParentId.get(Number(reservation.listingMapId));
+            // Only refine the seeded result when we actually received child listings.
+            // Skipping when the map has no entry preserves the parent-derived fallback for
+            // timed-out or errored listings.
+            if (!childListings) return;
             const matchedChildListing = findMatchingHostifyChildListing(childListings, {
                 externalPropertyId: reservation.externalPropertyId,
                 integration_nickname: reservation.integration_nickname,
@@ -3961,16 +4009,29 @@ export class ReviewService {
             else updatesByCheckoutId.set(checkoutId, [update]);
         }
 
-        // Any author UIDs referenced only by reviewCheckoutUpdates won't be in the initial
-        // userMap (since we no longer collect them before the first users.find). Fetch the
-        // missing ones in one extra query so userMap covers every name the response needs.
-        const missingUpdateAuthorUids = new Set<string>();
+        // Consolidate both categories of "authors not in the initial users batch" into one
+        // extra query instead of two sequential ones. The prior code did:
+        //   (1) fetch missing reviewCheckoutUpdates authors (line 4020),
+        //   (2) build userMap,
+        //   (3) fetch missing latest-note authors (line 4074, further below).
+        // Both fetches hit usersRepo with the same shape, so their combined IN(...) query
+        // is the same DB round-trip either way — we just save one round-trip's latency.
+        const missingAuthorUidSet = new Set<string>();
         for (const update of reviewCheckoutUpdates) {
-            if (update.createdBy && !userIds.has(update.createdBy)) missingUpdateAuthorUids.add(update.createdBy);
-            if (update.updatedBy && !userIds.has(update.updatedBy)) missingUpdateAuthorUids.add(update.updatedBy);
+            if (update.createdBy && !userIds.has(update.createdBy)) missingAuthorUidSet.add(update.createdBy);
+            if (update.updatedBy && !userIds.has(update.updatedBy)) missingAuthorUidSet.add(update.updatedBy);
         }
-        if (missingUpdateAuthorUids.size > 0) {
-            const extraUsers = await this.usersRepo.find({ where: { uid: In([...missingUpdateAuthorUids]) } });
+        const noteAuthorUids = Array.from(new Set(
+            Array.from(latestNotesByReservation.values())
+                .filter((msg) => msg?.authorId && msg.metadata?.source !== "slack")
+                .map((msg) => String(msg.authorId))
+                .filter(Boolean)
+        ));
+        for (const uid of noteAuthorUids) {
+            if (!userIds.has(uid)) missingAuthorUidSet.add(uid);
+        }
+        if (missingAuthorUidSet.size > 0) {
+            const extraUsers = await this.usersRepo.find({ where: { uid: In([...missingAuthorUidSet]) } });
             for (const extra of extraUsers) {
                 users.push(extra);
                 userIds.add(extra.uid);
@@ -4011,21 +4072,9 @@ export class ReviewService {
         // usersRepo/employeeRepo/fileInfoRepo lookups. Same pattern used by the dashboard
         // path (see resolveDashboardListingIds region) — this was missing here and was the
         // primary source of the "Queue limit reached" failure on large mitigation windows.
+        // Note: the missing-author users query has already been merged into the single
+        // consolidated fetch above (missingAuthorUidSet), so userByUidMap is complete.
         const userByUidMap = new Map(users.map((user) => [user.uid, user] as const));
-        const noteAuthorUids = Array.from(new Set(
-            Array.from(latestNotesByReservation.values())
-                .filter((msg) => msg?.authorId && msg.metadata?.source !== "slack")
-                .map((msg) => String(msg.authorId))
-                .filter(Boolean)
-        ));
-        // Note authors may not be in the initial users batch (which was scoped to assignee/
-        // createdBy/updatedBy IDs). Fetch any missing ones in one extra query so the cache
-        // covers every author and buildLatestUpdatePayload never falls back to per-row work.
-        const missingAuthorUids = noteAuthorUids.filter((uid) => !userByUidMap.has(uid));
-        if (missingAuthorUids.length > 0) {
-            const extraAuthors = await this.usersRepo.find({ where: { uid: In(missingAuthorUids) } });
-            extraAuthors.forEach((u) => userByUidMap.set(u.uid, u));
-        }
         const noteAuthorUserIds = noteAuthorUids
             .map((uid) => userByUidMap.get(uid)?.id)
             .filter((id): id is number => typeof id === 'number' && Number.isFinite(id));
@@ -4064,14 +4113,16 @@ export class ReviewService {
             ? await this.listingRepo.find({ where: { id: In(uniqueListingIds as number[]) }, select: ['id', 'tags', 'timeZoneName', 'checkInTimeStart', 'checkOutTime'] })
             : [];
         const listingTagMap = new Map(listingTagRecords.map(l => [Number(l.id), l]));
-        const lateCancelledMap = await this.getLateCancelledReservationMap(
-            reviewCheckoutList.map((rc) => rc.reservationInfo).filter(Boolean) as ReservationInfoEntity[],
-            listingTagMap,
-        );
-        const listingListedStatusMap = await this.getReservationListingListedStatusMap(
-            reviewCheckoutList.map((rc) => rc.reservationInfo).filter(Boolean) as ReservationInfoEntity[],
-            listingTagMap,
-        );
+        // Compute the cancellation-timing map and the Hostify-derived listed-status map in
+        // parallel — they don't depend on each other and were previously waiting sequentially
+        // (getReservationListingListedStatusMap dominates cold-cache time because it fans out
+        // to Hostify per unique parent listing, so parallelizing the DB-only cancellation
+        // query alongside gives us that time back for free).
+        const reservationInfoList = reviewCheckoutList.map((rc) => rc.reservationInfo).filter(Boolean) as ReservationInfoEntity[];
+        const [lateCancelledMap, listingListedStatusMap] = await Promise.all([
+            this.getLateCancelledReservationMap(reservationInfoList, listingTagMap),
+            this.getReservationListingListedStatusMap(reservationInfoList, listingTagMap),
+        ]);
 
         const transformedData = await Promise.all(reviewCheckoutList.map(async (rc) => {
             const matchedReview = reviews.find(r => r.reservationId == rc.reservationInfo?.id) || null;
