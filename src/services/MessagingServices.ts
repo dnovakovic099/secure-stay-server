@@ -1245,17 +1245,27 @@ export class MessagingService {
             listing?.timeZoneName ||
             liveListing?.timezone ||
             "America/New_York";
+        const statusText = String(liveReservation?.status_description || liveReservation?.status || reservation.status || "").toLowerCase();
+        const acceptedReservation = statusText === "accepted" || statusText === "confirmed";
 
         const checkInLocal =
             normalizedListing?.checkInLocal ||
             (reservation.checkInTime !== null && reservation.checkInTime !== undefined
                 ? `${String(reservation.checkInTime).padStart(2, "0")}:00`
-                : null);
+                : null) ||
+            listing?.checkInTimeStart ||
+            liveListing?.checkin_start ||
+            liveListing?.check_in_time ||
+            (acceptedReservation ? "15:00" : null);
         const checkOutLocal =
             normalizedListing?.checkOutLocal ||
             (reservation.checkOutTime !== null && reservation.checkOutTime !== undefined
                 ? `${String(reservation.checkOutTime).padStart(2, "0")}:00`
-                : null);
+                : null) ||
+            listing?.checkOutTime ||
+            liveListing?.checkout ||
+            liveListing?.check_out_time ||
+            (acceptedReservation ? "11:00" : null);
 
         const phones = [
             reservation.phone,

@@ -139,6 +139,13 @@ export class InboxService {
         return null;
     }
 
+    private normalizePortfolioValue(listing: Listing | null | undefined) {
+        const raw = `${(listing as any)?.portfolio || ""} ${listing?.tags || ""}`.toLowerCase();
+        if (raw.includes("group 1") || raw.includes("group1") || raw.includes("g1")) return "Group 1";
+        if (raw.includes("group 2") || raw.includes("group2") || raw.includes("g2")) return "Group 2";
+        return null;
+    }
+
     // -------------------------------------------------------------------------
     // Conversation upsert (from a Hostify thread summary)
     // -------------------------------------------------------------------------
@@ -771,14 +778,30 @@ export class InboxService {
             ? await this.listingRepo.find({ where: { id: In(listingIds) }, withDeleted: true })
             : [];
         const listingMap = new Map(listings.map((listing) => [Number(listing.id), listing]));
+        const reservationIds = Array.from(
+            new Set(
+                conversations
+                    .map((conversation) => Number(conversation.reservationId))
+                    .filter((reservationId) => Number.isFinite(reservationId) && reservationId > 0)
+            )
+        );
+        const reservations = reservationIds.length
+            ? await this.reservationRepo.find({ where: { id: In(reservationIds) } })
+            : [];
+        const reservationMap = new Map(reservations.map((reservation) => [Number(reservation.id), reservation]));
 
         const enrichedConversations = conversations.map((conversation) => {
             const listing = listingMap.get(Number(conversation.listingId)) || null;
+            const reservation = reservationMap.get(Number(conversation.reservationId)) || null;
             const normalizedListing = listing
                 ? (this.listingService as any).normalizeListingOverview?.(listing) || null
                 : null;
             return {
                 ...conversation,
+                confirmationCode: reservation?.confirmation_code || null,
+                guestPhone: conversation.guestPhone || reservation?.phone || null,
+                guestEmail: conversation.guestEmail || reservation?.guestEmail || null,
+                portfolio: this.normalizePortfolioValue(listing),
                 propertyType: this.normalizePropertyTypeValue(listing),
                 serviceType: this.normalizeServiceTypeValue(listing, normalizedListing),
             };
