@@ -833,6 +833,21 @@ export class ExpenseService {
         return candidates.find((candidate) => names.has(candidate)) || null;
     }
 
+    private parseClaimsFeeAmount(value: any) {
+        if (value === undefined || value === null) return 0;
+        if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+
+        const rawValue = String(value).trim();
+        if (!rawValue) return 0;
+
+        const normalized = rawValue
+            .replace(/,/g, "")
+            .match(/-?\d+(\.\d+)?/);
+
+        const amount = normalized ? Number(normalized[0]) : 0;
+        return Number.isFinite(amount) ? Math.abs(amount) : 0;
+    }
+
     async getClaimsFeeFunds(request: Request) {
         const fromDate = String(request.query.fromDate || "");
         const toDate = String(request.query.toDate || "");
@@ -853,19 +868,28 @@ export class ExpenseService {
         const statusPlaceholders = validStatuses.map(() => "?").join(",");
         reservationParams.push(...validStatuses);
 
-        const reservationRows = resortFeeColumn
-            ? await this.reservationInfoRepo.query(
-                `
-                    SELECT listingMapId, MAX(listingName) AS listingName, SUM(COALESCE(\`${resortFeeColumn}\`, 0)) AS totalClaimsFee
-                    FROM reservation_info
-                    WHERE listingMapId IS NOT NULL
-                    ${reservationDateWhere}
-                    AND status IN (${statusPlaceholders})
-                    GROUP BY listingMapId
-                `,
-                reservationParams
-            )
-            : [];
+        const reservationRows = await this.reservationInfoRepo.query(
+            `
+                SELECT
+                    r.listingMapId,
+                    MAX(r.listingName) AS listingName,
+                    COUNT(*) AS reservationCount,
+                    ${resortFeeColumn ? `SUM(COALESCE(r.\`${resortFeeColumn}\`, 0))` : "NULL"} AS reservationClaimsFeeTotal,
+                    MAX(NULLIF(pi.claimFee, '')) AS configuredClaimsFee
+                FROM reservation_info r
+                LEFT JOIN client_properties cp
+                    ON cp.listingId = CAST(r.listingMapId AS CHAR)
+                    AND cp.deletedAt IS NULL
+                LEFT JOIN property_info pi
+                    ON pi.clientPropertyId = cp.id
+                    AND pi.deletedAt IS NULL
+                WHERE r.listingMapId IS NOT NULL
+                ${reservationDateWhere}
+                AND r.status IN (${statusPlaceholders})
+                GROUP BY r.listingMapId
+            `,
+            reservationParams
+        );
 
         const expenseRows = await this.expenseRepo.query(
             `
@@ -894,15 +918,23 @@ export class ExpenseService {
 
         return listingIds
             .map((listingMapId) => {
-                const totalClaimsFee = Number(reservationByListing.get(listingMapId)?.totalClaimsFee || 0);
+                const reservationRow = reservationByListing.get(listingMapId);
+                const reservationClaimsFeeTotal = Number(reservationRow?.reservationClaimsFeeTotal || 0);
+                const configuredClaimsFee = this.parseClaimsFeeAmount(reservationRow?.configuredClaimsFee);
+                const reservationCount = Number(reservationRow?.reservationCount || 0);
+                const totalClaimsFee = resortFeeColumn
+                    ? reservationClaimsFeeTotal
+                    : configuredClaimsFee * reservationCount;
                 const usedClaimsFee = Number(expenseByListing.get(listingMapId)?.usedClaimsFee || 0);
                 return {
                     listingMapId,
-                    property: listingNameById.get(listingMapId) || reservationByListing.get(listingMapId)?.listingName || `Property ${listingMapId}`,
+                    property: listingNameById.get(listingMapId) || reservationRow?.listingName || `Property ${listingMapId}`,
                     totalClaimsFee,
                     usedClaimsFee,
                     netClaimsFee: totalClaimsFee - usedClaimsFee,
-                    resortFeeColumn,
+                    resortFeeColumn: resortFeeColumn || "property_info.claimFee",
+                    reservationCount,
+                    configuredClaimsFee,
                 };
             })
             .sort((a, b) => a.property.localeCompare(b.property));
