@@ -46,6 +46,7 @@ const EXPENSE_SORT_FIELD_MAP: Record<string, keyof ExpenseEntity> = {
     paymentMethod: "paymentMethod",
     paymentDetails: "paymentDetails",
     fromClaimsFee: "fromClaimsFee",
+    fromPlus50: "fromPlus50",
     deductFromRent: "deductFromRent",
     createdAt: "createdAt",
     createdAtTimestamp: "createdAt",
@@ -75,6 +76,7 @@ interface ExpenseBulkUpdateObject {
     isRecurring?: number;
     llCover?: number;
     fromClaimsFee?: number;
+    fromPlus50?: number;
     deductFromRent?: number;
     type?: "expense" | "extras";
 }
@@ -274,6 +276,7 @@ export class ExpenseService {
             isRecurring,
             llCover,
             fromClaimsFee,
+            fromPlus50,
             deductFromRent,
             comesFrom,
             reservationId,
@@ -306,6 +309,7 @@ export class ExpenseService {
         newExpense.isRecurring = isRecurring ? isRecurring : 0;
         newExpense.llCover = llCover ? llCover : 0;
         newExpense.fromClaimsFee = fromClaimsFee ? fromClaimsFee : 0;
+        newExpense.fromPlus50 = fromPlus50 ? fromPlus50 : 0;
         newExpense.deductFromRent = deductFromRent ? deductFromRent : 0;
         newExpense.comesFrom = comesFrom || null;
         newExpense.reservationId = reservationId || null;
@@ -383,6 +387,7 @@ export class ExpenseService {
             paymentDetails,
             llCover,
             fromClaimsFee,
+            fromPlus50,
             deductFromRent,
             tags,
             propertyType,
@@ -447,6 +452,7 @@ export class ExpenseService {
         const normalizedPaymentDetails = Array.isArray(paymentDetails) ? paymentDetails.map(String) : (paymentDetails ? [String(paymentDetails)] : []);
         const normalizedLlCover = Array.isArray(llCover) ? llCover.map(Number) : (llCover !== undefined && llCover !== '' ? [Number(llCover)] : []);
         const normalizedFromClaimsFee = Array.isArray(fromClaimsFee) ? fromClaimsFee.map(Number) : (fromClaimsFee !== undefined && fromClaimsFee !== '' ? [Number(fromClaimsFee)] : []);
+        const normalizedFromPlus50 = Array.isArray(fromPlus50) ? fromPlus50.map(Number) : (fromPlus50 !== undefined && fromPlus50 !== '' ? [Number(fromPlus50)] : []);
         const normalizedDeductFromRent = Array.isArray(deductFromRent) ? deductFromRent.map(Number) : (deductFromRent !== undefined && deductFromRent !== '' ? [Number(deductFromRent)] : []);
         const dateTypeString = String(dateType || "expenseDate");
         const isTimestampDateType = ACCOUNTING_TIMESTAMP_DATE_TYPES.has(dateTypeString);
@@ -504,6 +510,9 @@ export class ExpenseService {
                     }),
                     ...(normalizedFromClaimsFee.length === 1 && Number.isFinite(normalizedFromClaimsFee[0]) && {
                         fromClaimsFee: normalizedFromClaimsFee[0],
+                    }),
+                    ...(normalizedFromPlus50.length === 1 && Number.isFinite(normalizedFromPlus50[0]) && {
+                        fromPlus50: normalizedFromPlus50[0],
                     }),
                     ...(normalizedDeductFromRent.length === 1 && Number.isFinite(normalizedDeductFromRent[0]) && {
                         deductFromRent: normalizedDeductFromRent[0],
@@ -624,6 +633,7 @@ export class ExpenseService {
                     paymentDetails: expense.paymentDetails,
                     slackNotes: expense.slackNotes,
                     fromClaimsFee: expense.fromClaimsFee,
+                    fromPlus50: expense.fromPlus50,
                     deductFromRent: expense.deductFromRent,
                     slackThreadPermalink: this.buildSlackPermalink(slackMessageMap.get(expense.id)),
                     createdAt: this.formatAccountingTimestamp(expense.createdAt),
@@ -721,6 +731,10 @@ export class ExpenseService {
 
         if (normalizedFromClaimsFee.length === 1 && Number.isFinite(normalizedFromClaimsFee[0])) {
             qb.andWhere('expense.fromClaimsFee = :fromClaimsFee', { fromClaimsFee: normalizedFromClaimsFee[0] });
+        }
+
+        if (normalizedFromPlus50.length === 1 && Number.isFinite(normalizedFromPlus50[0])) {
+            qb.andWhere('expense.fromPlus50 = :fromPlus50', { fromPlus50: normalizedFromPlus50[0] });
         }
 
         if (normalizedDeductFromRent.length === 1 && Number.isFinite(normalizedDeductFromRent[0])) {
@@ -973,6 +987,7 @@ export class ExpenseService {
             isRecurring,
             llCover,
             fromClaimsFee,
+            fromPlus50,
             deductFromRent,
             comesFrom,
             reservationId,
@@ -1009,6 +1024,7 @@ export class ExpenseService {
         expense.isRecurring = isRecurring ? isRecurring : 0;
         expense.llCover = llCover ? llCover : 0;
         expense.fromClaimsFee = fromClaimsFee ? fromClaimsFee : 0;
+        expense.fromPlus50 = fromPlus50 ? fromPlus50 : 0;
         expense.deductFromRent = deductFromRent ? deductFromRent : 0;
         expense.comesFrom = comesFrom || null;
         expense.reservationId = reservationId || null;
@@ -1060,6 +1076,7 @@ export class ExpenseService {
                 "isRecurring",
                 "llCover",
                 "fromClaimsFee",
+                "fromPlus50",
                 "deductFromRent",
                 "comesFrom",
                 "reservationId",

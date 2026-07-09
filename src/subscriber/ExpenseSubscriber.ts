@@ -53,6 +53,9 @@ export class ExpenseSubscriber
         issues: "Issues",
         isRecurring: "Recurring",
         llCover: "Covered by Luxury Lodging",
+        fromClaimsFee: "From Claims Fee",
+        fromPlus50: "From +50",
+        deductFromRent: "Deduct from Rent",
         comesFrom: "Source",
         reservationId: "Reservation",
         guestName: "Guest Name",
@@ -176,7 +179,7 @@ export class ExpenseSubscriber
             const listingInfo = await this.listingRepo.findOne({ where: { id: Number(value) } });
             return listingInfo?.internalListingName || String(value);
         }
-        if (field === "isRecurring" || field === "llCover") return this.formatBooleanValue(value);
+        if (["isRecurring", "llCover", "fromClaimsFee", "fromPlus50", "deductFromRent"].includes(field)) return this.formatBooleanValue(value);
         if (field === "fileNames") return this.formatAttachmentNames(value);
         return String(value);
     }

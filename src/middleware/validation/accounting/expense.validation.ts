@@ -58,6 +58,7 @@ export const validateCreateExpense = (request: Request, response: Response, next
         isRecurring: Joi.number().valid(0, 1).optional(),
         llCover: Joi.number().valid(0, 1).optional(),
         fromClaimsFee: Joi.number().valid(0, 1).optional(),
+        fromPlus50: Joi.number().valid(0, 1).optional(),
         deductFromRent: Joi.number().valid(0, 1).optional()
     });
 
@@ -127,6 +128,7 @@ export const validateUpdateExpense = (request: Request, response: Response, next
         isRecurring: Joi.number().valid(0, 1).optional(),
         llCover: Joi.number().valid(0, 1).optional(),
         fromClaimsFee: Joi.number().valid(0, 1).optional(),
+        fromPlus50: Joi.number().valid(0, 1).optional(),
         deductFromRent: Joi.number().valid(0, 1).optional()
     });
 
@@ -215,6 +217,12 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
             .optional()
             .allow('', null),
 
+        fromPlus50: Joi.array()
+            .items(Joi.string().valid("0", "1"))
+            .min(1)
+            .optional()
+            .allow('', null),
+
         deductFromRent: Joi.array()
             .items(Joi.string().valid("0", "1"))
             .min(1)
@@ -287,6 +295,7 @@ export const validateBulkUpdateExpense = (request: Request, response: Response, 
         isRecurring: Joi.number().valid(0, 1).optional(),
         llCover: Joi.number().valid(0, 1).optional(),
         fromClaimsFee: Joi.number().valid(0, 1).optional(),
+        fromPlus50: Joi.number().valid(0, 1).optional(),
         deductFromRent: Joi.number().valid(0, 1).optional(),
         type: Joi.string().optional().valid("expense", "extras")
     });

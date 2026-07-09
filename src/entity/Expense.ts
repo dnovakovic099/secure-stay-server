@@ -109,5 +109,8 @@ export class ExpenseEntity {
     fromClaimsFee: number;
 
     @Column({ type: "tinyint", default: 0 })
+    fromPlus50: number;
+
+    @Column({ type: "tinyint", default: 0 })
     deductFromRent: number;
 }
