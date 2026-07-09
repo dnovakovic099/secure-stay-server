@@ -148,6 +148,15 @@ export class ExpenseController {
         }
     }
 
+    async getClaimsFeeFunds(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const expenseService = new ExpenseService();
+            return response.send(await expenseService.getClaimsFeeFunds(request));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async getTotalExpenseByUserId(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const expenseService = new ExpenseService();

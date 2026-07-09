@@ -56,7 +56,9 @@ export const validateCreateExpense = (request: Request, response: Response, next
             })
         ).optional().allow(null, ""),
         isRecurring: Joi.number().valid(0, 1).optional(),
-        llCover: Joi.number().valid(0, 1).optional()
+        llCover: Joi.number().valid(0, 1).optional(),
+        fromClaimsFee: Joi.number().valid(0, 1).optional(),
+        deductFromRent: Joi.number().valid(0, 1).optional()
     });
 
     const { error } = schema.validate(request.body);
@@ -123,7 +125,9 @@ export const validateUpdateExpense = (request: Request, response: Response, next
             })
         ).optional().allow(null, ""),
         isRecurring: Joi.number().valid(0, 1).optional(),
-        llCover: Joi.number().valid(0, 1).optional()
+        llCover: Joi.number().valid(0, 1).optional(),
+        fromClaimsFee: Joi.number().valid(0, 1).optional(),
+        deductFromRent: Joi.number().valid(0, 1).optional()
     });
 
     const { error } = schema.validate(request.body);
@@ -205,6 +209,18 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
             .optional()
             .allow('', null),
 
+        fromClaimsFee: Joi.array()
+            .items(Joi.string().valid("0", "1"))
+            .min(1)
+            .optional()
+            .allow('', null),
+
+        deductFromRent: Joi.array()
+            .items(Joi.string().valid("0", "1"))
+            .min(1)
+            .optional()
+            .allow('', null),
+
         tags: Joi.array().items(Joi.number().required()).min(1).optional().allow("", null),
         propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
         serviceType: Joi.array().items(Joi.string().required()).min(1).optional(),
@@ -270,6 +286,8 @@ export const validateBulkUpdateExpense = (request: Request, response: Response, 
         datePaid: Joi.string().required().allow(null),
         isRecurring: Joi.number().valid(0, 1).optional(),
         llCover: Joi.number().valid(0, 1).optional(),
+        fromClaimsFee: Joi.number().valid(0, 1).optional(),
+        deductFromRent: Joi.number().valid(0, 1).optional(),
         type: Joi.string().optional().valid("expense", "extras")
     });
 

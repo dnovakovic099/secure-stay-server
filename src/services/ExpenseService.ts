@@ -22,6 +22,7 @@ import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { generateSlackMessageLink } from "../helpers/helpers";
 import { ExpenseHistoryEntity } from "../entity/ExpenseHistory";
 import { RefundRequestEntity } from "../entity/RefundRequest";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
 
 const ACCOUNTING_TIME_ZONE = "America/New_York";
 const ACCOUNTING_TIMESTAMP_DATE_TYPES = new Set(["createdAt", "updatedAt"]);
@@ -44,6 +45,8 @@ const EXPENSE_SORT_FIELD_MAP: Record<string, keyof ExpenseEntity> = {
     findings: "findings",
     paymentMethod: "paymentMethod",
     paymentDetails: "paymentDetails",
+    fromClaimsFee: "fromClaimsFee",
+    deductFromRent: "deductFromRent",
     createdAt: "createdAt",
     createdAtTimestamp: "createdAt",
     createdBy: "createdBy",
@@ -71,6 +74,8 @@ interface ExpenseBulkUpdateObject {
     datePaid?: string;
     isRecurring?: number;
     llCover?: number;
+    fromClaimsFee?: number;
+    deductFromRent?: number;
     type?: "expense" | "extras";
 }
 
@@ -86,6 +91,7 @@ export class ExpenseService {
     private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
     private expenseHistoryRepo = appDatabase.getRepository(ExpenseHistoryEntity);
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
+    private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
 
     private buildSlackPermalink(slackMessage?: SlackMessageEntity | null) {
         const workspaceUrl = String(process.env.SLACK_WORKSPACE_URL || "").trim();
@@ -267,6 +273,8 @@ export class ExpenseService {
             issues,
             isRecurring,
             llCover,
+            fromClaimsFee,
+            deductFromRent,
             comesFrom,
             reservationId,
             guestName,
@@ -297,6 +305,8 @@ export class ExpenseService {
         newExpense.issues = issues ? issues : null;
         newExpense.isRecurring = isRecurring ? isRecurring : 0;
         newExpense.llCover = llCover ? llCover : 0;
+        newExpense.fromClaimsFee = fromClaimsFee ? fromClaimsFee : 0;
+        newExpense.deductFromRent = deductFromRent ? deductFromRent : 0;
         newExpense.comesFrom = comesFrom || null;
         newExpense.reservationId = reservationId || null;
         newExpense.guestName = guestName || null;
@@ -372,6 +382,8 @@ export class ExpenseService {
             paymentMethod,
             paymentDetails,
             llCover,
+            fromClaimsFee,
+            deductFromRent,
             tags,
             propertyType,
             serviceType,
@@ -434,6 +446,8 @@ export class ExpenseService {
         const normalizedPaymentMethod = Array.isArray(paymentMethod) ? paymentMethod : (paymentMethod ? [String(paymentMethod)] : []);
         const normalizedPaymentDetails = Array.isArray(paymentDetails) ? paymentDetails.map(String) : (paymentDetails ? [String(paymentDetails)] : []);
         const normalizedLlCover = Array.isArray(llCover) ? llCover.map(Number) : (llCover !== undefined && llCover !== '' ? [Number(llCover)] : []);
+        const normalizedFromClaimsFee = Array.isArray(fromClaimsFee) ? fromClaimsFee.map(Number) : (fromClaimsFee !== undefined && fromClaimsFee !== '' ? [Number(fromClaimsFee)] : []);
+        const normalizedDeductFromRent = Array.isArray(deductFromRent) ? deductFromRent.map(Number) : (deductFromRent !== undefined && deductFromRent !== '' ? [Number(deductFromRent)] : []);
         const dateTypeString = String(dateType || "expenseDate");
         const isTimestampDateType = ACCOUNTING_TIMESTAMP_DATE_TYPES.has(dateTypeString);
         const accountingTimestampRange = fromDate && toDate && isTimestampDateType
@@ -487,6 +501,12 @@ export class ExpenseService {
                     }),
                     ...(normalizedLlCover.length === 1 && Number.isFinite(normalizedLlCover[0]) && {
                         llCover: normalizedLlCover[0],
+                    }),
+                    ...(normalizedFromClaimsFee.length === 1 && Number.isFinite(normalizedFromClaimsFee[0]) && {
+                        fromClaimsFee: normalizedFromClaimsFee[0],
+                    }),
+                    ...(normalizedDeductFromRent.length === 1 && Number.isFinite(normalizedDeductFromRent[0]) && {
+                        deductFromRent: normalizedDeductFromRent[0],
                     }),
                     ...(expenseIds.length > 0 && { id: In(expenseIds) }),
                     ...(reservationIds.length > 0 && { reservationId: In(reservationIds) }),
@@ -603,6 +623,8 @@ export class ExpenseService {
                     paymentMethod: expense.paymentMethod,
                     paymentDetails: expense.paymentDetails,
                     slackNotes: expense.slackNotes,
+                    fromClaimsFee: expense.fromClaimsFee,
+                    deductFromRent: expense.deductFromRent,
                     slackThreadPermalink: this.buildSlackPermalink(slackMessageMap.get(expense.id)),
                     createdAt: this.formatAccountingTimestamp(expense.createdAt),
                     updatedAt: this.formatAccountingTimestamp(expense.updatedAt),
@@ -679,6 +701,30 @@ export class ExpenseService {
                     regex: categoriesFilter.join('|'),
                 });
             }
+        }
+
+        if (normalizedPaymentMethod.length > 0) {
+            qb.andWhere('expense.paymentMethod IN (:...paymentMethods)', { paymentMethods: normalizedPaymentMethod });
+        }
+
+        if (normalizedPaymentDetails.length === 1 && normalizedPaymentDetails[0] === 'with') {
+            qb.andWhere("expense.paymentDetails IS NOT NULL AND expense.paymentDetails != ''");
+        }
+
+        if (normalizedPaymentDetails.length === 1 && normalizedPaymentDetails[0] === 'without') {
+            qb.andWhere("(expense.paymentDetails IS NULL OR expense.paymentDetails = '')");
+        }
+
+        if (normalizedLlCover.length === 1 && Number.isFinite(normalizedLlCover[0])) {
+            qb.andWhere('expense.llCover = :llCover', { llCover: normalizedLlCover[0] });
+        }
+
+        if (normalizedFromClaimsFee.length === 1 && Number.isFinite(normalizedFromClaimsFee[0])) {
+            qb.andWhere('expense.fromClaimsFee = :fromClaimsFee', { fromClaimsFee: normalizedFromClaimsFee[0] });
+        }
+
+        if (normalizedDeductFromRent.length === 1 && Number.isFinite(normalizedDeductFromRent[0])) {
+            qb.andWhere('expense.deductFromRent = :deductFromRent', { deductFromRent: normalizedDeductFromRent[0] });
         }
 
         if (type && type == "extras") {
@@ -780,6 +826,88 @@ export class ExpenseService {
         }));
     }
 
+    private async getReservationClaimsFeeColumn() {
+        const candidates = ["resortFee", "resort_fee", "resortFeeAmount", "resort_fee_amount", "claimFee", "claim_fee"];
+        const columns = await this.reservationInfoRepo.query("SHOW COLUMNS FROM reservation_info");
+        const names = new Set(columns.map((column: any) => String(column.Field || column.field)));
+        return candidates.find((candidate) => names.has(candidate)) || null;
+    }
+
+    async getClaimsFeeFunds(request: Request) {
+        const fromDate = String(request.query.fromDate || "");
+        const toDate = String(request.query.toDate || "");
+        const resortFeeColumn = await this.getReservationClaimsFeeColumn();
+        const reservationParams: any[] = [];
+        const expenseParams: any[] = [];
+        let reservationDateWhere = "";
+        let expenseDateWhere = "";
+
+        if (fromDate && toDate) {
+            reservationDateWhere = "AND arrivalDate BETWEEN ? AND ?";
+            expenseDateWhere = "AND expenseDate BETWEEN ? AND ?";
+            reservationParams.push(fromDate, toDate);
+            expenseParams.push(fromDate, toDate);
+        }
+
+        const validStatuses = ["new", "modified", "ownerStay", "accepted", "moved"];
+        const statusPlaceholders = validStatuses.map(() => "?").join(",");
+        reservationParams.push(...validStatuses);
+
+        const reservationRows = resortFeeColumn
+            ? await this.reservationInfoRepo.query(
+                `
+                    SELECT listingMapId, MAX(listingName) AS listingName, SUM(COALESCE(\`${resortFeeColumn}\`, 0)) AS totalClaimsFee
+                    FROM reservation_info
+                    WHERE listingMapId IS NOT NULL
+                    ${reservationDateWhere}
+                    AND status IN (${statusPlaceholders})
+                    GROUP BY listingMapId
+                `,
+                reservationParams
+            )
+            : [];
+
+        const expenseRows = await this.expenseRepo.query(
+            `
+                SELECT listingMapId, SUM(ABS(COALESCE(amount, 0))) AS usedClaimsFee
+                FROM expense
+                WHERE listingMapId IS NOT NULL
+                AND isDeleted = 0
+                AND fromClaimsFee = 1
+                ${expenseDateWhere}
+                GROUP BY listingMapId
+            `,
+            expenseParams
+        );
+
+        const listingIds = Array.from(new Set([
+            ...reservationRows.map((row: any) => Number(row.listingMapId)),
+            ...expenseRows.map((row: any) => Number(row.listingMapId)),
+        ].filter(Boolean)));
+
+        const listings = listingIds.length
+            ? await this.listingRepository.find({ where: { id: In(listingIds) }, withDeleted: true })
+            : [];
+        const listingNameById = new Map(listings.map((listing) => [Number(listing.id), listing.internalListingName || listing.name || `Property ${listing.id}`]));
+        const reservationByListing = new Map<number, any>(reservationRows.map((row: any) => [Number(row.listingMapId), row]));
+        const expenseByListing = new Map<number, any>(expenseRows.map((row: any) => [Number(row.listingMapId), row]));
+
+        return listingIds
+            .map((listingMapId) => {
+                const totalClaimsFee = Number(reservationByListing.get(listingMapId)?.totalClaimsFee || 0);
+                const usedClaimsFee = Number(expenseByListing.get(listingMapId)?.usedClaimsFee || 0);
+                return {
+                    listingMapId,
+                    property: listingNameById.get(listingMapId) || reservationByListing.get(listingMapId)?.listingName || `Property ${listingMapId}`,
+                    totalClaimsFee,
+                    usedClaimsFee,
+                    netClaimsFee: totalClaimsFee - usedClaimsFee,
+                    resortFeeColumn,
+                };
+            })
+            .sort((a, b) => a.property.localeCompare(b.property));
+    }
+
     async getExpenses(fromDate: string, toDate: string, listingId: number) {
         const expense = await this.expenseRepo.find({
             where: {
@@ -812,6 +940,8 @@ export class ExpenseService {
             issues,
             isRecurring,
             llCover,
+            fromClaimsFee,
+            deductFromRent,
             comesFrom,
             reservationId,
             guestName,
@@ -846,6 +976,8 @@ export class ExpenseService {
         expense.issues = issues ? issues : null;
         expense.isRecurring = isRecurring ? isRecurring : 0;
         expense.llCover = llCover ? llCover : 0;
+        expense.fromClaimsFee = fromClaimsFee ? fromClaimsFee : 0;
+        expense.deductFromRent = deductFromRent ? deductFromRent : 0;
         expense.comesFrom = comesFrom || null;
         expense.reservationId = reservationId || null;
         expense.guestName = guestName || null;
@@ -895,6 +1027,8 @@ export class ExpenseService {
                 "issues",
                 "isRecurring",
                 "llCover",
+                "fromClaimsFee",
+                "deductFromRent",
                 "comesFrom",
                 "reservationId",
                 "guestName",

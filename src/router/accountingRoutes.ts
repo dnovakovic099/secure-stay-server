@@ -52,6 +52,8 @@ router.route('/getexpense/:id').get(verifySession, expenseController.getExpenseB
 
 router.route('/getexpense/:id/history').get(verifySession, expenseController.getExpenseHistory);
 
+router.route('/claimsfeefunds').get(verifySession, expenseController.getClaimsFeeFunds);
+
 router.route('/deleteexpense/:id').delete(verifySession, expenseController.deleteExpense);
 
 router.route('/bulkdeleteexpenses').post(verifySession, verifyAdmin, expenseController.bulkDeleteExpenses);
