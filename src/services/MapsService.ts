@@ -26,6 +26,7 @@ interface SearchFilters {
   propertyType?: string[];
   amenities?: string[];
   matchReference?: boolean;
+  cachedDistanceOnly?: boolean;
 }
 
 interface PricingInfo {
@@ -453,10 +454,16 @@ export class MapsService {
         // Calculate distances for all properties EXCEPT the reference property itself
         // Cast to String to handle bigint-as-string vs number comparison
         const propertiesToCalculate = properties.filter((p) => String(p.id) !== String(filters.propertyId));
-        const propertiesWithDistance = await this.calculateDistances(
+        let propertiesWithDistance = await this.calculateDistances(
           referenceProperty,
-          propertiesToCalculate
+          propertiesToCalculate,
+          { cachedOnly: filters.cachedDistanceOnly === true }
         );
+
+        // In cache-only mode, hide non-reference properties that don't have a cached route.
+        if (filters.cachedDistanceOnly) {
+          propertiesWithDistance = propertiesWithDistance.filter((p) => p.distanceFromCache === true);
+        }
 
         // Get pricing for reference property if dates provided
         let refPricing: PricingInfo | undefined;
@@ -593,12 +600,14 @@ export class MapsService {
    */
   async calculateDistances(
     referenceProperty: Listing,
-    properties: PropertyWithDistance[]
+    properties: PropertyWithDistance[],
+    options: { cachedOnly?: boolean } = {}
   ): Promise<PropertyWithDistance[]> {
     if (properties.length === 0) return properties;
 
+    const { cachedOnly = false } = options;
     const apiKey = process.env.GOOGLE_API_KEY;
-    if (!apiKey) {
+    if (!apiKey && !cachedOnly) {
       logger.warn("GOOGLE_API_KEY not configured, returning properties without distance info");
       return properties;
     }
@@ -629,7 +638,7 @@ export class MapsService {
           }
         });
 
-        if (missIndices.length > 0) {
+        if (missIndices.length > 0 && !cachedOnly && apiKey) {
           const missProps = missIndices.map((idx) => batch[idx]);
           const destinations = missProps.map((p) => `${p.lat},${p.lng}`).join("|");
           const origin = `${oLat},${oLng}`;
@@ -658,6 +667,9 @@ export class MapsService {
             logger.warn("Distance Matrix API returned non-OK status:", response.data.status);
             missIndices.forEach((batchIdx) => { batchResults[batchIdx] = batch[batchIdx]; });
           }
+        } else if (missIndices.length > 0 && cachedOnly) {
+          // In cache-only mode: keep the property but leave distance/duration unset.
+          missIndices.forEach((batchIdx) => { batchResults[batchIdx] = batch[batchIdx]; });
         }
 
         results.push(...batchResults);

@@ -37,6 +37,7 @@ export const validateMapsSearch = (
     propertyType: Joi.alternatives().try(Joi.string(), Joi.array().items(Joi.string())).optional(),
     amenities: Joi.alternatives().try(Joi.string(), Joi.array().items(Joi.string())).optional(),
     matchReference: Joi.boolean().optional(),
+    cachedDistanceOnly: Joi.boolean().optional(),
   }).custom((value, helpers) => {
     // If one date is provided, the other must be too
     if ((value.startDate && !value.endDate) || (!value.startDate && value.endDate)) {

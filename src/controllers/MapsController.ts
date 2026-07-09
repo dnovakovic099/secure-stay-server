@@ -94,6 +94,7 @@ export class MapsController {
         propertyType,
         amenities,
         matchReference,
+        cachedDistanceOnly,
       } = req.body;
 
       // Validate numberOfPets if provided
@@ -132,6 +133,7 @@ export class MapsController {
               ? [amenities]
               : undefined,
           matchReference: matchReference === true,
+          cachedDistanceOnly: cachedDistanceOnly === true,
         },
         userId
       );
