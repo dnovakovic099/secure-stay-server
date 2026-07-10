@@ -181,6 +181,20 @@ export class AILearnedFactsService {
         if (opts.scope) where.scope = opts.scope;
         if (opts.listingId != null) where.listingId = opts.listingId;
         const rows = await this.repo.find({ where, order: { frequency: "DESC", updatedAt: "DESC" }, take: 500 });
+        const listingIds = [...new Set(rows.map((f) => f.listingId).filter((id) => id != null).map(Number))];
+        const listingNames = new Map<number, string>();
+        if (listingIds.length) {
+            const listingRows: any[] = await appDatabase.query(
+                `SELECT id, internalListingName, name, externalListingName
+                 FROM listing_info
+                 WHERE id IN (${listingIds.map(() => "?").join(",")})`,
+                listingIds
+            );
+            for (const listing of listingRows) {
+                const name = listing.internalListingName || listing.name || listing.externalListingName || null;
+                if (name) listingNames.set(Number(listing.id), name);
+            }
+        }
 
         // Attribution: resolve who taught / reviewed each fact to display names,
         // so the Learned tab can show "Taught by X" instead of a bare user id.
@@ -192,8 +206,19 @@ export class AILearnedFactsService {
         const nameById = await AILearnedFactsService.userNames([...ids]);
         return rows.map((f) => ({
             ...f,
+            listingName: f.listingId != null ? listingNames.get(Number(f.listingId)) ?? null : null,
             taughtByName: f.createdByUserId != null ? nameById.get(Number(f.createdByUserId)) ?? null : null,
             reviewedByName: f.reviewedByUserId != null ? nameById.get(Number(f.reviewedByUserId)) ?? null : null,
+            approvalReason:
+                f.status !== "approved"
+                    ? null
+                    : f.reviewedByUserId != null
+                    ? `This learned fact was approved or last reviewed by ${nameById.get(Number(f.reviewedByUserId)) ?? "a SecureStay user"}.`
+                    : f.createdByUserId != null
+                    ? `This learned fact was manually taught by ${nameById.get(Number(f.createdByUserId)) ?? "a SecureStay user"} and trusted for future replies.`
+                    : f.source === "nightly_audit" && f.frequency >= AILearnedFactsService.AUTO_APPROVE_MIN_FREQUENCY
+                    ? `This self-learned fact was approved because the same topic was found ${f.frequency} times, meeting the self-learning review threshold.`
+                    : "This self-learned fact is approved in the learned-facts review list. No reviewer name is attached to the record.",
         }));
     }
 
