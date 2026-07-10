@@ -23,6 +23,7 @@ const fileInfoRepo = () => appDatabase.getRepository(FileInfo);
 const reservationInfoRepo = () => appDatabase.getRepository(ReservationInfoEntity);
 const listingRepo = () => appDatabase.getRepository(Listing);
 const reservationDocumentRepo = () => appDatabase.getRepository(RentalAgreementReservationDocument);
+const RENTAL_AGREEMENT_TIME_ZONE = "America/New_York";
 
 type RentalAgreementAdminFilters = {
     search?: string;
@@ -192,6 +193,24 @@ export class RentalAgreementSigningService {
         transaction: RentalAgreementSecurityDepositTransaction | null;
     }>();
     private securityDepositTransactionCacheTtlMs = 2 * 60 * 1000;
+
+    private formatDateInRentalAgreementTimeZone(date: Date) {
+        const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone: RENTAL_AGREEMENT_TIME_ZONE,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+        }).formatToParts(date);
+        const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+        return `${values.year}-${values.month}-${values.day}`;
+    }
+
+    private getRentalAgreementDate(offsetDays = 0) {
+        const today = this.formatDateInRentalAgreementTimeZone(new Date());
+        const [year, month, day] = today.split("-").map(Number);
+        const targetNoonUtc = new Date(Date.UTC(year, month - 1, day + offsetDays, 12));
+        return this.formatDateInRentalAgreementTimeZone(targetNoonUtc);
+    }
 
     private getTransactionString(transaction: any, keys: string[]) {
         for (const key of keys) {
@@ -580,33 +599,30 @@ export class RentalAgreementSigningService {
     }
 
     private buildBucketWhere(bucket: string | undefined) {
-        const today = startOfDay(new Date());
-        const tomorrow = addDays(today, 1);
-        const nextSevenEnd = addDays(today, 6);
+        const today = this.getRentalAgreementDate();
+        const tomorrow = this.getRentalAgreementDate(1);
+        const nextSevenEnd = this.getRentalAgreementDate(6);
 
         switch (bucket) {
             case "ongoingStay":
                 return {
                     sql: "reservation.arrivalDate < :today AND reservation.departureDate >= :today",
-                    params: { today: format(today, "yyyy-MM-dd") },
+                    params: { today },
                 };
             case "checkingInToday":
                 return {
                     sql: "reservation.arrivalDate = :today",
-                    params: { today: format(today, "yyyy-MM-dd") },
+                    params: { today },
                 };
             case "checkingInTomorrow":
                 return {
                     sql: "reservation.arrivalDate = :tomorrow",
-                    params: { tomorrow: format(tomorrow, "yyyy-MM-dd") },
+                    params: { tomorrow },
                 };
             case "checkingInNext7Days":
                 return {
                     sql: "reservation.arrivalDate BETWEEN :today AND :nextSevenEnd",
-                    params: {
-                        today: format(today, "yyyy-MM-dd"),
-                        nextSevenEnd: format(nextSevenEnd, "yyyy-MM-dd"),
-                    },
+                    params: { today, nextSevenEnd },
                 };
             default:
                 return null;
@@ -1072,6 +1088,7 @@ export class RentalAgreementSigningService {
             checkingInNext7Days: RentalAgreementSummaryCard;
         };
         overallSummary: RentalAgreementSummaryCard;
+        statusSummary: RentalAgreementSummaryCard;
         records: RentalAgreementOverviewRow[];
         availableChannels: string[];
         availableProperties: string[];
@@ -1122,7 +1139,6 @@ export class RentalAgreementSigningService {
         const editedOnly = String(filters.editedOnly || "false") === "true";
         const bucket = String(filters.bucket || "");
 
-        const today = startOfDay(new Date());
         const fromDate = filters.fromDate ? startOfDay(new Date(filters.fromDate)) : null;
         const toDate = filters.toDate ? endOfDay(new Date(filters.toDate)) : null;
 
@@ -1247,14 +1263,6 @@ export class RentalAgreementSigningService {
             qb.andWhere("signing.id IS NULL");
         }
 
-        if (statusTab === "signed") {
-            qb.andWhere("signing.id IS NOT NULL");
-        } else if (statusTab === "overridden") {
-            qb.andWhere("COALESCE(document.isOverridden, 0) = 1");
-        } else if (statusTab === "not_yet_signed") {
-            qb.andWhere("signing.id IS NULL AND COALESCE(document.isOverridden, 0) = 0");
-        }
-
         if (editedOnly) {
             qb.andWhere("COALESCE(document.isEdited, 0) = 1");
         }
@@ -1301,6 +1309,20 @@ export class RentalAgreementSigningService {
             qb.andWhere("signing.pdfStatus = 'pdf_failed'");
         } else if (pdfStatus === "missing") {
             qb.andWhere("signing.id IS NOT NULL AND (signing.pdfStatus IS NULL OR signing.fileInfoId IS NULL)");
+        }
+
+        const statusSummaryQb = qb.clone()
+            .select("COUNT(DISTINCT reservation.id)", "total")
+            .addSelect("COUNT(DISTINCT CASE WHEN signing.id IS NOT NULL THEN reservation.id END)", "signed")
+            .addSelect("COUNT(DISTINCT CASE WHEN signing.id IS NULL AND COALESCE(document.isOverridden, 0) = 0 THEN reservation.id END)", "unsigned")
+            .addSelect("COUNT(DISTINCT CASE WHEN COALESCE(document.isOverridden, 0) = 1 THEN reservation.id END)", "overridden");
+
+        if (statusTab === "signed") {
+            qb.andWhere("signing.id IS NOT NULL");
+        } else if (statusTab === "overridden") {
+            qb.andWhere("COALESCE(document.isOverridden, 0) = 1");
+        } else if (statusTab === "not_yet_signed") {
+            qb.andWhere("signing.id IS NULL AND COALESCE(document.isOverridden, 0) = 0");
         }
 
         switch (sort) {
@@ -1367,11 +1389,16 @@ export class RentalAgreementSigningService {
             .orderBy("document.overriddenBy", "ASC")
             .getRawMany() : Promise.resolve([]);
 
-        const [rawRows, channelRows, propertyRows, overriddenByRows] = await Promise.all([
+        const statusSummaryPromise = includeMetadata
+            ? statusSummaryQb.getRawOne()
+            : Promise.resolve(null);
+
+        const [rawRows, channelRows, propertyRows, overriddenByRows, statusSummaryRaw] = await Promise.all([
             qb.getRawMany(),
             channelRowsPromise,
             propertyRowsPromise,
             overriddenByRowsPromise,
+            statusSummaryPromise,
         ]);
         const hasMore = rawRows.length > limit;
         const pageRows = hasMore ? rawRows.slice(0, limit) : rawRows;
@@ -1455,22 +1482,23 @@ export class RentalAgreementSigningService {
             };
         };
 
-        const tomorrow = addDays(today, 1);
-        const nextSevenEnd = addDays(today, 6);
+        const todayDate = this.getRentalAgreementDate();
+        const tomorrow = this.getRentalAgreementDate(1);
+        const nextSevenEnd = this.getRentalAgreementDate(6);
 
         const [ongoingStay, checkingInToday, checkingInTomorrow, checkingInNext7Days, overallSummary] = includeMetadata ? await Promise.all([
             buildSummaryCard("Ongoing Stay", "reservation.arrivalDate < :today AND reservation.departureDate >= :today", {
-                today: format(today, "yyyy-MM-dd"),
+                today: todayDate,
             }),
             buildSummaryCard("Checking In Today", "reservation.arrivalDate = :today", {
-                today: format(today, "yyyy-MM-dd"),
+                today: todayDate,
             }),
             buildSummaryCard("Checking In Tomorrow", "reservation.arrivalDate = :tomorrow", {
-                tomorrow: format(tomorrow, "yyyy-MM-dd"),
+                tomorrow,
             }),
             buildSummaryCard("Next 7 Days", "reservation.arrivalDate BETWEEN :today AND :nextSevenEnd", {
-                today: format(today, "yyyy-MM-dd"),
-                nextSevenEnd: format(nextSevenEnd, "yyyy-MM-dd"),
+                today: todayDate,
+                nextSevenEnd,
             }),
             buildSummaryCard("Overall", "reservation.arrivalDate IS NOT NULL", {}),
         ]) : [
@@ -1480,6 +1508,13 @@ export class RentalAgreementSigningService {
             { label: "Next 7 Days", total: 0, signed: 0, unsigned: 0, overridden: 0 },
             { label: "Overall", total: 0, signed: 0, unsigned: 0, overridden: 0 },
         ];
+        const statusSummary = {
+            label: "Current Filters",
+            total: Number(statusSummaryRaw?.total || 0),
+            signed: Number(statusSummaryRaw?.signed || 0),
+            unsigned: Number(statusSummaryRaw?.unsigned || 0),
+            overridden: Number(statusSummaryRaw?.overridden || 0),
+        };
 
         return {
             summary: {
@@ -1489,6 +1524,7 @@ export class RentalAgreementSigningService {
                 checkingInNext7Days,
             },
             overallSummary,
+            statusSummary,
             records,
             availableChannels,
             availableProperties,
@@ -1504,7 +1540,7 @@ export class RentalAgreementSigningService {
         const reservationInfo = await reservationInfoRepo()
             .createQueryBuilder("reservation")
             .where("reservation.arrivalDate >= :today", {
-                today: format(startOfDay(new Date()), "yyyy-MM-dd"),
+                today: this.getRentalAgreementDate(),
             })
             .andWhere("LOWER(COALESCE(reservation.status, '')) NOT IN (:...excludedStatuses)", {
                 excludedStatuses: this.excludedReservationStatuses,
