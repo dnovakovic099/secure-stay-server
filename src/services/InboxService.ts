@@ -60,6 +60,11 @@ interface ListOptions {
     portfolio?: string | string[];
     listingId?: string | string[];
     stayTiming?: string;
+    lastMessageFrom?: string | string[];
+    unresponded?: boolean | string;
+    dateType?: string;
+    dateFrom?: string;
+    dateTo?: string;
     /** Reservation status bucket: "inquiry" | "confirmed" | "cancelled". */
     reservationStatus?: string | string[];
 }
@@ -137,13 +142,6 @@ export class InboxService {
         if (raw.includes("full")) return "Full";
         if (raw.includes("pro")) return "Pro";
         if (raw.includes("launch")) return "Launch";
-        return null;
-    }
-
-    private normalizePortfolioValue(listing: Listing | null | undefined) {
-        const raw = `${(listing as any)?.portfolio || ""} ${listing?.tags || ""}`.toLowerCase();
-        if (raw.includes("group 1") || raw.includes("group1") || raw.includes("g1")) return "Group 1";
-        if (raw.includes("group 2") || raw.includes("group2") || raw.includes("g2")) return "Group 2";
         return null;
     }
 
@@ -657,6 +655,32 @@ export class InboxService {
         if (options.checkoutFrom) qb.andWhere("c.checkout >= :cof", { cof: options.checkoutFrom });
         if (options.checkoutTo) qb.andWhere("c.checkout <= :cot", { cot: options.checkoutTo });
 
+        const dateFrom = String(options.dateFrom || "").slice(0, 10);
+        const dateTo = String(options.dateTo || options.dateFrom || "").slice(0, 10);
+        if (dateFrom || dateTo) {
+            const applyDateWindow = (expression: string, fromKey: string, toKey: string) => {
+                if (dateFrom) qb.andWhere(`${expression} >= :${fromKey}`, { [fromKey]: dateFrom });
+                if (dateTo) qb.andWhere(`${expression} <= :${toKey}`, { [toKey]: dateTo });
+            };
+            switch (String(options.dateType || "updated").toLowerCase()) {
+                case "arrivaldate":
+                case "checkin":
+                    applyDateWindow("c.checkin", "dateFromCheckin", "dateToCheckin");
+                    break;
+                case "departuredate":
+                case "checkout":
+                    applyDateWindow("c.checkout", "dateFromCheckout", "dateToCheckout");
+                    break;
+                case "confirmed":
+                    applyDateWindow("DATE(r.reservationDate)", "dateFromConfirmed", "dateToConfirmed");
+                    break;
+                case "updated":
+                default:
+                    applyDateWindow("DATE(c.lastMessageAt)", "dateFromUpdated", "dateToUpdated");
+                    break;
+            }
+        }
+
         const stayTiming = String(options.stayTiming || "").toLowerCase();
         if (stayTiming === "future") {
             qb.andWhere("c.checkin > :today", { today });
@@ -664,6 +688,25 @@ export class InboxService {
             qb.andWhere("c.checkin <= :today AND c.checkout >= :today", { today });
         } else if (stayTiming === "past") {
             qb.andWhere("c.checkout < :today", { today });
+        }
+
+        const lastMessageBuckets = parseListParam(options.lastMessageFrom).map((value) => value.toLowerCase());
+        if (lastMessageBuckets.length) {
+            qb.andWhere(
+                new Brackets((b) => {
+                    lastMessageBuckets.forEach((bucket, index) => {
+                        const method = index === 0 ? "where" : "orWhere";
+                        if (bucket === "guest") {
+                            b[method]("c.answered = 0");
+                        } else if (bucket === "us" || bucket === "host" || bucket === "securestay") {
+                            b[method]("c.answered = 1");
+                        }
+                    });
+                })
+            );
+        }
+        if (options.unresponded === true || String(options.unresponded || "").toLowerCase() === "true") {
+            qb.andWhere("(c.answered = 0 OR c.unread = 1)");
         }
 
         // Reservation status buckets (raw Hostify statuses grouped for the UI).
@@ -822,30 +865,14 @@ export class InboxService {
             ? await this.listingRepo.find({ where: { id: In(listingIds) }, withDeleted: true })
             : [];
         const listingMap = new Map(listings.map((listing) => [Number(listing.id), listing]));
-        const reservationIds = Array.from(
-            new Set(
-                conversations
-                    .map((conversation) => Number(conversation.reservationId))
-                    .filter((reservationId) => Number.isFinite(reservationId) && reservationId > 0)
-            )
-        );
-        const reservations = reservationIds.length
-            ? await this.reservationRepo.find({ where: { id: In(reservationIds) } })
-            : [];
-        const reservationMap = new Map(reservations.map((reservation) => [Number(reservation.id), reservation]));
 
         const enrichedConversations = conversations.map((conversation) => {
             const listing = listingMap.get(Number(conversation.listingId)) || null;
-            const reservation = reservationMap.get(Number(conversation.reservationId)) || null;
             const normalizedListing = listing
                 ? (this.listingService as any).normalizeListingOverview?.(listing) || null
                 : null;
             return {
                 ...conversation,
-                confirmationCode: reservation?.confirmation_code || null,
-                guestPhone: conversation.guestPhone || reservation?.phone || null,
-                guestEmail: conversation.guestEmail || reservation?.guestEmail || null,
-                portfolio: this.normalizePortfolioValue(listing),
                 propertyType: this.normalizePropertyTypeValue(listing),
                 serviceType: this.normalizeServiceTypeValue(listing, normalizedListing),
             };
