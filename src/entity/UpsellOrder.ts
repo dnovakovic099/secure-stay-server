@@ -61,4 +61,13 @@ export class UpsellOrder {
 
     @Column({ nullable: true })
     updated_by: string;
+
+    @Column({ type: 'tinyint', width: 1, default: 0 })
+    archived: boolean;
+
+    @Column({ type: 'datetime', nullable: true })
+    archived_at: Date;
+
+    @Column({ nullable: true })
+    archived_by: string;
 }

@@ -36,6 +36,7 @@ export class UpsellOrderController {
             const keywordField = request.query.keywordField as string || '';
             const propertyType = request.query.propertyType as string[] || [];
             const upsellType = request.query.upsellType as string[] || [];
+            const archived = request.query.archived as string || 'active';
 
             const dateTypeMapping: { [key: string]: string } = {
                 'purchase': 'order_date',
@@ -46,7 +47,7 @@ export class UpsellOrderController {
 
             const dateType = dateTypeMapping[frontendDateType] || 'order_date';
 
-            const result = await upsellOrderService.getOrders(page, limit, fromDate, toDate, status, listingId, dateType, keyword, propertyType, upsellType, keywordField);
+            const result = await upsellOrderService.getOrders(page, limit, fromDate, toDate, status, listingId, dateType, keyword, propertyType, upsellType, keywordField, archived);
             
             return response.send({
                 status: true,

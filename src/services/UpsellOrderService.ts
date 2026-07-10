@@ -46,7 +46,7 @@ export class UpsellOrderService {
         return savedOrder;
     }
 
-    async getOrders(page: number = 1, limit: number = 10, fromDate: string = '', toDate: string = '', status: string | string[] = '', listing_id: string | string[] = '', dateType: string = 'order_date', keyword: string = '', propertyType: string[] | string = [], upsellType: string[] | string = [], keywordField: string = '') {
+    async getOrders(page: number = 1, limit: number = 10, fromDate: string = '', toDate: string = '', status: string | string[] = '', listing_id: string | string[] = '', dateType: string = 'order_date', keyword: string = '', propertyType: string[] | string = [], upsellType: string[] | string = [], keywordField: string = '', archived: string = 'active') {
         const queryOptions: any = {
             order: { order_date: 'DESC' },
             skip: (page - 1) * limit,
@@ -58,6 +58,13 @@ export class UpsellOrderService {
         const listingFilters = this.parseStringArray(listing_id);
         const propertyTypeFilters = this.parseStringArray(propertyType);
         const upsellTypeFilters = this.parseStringArray(upsellType);
+        const archiveFilter = this.normalizeArchiveFilter(archived);
+
+        if (archiveFilter === "active") {
+            queryOptions.where.archived = false;
+        } else if (archiveFilter === "archived") {
+            queryOptions.where.archived = true;
+        }
 
         if (fromDate && toDate) {
             const startDate = new Date(fromDate);
@@ -169,6 +176,13 @@ export class UpsellOrderService {
         const requestedDate = (data as any).requested_date || (data as any).requestedDate;
         delete (data as any).requested_date;
         delete (data as any).requestedDate;
+
+        if ((data as any).archived !== undefined) {
+            const nextArchived = this.toBoolean((data as any).archived);
+            (data as any).archived = nextArchived;
+            (data as any).archived_at = nextArchived ? new Date() : null;
+            (data as any).archived_by = nextArchived ? userId : null;
+        }
 
         if (existingOrder.ha_id) {
             const existingPaid = this.isPaidStatus(existingOrder.status);
@@ -473,6 +487,19 @@ export class UpsellOrderService {
 
     private isPaidStatus(status?: string | null) {
         return ["Approved", "Paid"].includes(String(status || "").trim());
+    }
+
+    private normalizeArchiveFilter(value?: string | null) {
+        const normalized = String(value || "active").trim().toLowerCase();
+        if (["archived", "only", "true"].includes(normalized)) return "archived";
+        if (["all", "include"].includes(normalized)) return "all";
+        return "active";
+    }
+
+    private toBoolean(value: unknown) {
+        if (typeof value === "boolean") return value;
+        if (typeof value === "number") return value === 1;
+        return ["true", "1", "yes", "archived"].includes(String(value || "").trim().toLowerCase());
     }
 
     private getPropertyTypeFromTags(tags?: string | null) {
