@@ -2,7 +2,7 @@ import { appDatabase } from "../utils/database.util";
 import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 import { Request } from "express";
 import { HostAwayClient } from "../client/HostAwayClient";
-import { Between, ILike, In, IsNull, LessThan, MoreThan, Not, Raw } from "typeorm";
+import { Between, Brackets, In, IsNull, LessThan, MoreThan, Not, Raw } from "typeorm";
 import { Listing } from "../entity/Listing";
 import { CategoryService } from "./CategoryService";
 import CustomErrorHandler from "../middleware/customError.middleware";
@@ -472,82 +472,112 @@ export class ExpenseService {
             if (field) acc[field] = rule.direction.toUpperCase() as "ASC" | "DESC";
             return acc;
         }, {} as Record<string, "ASC" | "DESC">);
+        const keywordText = String(keyword || "").trim();
 
-        const [expenses, total] = await this.expenseRepo.findAndCount({
-            where: keyword
-                ? [
-                    { contractorNumber: ILike(`%${keyword}%`) },
-                    { contractorName: ILike(`%${keyword}%`) },
-                    { paymentMethod: ILike(`%${keyword}%`) },
-                    { concept: ILike(`%${keyword}%`) },
-                ]
-                :
-                {
-                    ...(effectiveListingIds.length > 0 && {
-                        listingMapId: In(effectiveListingIds),
-                    }),
-                    ...(listingIds && listingIds.length > 0 && { listingMapId: In(listingIds) }),
-                    ...(fromDate && toDate && {
-                        [dateTypeString]: accountingTimestampRange
-                            ? Between(accountingTimestampRange.start, accountingTimestampRange.end)
-                            : Between(String(fromDate), String(toDate))
-                    }),
-                    ...(expenseState && { isDeleted: expenseState === "active" ? 0 : 1 }),
-                    ...(normalizedStatus.length > 0 && {
-                        status: In(normalizedStatus),
-                    }),
-                    ...(normalizedPaymentMethod.length > 0 && {
-                        paymentMethod: In(normalizedPaymentMethod),
-                    }),
-                    ...(normalizedPaymentDetails.length === 1 && normalizedPaymentDetails[0] === 'with' && {
-                        paymentDetails: Raw(alias => `${alias} IS NOT NULL AND ${alias} != ''`),
-                    }),
-                    ...(normalizedPaymentDetails.length === 1 && normalizedPaymentDetails[0] === 'without' && {
-                        paymentDetails: Raw(alias => `(${alias} IS NULL OR ${alias} = '')`),
-                    }),
-                    ...(normalizedLlCover.length === 1 && Number.isFinite(normalizedLlCover[0]) && {
-                        llCover: normalizedLlCover[0],
-                    }),
-                    ...(normalizedFromClaimsFee.length === 1 && Number.isFinite(normalizedFromClaimsFee[0]) && {
-                        fromClaimsFee: normalizedFromClaimsFee[0],
-                    }),
-                    ...(normalizedFromPlus50.length === 1 && Number.isFinite(normalizedFromPlus50[0]) && {
-                        fromPlus50: normalizedFromPlus50[0],
-                    }),
-                    ...(normalizedDeductFromRent.length === 1 && Number.isFinite(normalizedDeductFromRent[0]) && {
-                        deductFromRent: normalizedDeductFromRent[0],
-                    }),
-                    ...(expenseIds.length > 0 && { id: In(expenseIds) }),
-                    ...(reservationIds.length > 0 && { reservationId: In(reservationIds) }),
-                    ...(issueIds.length > 0 && {
-                        issues: Raw((alias) => {
-                            const containsChecks = issueIds
-                                .map((_, index) => `JSON_CONTAINS(${alias}, :issueId${index}, '$')`)
-                                .join(' OR ');
-                            return `${alias} IS NOT NULL AND JSON_VALID(${alias}) AND (${containsChecks})`;
-                        }, issueIds.reduce((params, id, index) => ({
-                            ...params,
-                            [`issueId${index}`]: String(id),
-                        }), {} as Record<string, string>))
-                    }),
-                    ...(normalizedContractorName.length > 0 && {
-                        contractorName: excludeContractorName === 'true' ? Not(In(normalizedContractorName)) : In(normalizedContractorName),
-                    }),
-                    ...(categoriesFilter.length > 0 && {
-                        categories: excludeCategories === 'true'
-                            ? Raw(alias => `(${alias} IS NULL OR JSON_LENGTH(${alias}) = 0 OR NOT (JSON_EXTRACT(${alias}, '$') REGEXP '${categoriesFilter.join('|')}'))`)
-                            : Raw(alias => `JSON_EXTRACT(${alias}, '$') REGEXP '${categoriesFilter.join('|')}'`)
-                    }),
-                    ...(isRecurring !== undefined && { isRecurring: Number(isRecurring) }),
-                    ...(type && type == "extras" && { amount: MoreThan(0) }),
-                    ...(type && type == "expense" && { amount: LessThan(0) }),
-                    // Filter out llCover expenses for non-securestay.ai domains
-                    ...(request.hostname !== "securestay.ai" && { llCover: 0 }),
-                },
-            order: Object.keys(order).length ? order : { expenseDate: "DESC" },
-            skip,
-            take: limit,
+        const applyExpenseFilters = (qb: ReturnType<typeof this.expenseRepo.createQueryBuilder>) => {
+            if (fromDate && toDate) {
+                if (accountingTimestampRange) {
+                    qb.andWhere(`expense.${dateTypeString} BETWEEN :fromDate AND :toDate`, {
+                        fromDate: accountingTimestampRange.start,
+                        toDate: accountingTimestampRange.end
+                    });
+                } else {
+                    qb.andWhere(`expense.${dateTypeString} BETWEEN :fromDate AND :toDate`, { fromDate, toDate });
+                }
+            }
+
+            if (expenseState) qb.andWhere('expense.isDeleted = :isDeleted', { isDeleted: expenseState === "active" ? 0 : 1 });
+            if (effectiveListingIds.length > 0) qb.andWhere('expense.listingMapId IN (:...listingIds)', { listingIds: effectiveListingIds });
+            if (listingIds.length > 0) qb.andWhere('expense.listingMapId IN (:...typeListingIds)', { typeListingIds: listingIds });
+            if (normalizedStatus.length > 0) qb.andWhere('expense.status IN (:...statuses)', { statuses: normalizedStatus });
+            if (normalizedPaymentMethod.length > 0) qb.andWhere('expense.paymentMethod IN (:...paymentMethods)', { paymentMethods: normalizedPaymentMethod });
+
+            if (normalizedPaymentDetails.length === 1 && normalizedPaymentDetails[0] === 'with') {
+                qb.andWhere("expense.paymentDetails IS NOT NULL AND expense.paymentDetails != ''");
+            }
+
+            if (normalizedPaymentDetails.length === 1 && normalizedPaymentDetails[0] === 'without') {
+                qb.andWhere("(expense.paymentDetails IS NULL OR expense.paymentDetails = '')");
+            }
+
+            if (normalizedLlCover.length === 1 && Number.isFinite(normalizedLlCover[0])) {
+                qb.andWhere('expense.llCover = :llCover', { llCover: normalizedLlCover[0] });
+            }
+
+            if (normalizedFromClaimsFee.length === 1 && Number.isFinite(normalizedFromClaimsFee[0])) {
+                qb.andWhere('expense.fromClaimsFee = :fromClaimsFee', { fromClaimsFee: normalizedFromClaimsFee[0] });
+            }
+
+            if (normalizedFromPlus50.length === 1 && Number.isFinite(normalizedFromPlus50[0])) {
+                qb.andWhere('expense.fromPlus50 = :fromPlus50', { fromPlus50: normalizedFromPlus50[0] });
+            }
+
+            if (normalizedDeductFromRent.length === 1 && Number.isFinite(normalizedDeductFromRent[0])) {
+                qb.andWhere('expense.deductFromRent = :deductFromRent', { deductFromRent: normalizedDeductFromRent[0] });
+            }
+
+            if (expenseIds.length > 0) qb.andWhere('expense.id IN (:...expenseIds)', { expenseIds });
+            if (reservationIds.length > 0) qb.andWhere('expense.reservationId IN (:...reservationIds)', { reservationIds });
+
+            if (issueIds.length > 0) {
+                const containsChecks = issueIds
+                    .map((_, index) => `JSON_CONTAINS(expense.issues, :issueId${index}, '$')`)
+                    .join(' OR ');
+                qb.andWhere(
+                    `expense.issues IS NOT NULL AND JSON_VALID(expense.issues) AND (${containsChecks})`,
+                    issueIds.reduce((params, id, index) => ({
+                        ...params,
+                        [`issueId${index}`]: String(id),
+                    }), {} as Record<string, string>)
+                );
+            }
+
+            if (normalizedContractorName.length > 0) {
+                if (excludeContractorName === 'true') {
+                    qb.andWhere('(expense.contractorName NOT IN (:...contractors) OR expense.contractorName IS NULL)', { contractors: normalizedContractorName });
+                } else {
+                    qb.andWhere('expense.contractorName IN (:...contractors)', { contractors: normalizedContractorName });
+                }
+            }
+
+            if (categoriesFilter.length > 0) {
+                if (excludeCategories === 'true') {
+                    qb.andWhere(`(expense.categories IS NULL OR JSON_LENGTH(expense.categories) = 0 OR NOT (JSON_EXTRACT(expense.categories, '$') REGEXP :regex))`, {
+                        regex: categoriesFilter.join('|'),
+                    });
+                } else {
+                    qb.andWhere(`JSON_EXTRACT(expense.categories, '$') REGEXP :regex`, {
+                        regex: categoriesFilter.join('|'),
+                    });
+                }
+            }
+
+            if (isRecurring !== undefined) qb.andWhere('expense.isRecurring = :isRecurring', { isRecurring: Number(isRecurring) });
+            if (type && type == "extras") qb.andWhere('expense.amount > 0');
+            if (type && type == "expense") qb.andWhere('expense.amount < 0');
+            if (request.hostname !== "securestay.ai") qb.andWhere('expense.llCover = 0');
+
+            if (keywordText) {
+                qb.andWhere(new Brackets((keywordQb) => {
+                    keywordQb
+                        .where('expense.contractorNumber LIKE :keyword', { keyword: `%${keywordText}%` })
+                        .orWhere('expense.contractorName LIKE :keyword', { keyword: `%${keywordText}%` })
+                        .orWhere('expense.paymentMethod LIKE :keyword', { keyword: `%${keywordText}%` })
+                        .orWhere('expense.concept LIKE :keyword', { keyword: `%${keywordText}%` });
+                }));
+            }
+
+            return qb;
+        };
+
+        const listQb = applyExpenseFilters(this.expenseRepo.createQueryBuilder('expense'));
+        Object.entries(Object.keys(order).length ? order : { expenseDate: "DESC" as const }).forEach(([field, direction], index) => {
+            if (index === 0) listQb.orderBy(`expense.${field}`, direction);
+            else listQb.addOrderBy(`expense.${field}`, direction);
         });
+        listQb.skip(skip).take(limit);
+
+        const [expenses, total] = await listQb.getManyAndCount();
 
         const listingMapIds = expenses
             .map(expense => expense.listingMapId)
@@ -747,6 +777,16 @@ export class ExpenseService {
 
         if (type && type == "expense") {
             qb.andWhere('expense.amount < 0');
+        }
+
+        if (keywordText) {
+            qb.andWhere(new Brackets((keywordQb) => {
+                keywordQb
+                    .where('expense.contractorNumber LIKE :keyword', { keyword: `%${keywordText}%` })
+                    .orWhere('expense.contractorName LIKE :keyword', { keyword: `%${keywordText}%` })
+                    .orWhere('expense.paymentMethod LIKE :keyword', { keyword: `%${keywordText}%` })
+                    .orWhere('expense.concept LIKE :keyword', { keyword: `%${keywordText}%` });
+            }));
         }
 
         const { totalExpense } = await qb.getRawOne();
