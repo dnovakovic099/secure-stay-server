@@ -11,7 +11,6 @@ import { MessagingService } from "./MessagingServices";
 import { OpenPhoneService } from "./OpenPhoneService";
 import { Hostify } from "../client/Hostify";
 import logger from "../utils/logger.utils";
-import sendSlackMessage from "../utils/sendSlackMsg";
 
 export interface ActionItemsBetaFilters {
     status?: string[];
@@ -835,7 +834,6 @@ export class ActionItemsBetaService {
             if (existing) {
                 const existingMessageIds = existing.messageIds || [];
                 const nextMessageIds = Array.from(new Set([...existingMessageIds, ...detection.messageIds]));
-                const hasNewMessageLinks = nextMessageIds.length > existingMessageIds.length;
 
                 existing.description = detection.description;
                 existing.confidence = Math.max(existing.confidence || 0, detection.confidence);
@@ -860,9 +858,6 @@ export class ActionItemsBetaService {
                 }
                 const saved = await this.itemRepo.save(existing);
                 savedItems.push(saved);
-                if (hasNewMessageLinks) {
-                    await this.notifyAnjTestSlack(saved, "refreshed");
-                }
                 continue;
             }
 
@@ -900,72 +895,9 @@ export class ActionItemsBetaService {
             });
             const saved = await this.itemRepo.save(created);
             savedItems.push(saved);
-            await this.notifyAnjTestSlack(saved, "created");
         }
 
         return savedItems;
-    }
-
-    private async notifyAnjTestSlack(item: ActionItemBetaItemEntity, eventType: "created" | "refreshed") {
-        try {
-            const itemType = item.categoryName === "Communication Quality" ? "Quality Check" : "Action Item";
-            const confidence = `${Math.round((item.confidence || 0) * 100)}%`;
-            const eventLabel = eventType === "created" ? "Created" : "Refreshed";
-            const proposedResolution = this.getProposedResolution(item);
-            const field = (label: string, value: string | null | undefined) => ({
-                type: "mrkdwn",
-                text: `*${label}:*\n${String(value || "-").trim() || "-"}`,
-            });
-
-            const blocks: any[] = [
-                {
-                    type: "section",
-                    text: {
-                        type: "mrkdwn",
-                        text: `*Action Items Beta ${eventLabel}: ${itemType}*\n${item.title}`,
-                    },
-                },
-                {
-                    type: "section",
-                    fields: [
-                        field("Category", item.categoryName),
-                        field("Priority", item.priority),
-                        field("Status", item.status),
-                        field("Guest", item.guestName),
-                        field("Property", item.propertyName),
-                        field("Confidence", confidence),
-                    ],
-                },
-            ];
-
-            if (item.flagReason) {
-                blocks.push({
-                    type: "section",
-                    text: {
-                        type: "mrkdwn",
-                        text: `*Why flagged:*\n${item.flagReason}`,
-                    },
-                });
-            }
-
-            if (proposedResolution) {
-                blocks.push({
-                    type: "section",
-                    text: {
-                        type: "mrkdwn",
-                        text: `*Suggested next step:*\n${proposedResolution}`,
-                    },
-                });
-            }
-
-            await sendSlackMessage({
-                channel: "#anj-test",
-                text: `Action Items Beta ${eventLabel}: ${item.title}`,
-                blocks,
-            });
-        } catch (error: any) {
-            logger.error(`[ActionItemsBetaService] Failed to send #anj-test Slack notification for item ${item.id}: ${error?.message || error}`);
-        }
     }
 
     private async generateDetections(input: {
