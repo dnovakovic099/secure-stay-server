@@ -706,7 +706,22 @@ export class InboxService {
             );
         }
         if (options.unresponded === true || String(options.unresponded || "").toLowerCase() === "true") {
-            qb.andWhere("(c.answered = 0 OR c.unread = 1)");
+            qb.andWhere(`
+                EXISTS (
+                    SELECT 1
+                    FROM inbox_messages latest_incoming
+                    WHERE latest_incoming.threadId = c.threadId
+                      AND latest_incoming.direction = 'incoming'
+                      AND latest_incoming.id = (
+                          SELECT latest_message.id
+                          FROM inbox_messages latest_message
+                          WHERE latest_message.threadId = c.threadId
+                            AND latest_message.direction IN ('incoming', 'outgoing')
+                          ORDER BY latest_message.sentAt DESC, latest_message.id DESC
+                          LIMIT 1
+                      )
+                )
+            `);
         }
 
         // Reservation status buckets (raw Hostify statuses grouped for the UI).
