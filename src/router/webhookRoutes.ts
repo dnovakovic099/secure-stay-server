@@ -32,6 +32,7 @@ router.route('/zapier').post(zapierWebhookController.handleWebhook);
 router.route('/zapier/events').get(verifySession, zapierWebhookController.getEvents);
 router.route('/zapier/events/activity').get(verifySession, zapierWebhookController.getActivityData);
 router.route('/zapier/events/bulk-update-status').put(verifySession, zapierWebhookController.bulkUpdateEventStatus);
+router.route('/zapier/events/bulk-delete').post(verifySession, zapierWebhookController.bulkDeleteEvents);
 router.route('/zapier/events/:id').get(verifySession, zapierWebhookController.getEventById);
 router.route('/zapier/events/:id/status').put(verifySession, zapierWebhookController.updateEventStatus);
 router.route('/zapier/event-types').get(verifySession, zapierWebhookController.getEventTypes);

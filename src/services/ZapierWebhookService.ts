@@ -19,6 +19,8 @@ export enum ZapierEventStatus {
     Completed = 'Completed'
 }
 
+const ARCHIVED_GR_TASK_CHANNELS = ['airbnb-support'];
+
 export interface ZapierEventStatusHistoryRow {
     id: number;
     eventId: number;
@@ -201,6 +203,15 @@ export class ZapierWebhookService {
 
         const queryBuilder = eventRepo.createQueryBuilder('event');
 
+        queryBuilder.andWhere(
+            new Brackets(qb => {
+                qb.where('event.slackChannel IS NULL')
+                    .orWhere('LOWER(REPLACE(event.slackChannel, "#", "")) NOT IN (:...archivedChannels)', {
+                        archivedChannels: ARCHIVED_GR_TASK_CHANNELS,
+                    });
+            })
+        );
+
         // Filter by status (multi-select takes precedence over single)
         if (filters.statuses && filters.statuses.length > 0) {
             queryBuilder.andWhere('event.status IN (:...statuses)', { statuses: filters.statuses });
@@ -351,6 +362,15 @@ export class ZapierWebhookService {
             .createQueryBuilder('event')
             .innerJoin('zapier_trigger_event_status_history', 'statusLog', 'statusLog.event_id = event.id')
             .distinct(true);
+
+        queryBuilder.andWhere(
+            new Brackets(qb => {
+                qb.where('event.slackChannel IS NULL')
+                    .orWhere('LOWER(REPLACE(event.slackChannel, "#", "")) NOT IN (:...archivedChannels)', {
+                        archivedChannels: ARCHIVED_GR_TASK_CHANNELS,
+                    });
+            })
+        );
 
         if (filters.events && filters.events.length > 0) {
             queryBuilder.andWhere('event.event IN (:...eventTypes)', { eventTypes: filters.events });
@@ -618,6 +638,30 @@ export class ZapierWebhookService {
     }
 
     /**
+     * Bulk delete events for selected GR tasks.
+     */
+    async bulkDeleteEvents(ids: number[]): Promise<{ success: boolean; deletedCount: number; message: string; }> {
+        const eventRepo = appDatabase.getRepository(ZapierTriggerEvent);
+        const events = await eventRepo.find({ where: { id: In(ids) } });
+
+        if (events.length !== ids.length) {
+            const foundIds = events.map(e => e.id);
+            const missingIds = ids.filter(id => !foundIds.includes(id));
+            throw new Error(`Events with IDs ${missingIds.join(', ')} not found`);
+        }
+
+        await eventRepo.delete({ id: In(ids) });
+
+        logger.info(`[ZapierWebhookService][bulkDeleteEvents] Deleted ${events.length} events`);
+
+        return {
+            success: true,
+            deletedCount: events.length,
+            message: `Successfully deleted ${events.length} events`
+        };
+    }
+
+    /**
      * Notify Slack about a status change (update original message + threaded reply)
      */
     private async notifySlackStatusChange(event: ZapierTriggerEvent, user: string) {
@@ -677,6 +721,9 @@ export class ZapierWebhookService {
             .select('DISTINCT event.slackChannel', 'slackChannel')
             .where('event.slackChannel IS NOT NULL')
             .andWhere('event.slackChannel != :empty', { empty: '' })
+            .andWhere('LOWER(REPLACE(event.slackChannel, "#", "")) NOT IN (:...archivedChannels)', {
+                archivedChannels: ARCHIVED_GR_TASK_CHANNELS,
+            })
             .getRawMany();
         return result.map(r => r.slackChannel).filter(Boolean);
     }

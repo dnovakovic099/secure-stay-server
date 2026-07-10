@@ -194,6 +194,39 @@ export class ZapierWebhookController {
     };
 
     /**
+     * POST /zapier/events/bulk-delete - Bulk delete events
+     */
+    bulkDeleteEvents = async (req: Request, res: Response) => {
+        try {
+            const { ids } = req.body;
+
+            if (!ids || !Array.isArray(ids) || ids.length === 0) {
+                return res.status(400).json({
+                    status: 'error',
+                    message: 'IDs array is required and must not be empty'
+                });
+            }
+
+            const result = await this.webhookService.bulkDeleteEvents(ids);
+            return res.status(200).json(result);
+        } catch (error: any) {
+            logger.error('[ZapierWebhookController][bulkDeleteEvents] Error:', error);
+
+            if (error.message?.includes('not found')) {
+                return res.status(404).json({
+                    status: 'error',
+                    message: error.message
+                });
+            }
+
+            return res.status(500).json({
+                status: 'error',
+                message: 'Failed to bulk delete events'
+            });
+        }
+    };
+
+    /**
      * GET /zapier/event-types - Get distinct event types for filter dropdown
      */
     getEventTypes = async (req: Request, res: Response) => {
