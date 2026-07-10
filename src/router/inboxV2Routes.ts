@@ -2,6 +2,7 @@ import { Router } from "express";
 import { InboxV2Controller } from "../controllers/InboxV2Controller";
 import { AutoMessageRuleController } from "../controllers/AutoMessageRuleController";
 import verifySession from "../middleware/verifySession";
+import fileUpload from "../utils/upload.util";
 
 const router = Router();
 const inboxV2Controller = new InboxV2Controller();
@@ -28,6 +29,13 @@ router.get("/conversations/:threadId", verifySession, inboxV2Controller.getConve
 
 // Send a reply (delivers to Hostify + records local attribution)
 router.post("/conversations/:threadId/reply", verifySession, inboxV2Controller.reply);
+router.post("/conversations/:threadId/internal-note", verifySession, inboxV2Controller.internalNote);
+router.post(
+    "/conversations/:threadId/upload",
+    verifySession,
+    fileUpload("inbox-v2").single("file"),
+    inboxV2Controller.uploadAttachment
+);
 
 // Reservation details panel
 router.get("/reservation/:reservationId/details", verifySession, inboxV2Controller.reservationDetails);

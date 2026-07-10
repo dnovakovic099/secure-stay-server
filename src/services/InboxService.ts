@@ -45,7 +45,7 @@ interface ListOptions {
     perPage?: number;
     keyword?: string;
     searchFields?: string | string[];
-    channel?: string;
+    channel?: string | string[];
     unreadOnly?: boolean;
     /** Quick day filters: guests checking in / checking out today. */
     arrival?: "checkin_today" | "checkout_today" | string;
@@ -55,12 +55,13 @@ interface ListOptions {
     checkoutFrom?: string;
     checkoutTo?: string;
     /** Listing tag bucket: "PM" | "Arb" | "Own" (from listing_info tags). */
-    propertyType?: string;
-    serviceType?: string;
-    portfolio?: string;
+    propertyType?: string | string[];
+    serviceType?: string | string[];
+    portfolio?: string | string[];
+    listingId?: string | string[];
     stayTiming?: string;
     /** Reservation status bucket: "inquiry" | "confirmed" | "cancelled". */
-    reservationStatus?: string;
+    reservationStatus?: string | string[];
 }
 
 const toNumberOrNull = (value: any): number | null => {
@@ -633,8 +634,9 @@ export class InboxService {
             .leftJoin(Listing, "l", "l.id = c.listingId")
             .where("c.isArchived = 0");
 
-        if (options.channel) {
-            qb.andWhere("c.channel = :channel", { channel: options.channel });
+        const channelBuckets = parseListParam(options.channel);
+        if (channelBuckets.length) {
+            qb.andWhere("c.channel IN (:...channels)", { channels: channelBuckets });
         }
         if (options.unreadOnly) {
             qb.andWhere("c.unread = 1");
@@ -665,42 +667,84 @@ export class InboxService {
         }
 
         // Reservation status buckets (raw Hostify statuses grouped for the UI).
-        const statusBucket = String(options.reservationStatus || "").toLowerCase();
-        if (statusBucket === "inquiry") {
-            qb.andWhere("LOWER(COALESCE(c.reservationStatus, '')) LIKE 'inquiry%'");
-        } else if (statusBucket === "confirmed") {
-            qb.andWhere("LOWER(COALESCE(c.reservationStatus, '')) IN ('accepted', 'confirmed')");
-        } else if (statusBucket === "cancelled") {
-            qb.andWhere("LOWER(COALESCE(c.reservationStatus, '')) IN ('cancelled', 'canceled', 'denied', 'voided')");
+        const statusBuckets = parseListParam(options.reservationStatus).map((value) => value.toLowerCase());
+        if (statusBuckets.length) {
+            qb.andWhere(
+                new Brackets((b) => {
+                    statusBuckets.forEach((statusBucket, index) => {
+                        const method = index === 0 ? "where" : "orWhere";
+                        if (statusBucket === "inquiry") {
+                            b[method]("LOWER(COALESCE(c.reservationStatus, '')) LIKE 'inquiry%'");
+                        } else if (statusBucket === "confirmed") {
+                            b[method]("LOWER(COALESCE(c.reservationStatus, '')) IN ('accepted', 'confirmed')");
+                        } else if (statusBucket === "cancelled") {
+                            b[method]("LOWER(COALESCE(c.reservationStatus, '')) IN ('cancelled', 'canceled', 'denied', 'voided')");
+                        } else {
+                            b[method]("LOWER(COALESCE(c.reservationStatus, '')) = :statusBucket", { statusBucket });
+                        }
+                    });
+                })
+            );
         }
 
         // PM / Arb / Own from listing tags. Mirrors normalizePropertyTypeValue's
         // priority (own > arb > pm) so filtering agrees with the badge shown.
-        const typeBucket = String(options.propertyType || "").toLowerCase();
-        if (typeBucket === "pm" || typeBucket === "arb" || typeBucket === "own") {
+        const typeBuckets = parseListParam(options.propertyType).map((value) => value.toLowerCase());
+        if (typeBuckets.length) {
             const raw = "LOWER(CONCAT(COALESCE(l.tags, ''), ' ', COALESCE(l.propertyType, '')))";
-            if (typeBucket === "own") {
-                qb.andWhere(`${raw} LIKE '%own%'`);
-            } else if (typeBucket === "arb") {
-                qb.andWhere(`${raw} LIKE '%arb%' AND ${raw} NOT LIKE '%own%'`);
-            } else {
-                qb.andWhere(`${raw} LIKE '%pm%' AND ${raw} NOT LIKE '%own%' AND ${raw} NOT LIKE '%arb%'`);
-            }
+            qb.andWhere(
+                new Brackets((b) => {
+                    typeBuckets.forEach((typeBucket, index) => {
+                        const method = index === 0 ? "where" : "orWhere";
+                        if (typeBucket === "own") {
+                            b[method](`${raw} LIKE '%own%'`);
+                        } else if (typeBucket === "arb") {
+                            b[method](`${raw} LIKE '%arb%' AND ${raw} NOT LIKE '%own%'`);
+                        } else if (typeBucket === "pm") {
+                            b[method](`${raw} LIKE '%pm%' AND ${raw} NOT LIKE '%own%' AND ${raw} NOT LIKE '%arb%'`);
+                        }
+                    });
+                })
+            );
         }
 
-        const serviceBucket = String(options.serviceType || "").toLowerCase();
-        if (serviceBucket === "full" || serviceBucket === "pro" || serviceBucket === "launch") {
+        const serviceBuckets = parseListParam(options.serviceType).map((value) => value.toLowerCase());
+        if (serviceBuckets.length) {
             const raw = "LOWER(COALESCE(l.tags, ''))";
-            qb.andWhere(`${raw} LIKE :serviceBucket`, { serviceBucket: `%${serviceBucket}%` });
+            qb.andWhere(
+                new Brackets((b) => {
+                    serviceBuckets.forEach((serviceBucket, index) => {
+                        const method = index === 0 ? "where" : "orWhere";
+                        if (serviceBucket === "full" || serviceBucket === "pro" || serviceBucket === "launch") {
+                            b[method](`${raw} LIKE :serviceBucket${index}`, { [`serviceBucket${index}`]: `%${serviceBucket}%` });
+                        }
+                    });
+                })
+            );
         }
 
-        const portfolioBucket = String(options.portfolio || "").toLowerCase();
-        if (portfolioBucket === "g1" || portfolioBucket === "group1" || portfolioBucket === "group 1") {
+        const portfolioBuckets = parseListParam(options.portfolio).map((value) => value.toLowerCase());
+        if (portfolioBuckets.length) {
             const raw = "LOWER(COALESCE(l.tags, ''))";
-            qb.andWhere(`(${raw} LIKE '%group 1%' OR ${raw} LIKE '%group1%' OR ${raw} LIKE '%g1%')`);
-        } else if (portfolioBucket === "g2" || portfolioBucket === "group2" || portfolioBucket === "group 2") {
-            const raw = "LOWER(COALESCE(l.tags, ''))";
-            qb.andWhere(`(${raw} LIKE '%group 2%' OR ${raw} LIKE '%group2%' OR ${raw} LIKE '%g2%')`);
+            qb.andWhere(
+                new Brackets((b) => {
+                    portfolioBuckets.forEach((portfolioBucket, index) => {
+                        const method = index === 0 ? "where" : "orWhere";
+                        if (portfolioBucket === "g1" || portfolioBucket === "group1" || portfolioBucket === "group 1") {
+                            b[method](`(${raw} LIKE '%group 1%' OR ${raw} LIKE '%group1%' OR ${raw} LIKE '%g1%')`);
+                        } else if (portfolioBucket === "g2" || portfolioBucket === "group2" || portfolioBucket === "group 2") {
+                            b[method](`(${raw} LIKE '%group 2%' OR ${raw} LIKE '%group2%' OR ${raw} LIKE '%g2%')`);
+                        }
+                    });
+                })
+            );
+        }
+
+        const selectedListingIds = parseListParam(options.listingId)
+            .map((value) => Number(value))
+            .filter((value) => Number.isFinite(value) && value > 0);
+        if (selectedListingIds.length) {
+            qb.andWhere("c.listingId IN (:...selectedListingIds)", { selectedListingIds });
         }
 
         if (options.keyword) {
@@ -853,7 +897,7 @@ export class InboxService {
     // -------------------------------------------------------------------------
     // Outgoing reply: send to Hostify, then persist locally with attribution
     // -------------------------------------------------------------------------
-    async sendReply(threadId: number, body: string, user: any) {
+    async sendReply(threadId: number, body: string, user: any, opts: { attachmentUrls?: string[] } = {}) {
         const conversation = await this.conversationRepo.findOne({ where: { threadId } });
         if (!conversation) {
             throw new Error(`Conversation ${threadId} not found`);
@@ -870,6 +914,7 @@ export class InboxService {
         const externalId =
             toNumberOrNull(hostifyResult?.message?.id ?? hostifyResult?.id) ?? -Date.now();
 
+        const attachmentUrls = (opts.attachmentUrls || []).filter(Boolean);
         const message = this.messageRepo.create({
             externalId,
             threadId,
@@ -883,7 +928,7 @@ export class InboxService {
             isAutomatic: 0,
             isSms: 0,
             channel: conversation.channel,
-            attachmentUrl: null,
+            attachmentUrl: attachmentUrls[0] || null,
             guestId: conversation.guestId,
             sentAt: new Date(),
             sentByUserId: userId,
@@ -903,6 +948,48 @@ export class InboxService {
         this.syncThread(threadId).catch((err) =>
             logger.warn(`[InboxService] post-reply resync failed for thread ${threadId}: ${err.message}`)
         );
+
+        return saved;
+    }
+
+    async addInternalNote(threadId: number, note: string, user: any, opts: { attachmentUrls?: string[] } = {}) {
+        const conversation = await this.conversationRepo.findOne({ where: { threadId } });
+        if (!conversation) {
+            throw new Error(`Conversation ${threadId} not found`);
+        }
+
+        const { userId, userName } = await this.resolveSender(user);
+        const attachmentUrls = (opts.attachmentUrls || []).filter(Boolean);
+        const fileText = attachmentUrls.length ? attachmentUrls.map((url) => `Attachment: ${url}`).join("\n") : "";
+        const noteText = [note, fileText].filter(Boolean).join("\n\n");
+
+        const message = this.messageRepo.create({
+            externalId: -Date.now(),
+            threadId,
+            reservationId: conversation.reservationId,
+            listingId: conversation.listingId,
+            body: null,
+            note: noteText,
+            direction: "outgoing",
+            senderType: "host",
+            senderName: userName,
+            isAutomatic: 0,
+            isSms: 0,
+            channel: conversation.channel,
+            attachmentUrl: attachmentUrls[0] || null,
+            guestId: conversation.guestId,
+            sentAt: new Date(),
+            sentByUserId: userId,
+            sentByName: userName,
+            sentVia: "inbox_v2",
+            source: "securestay",
+        });
+        const saved = await this.messageRepo.save(message);
+
+        conversation.lastMessageText = `Internal note: ${noteText}`;
+        conversation.lastMessageAt = saved.sentAt;
+        conversation.unread = 0;
+        await this.conversationRepo.save(conversation);
 
         return saved;
     }

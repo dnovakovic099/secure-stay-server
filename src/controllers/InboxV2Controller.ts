@@ -38,6 +38,7 @@ export class InboxV2Controller {
                 propertyType: (request.query.propertyType as string) || undefined,
                 serviceType: (request.query.serviceType as string) || undefined,
                 portfolio: (request.query.portfolio as string) || undefined,
+                listingId: request.query.listingId as any,
                 reservationStatus: (request.query.reservationStatus as string) || undefined,
                 searchFields: request.query.searchFields as any,
             });
@@ -67,7 +68,7 @@ export class InboxV2Controller {
     async reply(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const threadId = Number(request.params.threadId);
-            const { message, suggestionId, aiStatus } = request.body;
+            const { message, suggestionId, aiStatus, attachmentUrls } = request.body;
             if (!Number.isFinite(threadId)) {
                 return response.status(400).json({ status: false, message: "Invalid threadId" });
             }
@@ -75,7 +76,9 @@ export class InboxV2Controller {
                 return response.status(400).json({ status: false, message: "Message is required" });
             }
             const inboxService = new InboxService();
-            const saved = await inboxService.sendReply(threadId, message.trim(), request.user);
+            const saved = await inboxService.sendReply(threadId, message.trim(), request.user, {
+                attachmentUrls: Array.isArray(attachmentUrls) ? attachmentUrls.map(String) : [],
+            });
 
             // If this reply came from an AI suggestion, record what the human did
             // with it (accepted/edited) and link the sent message for learning.
@@ -93,6 +96,51 @@ export class InboxV2Controller {
                 }
             }
             return response.status(201).json({ status: true, data: saved });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async internalNote(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const threadId = Number(request.params.threadId);
+            const { note, attachmentUrls } = request.body || {};
+            if (!Number.isFinite(threadId)) {
+                return response.status(400).json({ status: false, message: "Invalid threadId" });
+            }
+            if (!String(note || "").trim() && (!Array.isArray(attachmentUrls) || attachmentUrls.length === 0)) {
+                return response.status(400).json({ status: false, message: "Internal note or attachment is required" });
+            }
+            const saved = await new InboxService().addInternalNote(threadId, String(note || "").trim(), request.user, {
+                attachmentUrls: Array.isArray(attachmentUrls) ? attachmentUrls.map(String) : [],
+            });
+            return response.status(201).json({ status: true, data: saved });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async uploadAttachment(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const threadId = Number(request.params.threadId);
+            if (!Number.isFinite(threadId)) {
+                return response.status(400).json({ status: false, message: "Invalid threadId" });
+            }
+            if (!request.file) {
+                return response.status(400).json({ status: false, message: "No file uploaded" });
+            }
+            const publicPath = `/public/inbox-v2/${request.file.filename}`;
+            const baseUrl = String(process.env.BASE_URL || `${request.protocol}://${request.get("host")}`).replace(/\/$/, "");
+            return response.status(201).json({
+                status: true,
+                data: {
+                    url: `${baseUrl}${publicPath}`,
+                    path: publicPath,
+                    name: request.file.originalname,
+                    mimeType: request.file.mimetype,
+                    size: request.file.size,
+                },
+            });
         } catch (error) {
             return next(error);
         }
