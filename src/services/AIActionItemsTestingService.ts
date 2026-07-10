@@ -19,6 +19,8 @@ export interface TestingActionItem {
     listingName: string | null;
     guestName: string | null;
     channel: string | null;
+    checkIn: string | null;
+    checkOut: string | null;
     item: string;
     confidence: number | null;
     escalationRequired: boolean;
@@ -38,7 +40,11 @@ export class AIActionItemsTestingService {
         offset?: number;
         search?: string;
         channel?: string;
-    } = {}): Promise<{ items: TestingActionItem[]; total: number; channels: string[] }> {
+        propertyName?: string;
+        dateType?: string;
+        startDate?: string;
+        endDate?: string;
+    } = {}): Promise<{ items: TestingActionItem[]; total: number; channels: string[]; propertyNames: string[] }> {
         const limit = Math.min(Math.max(Number(opts.limit) || 200, 1), 1000);
         const offset = Math.max(Number(opts.offset) || 0, 0);
 
@@ -47,7 +53,7 @@ export class AIActionItemsTestingService {
         const detectorRows: any[] = await appDatabase.query(
             `SELECT d.id, d.type, d.threadId, d.listingId, d.title, d.description,
                     d.category, d.priority, d.confidence, d.status, d.createdAt,
-                    c.listingName, c.guestName, c.channel
+                    c.listingName, c.guestName, c.channel, c.checkin, c.checkout
              FROM ai_detected_items d
              LEFT JOIN inbox_conversations c ON c.threadId = d.threadId
              WHERE d.status NOT IN ('duplicate', 'dismissed')
@@ -60,7 +66,7 @@ export class AIActionItemsTestingService {
         const rows: any[] = await appDatabase.query(
             `SELECT s.id, s.threadId, s.listingId, s.suggestedActionItems, s.confidence,
                     s.escalationRequired, s.status, s.generatedAt,
-                    c.listingName, c.guestName, c.channel
+                    c.listingName, c.guestName, c.channel, c.checkin, c.checkout
              FROM ai_message_suggestions s
              LEFT JOIN inbox_conversations c ON c.threadId = s.threadId
              WHERE s.suggestedActionItems IS NOT NULL
@@ -71,14 +77,22 @@ export class AIActionItemsTestingService {
 
         const search = (opts.search || "").trim().toLowerCase();
         const channelFilter = (opts.channel || "").trim().toLowerCase();
+        const propertyFilter = (opts.propertyName || "").trim().toLowerCase();
+        const dateType = opts.dateType === "checkIn" || opts.dateType === "checkOut" ? opts.dateType : "created";
+        const startDate = this.parseDateBoundary(opts.startDate, false);
+        const endDate = this.parseDateBoundary(opts.endDate, true);
         const channelSet = new Set<string>();
+        const propertyNameSet = new Set<string>();
 
         const flat: TestingActionItem[] = [];
 
         for (const d of detectorRows) {
             const text = [d.title, d.description].filter(Boolean).join(" — ");
             if (d.channel) channelSet.add(String(d.channel));
+            if (d.listingName) propertyNameSet.add(String(d.listingName));
             if (channelFilter && String(d.channel || "").toLowerCase() !== channelFilter) continue;
+            if (propertyFilter && String(d.listingName || "").toLowerCase() !== propertyFilter) continue;
+            if (!this.matchesDateRange(this.getRowDate(d, dateType, "createdAt"), startDate, endDate)) continue;
             if (search && !text.toLowerCase().includes(search)) continue;
             flat.push({
                 id: `d-${d.id}`,
@@ -88,6 +102,8 @@ export class AIActionItemsTestingService {
                 listingName: d.listingName ?? null,
                 guestName: d.guestName ?? null,
                 channel: d.channel ?? null,
+                checkIn: this.formatDateForResponse(d.checkin),
+                checkOut: this.formatDateForResponse(d.checkout),
                 item: text,
                 confidence: d.confidence != null ? Number(d.confidence) : null,
                 escalationRequired: ["urgent", "critical", "high"].includes(String(d.priority || "").toLowerCase()),
@@ -109,7 +125,10 @@ export class AIActionItemsTestingService {
                 /* skip malformed */
             }
             if (r.channel) channelSet.add(String(r.channel));
+            if (r.listingName) propertyNameSet.add(String(r.listingName));
             if (channelFilter && String(r.channel || "").toLowerCase() !== channelFilter) continue;
+            if (propertyFilter && String(r.listingName || "").toLowerCase() !== propertyFilter) continue;
+            if (!this.matchesDateRange(this.getRowDate(r, dateType, "generatedAt"), startDate, endDate)) continue;
 
             items.forEach((text, idx) => {
                 if (search && !text.toLowerCase().includes(search)) return;
@@ -121,6 +140,8 @@ export class AIActionItemsTestingService {
                     listingName: r.listingName ?? null,
                     guestName: r.guestName ?? null,
                     channel: r.channel ?? null,
+                    checkIn: this.formatDateForResponse(r.checkin),
+                    checkOut: this.formatDateForResponse(r.checkout),
                     item: text,
                     confidence: r.confidence != null ? Number(r.confidence) : null,
                     escalationRequired: Number(r.escalationRequired) === 1,
@@ -139,6 +160,41 @@ export class AIActionItemsTestingService {
 
         const total = flat.length;
         const items = flat.slice(offset, offset + limit);
-        return { items, total, channels: Array.from(channelSet).sort() };
+        return { items, total, channels: Array.from(channelSet).sort(), propertyNames: Array.from(propertyNameSet).sort() };
+    }
+
+    private parseDateBoundary(value: string | undefined, endOfDay: boolean): Date | null {
+        if (!value) return null;
+        const date = new Date(`${value}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}`);
+        return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    private getRowDate(row: any, dateType: "created" | "checkIn" | "checkOut", createdField: "createdAt" | "generatedAt"): Date | null {
+        const value = dateType === "checkIn" ? row.checkin : dateType === "checkOut" ? row.checkout : row[createdField];
+        if (!value) return null;
+        const text = String(value);
+        const date = /^\d{4}-\d{2}-\d{2}$/.test(text) ? new Date(`${text}T12:00:00.000`) : new Date(value);
+        return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    private formatDateForResponse(value: any): string | null {
+        if (!value) return null;
+        if (value instanceof Date && !Number.isNaN(value.getTime())) {
+            return value.toISOString().slice(0, 10);
+        }
+        const text = String(value);
+        if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
+            return text.slice(0, 10);
+        }
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
+    }
+
+    private matchesDateRange(value: Date | null, startDate: Date | null, endDate: Date | null): boolean {
+        if (!startDate && !endDate) return true;
+        if (!value) return false;
+        if (startDate && value < startDate) return false;
+        if (endDate && value > endDate) return false;
+        return true;
     }
 }

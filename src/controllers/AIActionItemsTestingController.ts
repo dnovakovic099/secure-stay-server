@@ -9,12 +9,16 @@ import { AIActionItemsTestingService } from "../services/AIActionItemsTestingSer
 export class AIActionItemsTestingController {
     async list(request: Request, response: Response, next: NextFunction) {
         try {
-            const { limit, offset, search, channel } = request.query as Record<string, string>;
+            const { limit, offset, search, channel, propertyName, dateType, startDate, endDate } = request.query as Record<string, string>;
             const data = await new AIActionItemsTestingService().list({
                 limit: limit ? Number(limit) : undefined,
                 offset: offset ? Number(offset) : undefined,
                 search: search || undefined,
                 channel: channel || undefined,
+                propertyName: propertyName || undefined,
+                dateType: dateType || undefined,
+                startDate: startDate || undefined,
+                endDate: endDate || undefined,
             });
             return response.status(200).json({ status: true, ...data });
         } catch (error) {
