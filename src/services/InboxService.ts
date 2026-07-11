@@ -61,6 +61,7 @@ interface ListOptions {
     listingId?: string | string[];
     stayTiming?: string;
     lastMessageFrom?: string | string[];
+    repliedBy?: string | string[];
     unresponded?: boolean | string;
     dateType?: string;
     dateFrom?: string;
@@ -724,6 +725,21 @@ export class InboxService {
             `);
         }
 
+        const repliedByBuckets = parseListParam(options.repliedBy).filter(Boolean);
+        if (repliedByBuckets.length) {
+            qb.andWhere(
+                `EXISTS (
+                    SELECT 1
+                    FROM inbox_messages replied_by_message
+                    WHERE replied_by_message.threadId = c.threadId
+                      AND replied_by_message.direction = 'outgoing'
+                      AND replied_by_message.sentByUserId IS NOT NULL
+                      AND replied_by_message.sentByName IN (:...repliedByBuckets)
+                )`,
+                { repliedByBuckets }
+            );
+        }
+
         // Reservation status buckets (raw Hostify statuses grouped for the UI).
         const statusBuckets = parseListParam(options.reservationStatus).map((value) => value.toLowerCase());
         if (statusBuckets.length) {
@@ -901,7 +917,18 @@ export class InboxService {
             .getRawMany();
         const channels = channelRows.map((r) => r.ch).filter(Boolean).sort();
 
-        return { conversations: enrichedConversations, total, page, perPage, channels };
+        const repliedByRows: { name: string }[] = await this.messageRepo
+            .createQueryBuilder("m")
+            .select("DISTINCT m.sentByName", "name")
+            .where("m.direction = 'outgoing'")
+            .andWhere("m.sentByUserId IS NOT NULL")
+            .andWhere("m.sentByName IS NOT NULL")
+            .andWhere("m.sentByName != ''")
+            .orderBy("m.sentByName", "ASC")
+            .getRawMany();
+        const repliedByUsers = repliedByRows.map((r) => r.name).filter(Boolean);
+
+        return { conversations: enrichedConversations, total, page, perPage, channels, repliedByUsers };
     }
 
     async getConversation(threadId: number) {
