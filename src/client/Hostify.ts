@@ -1051,6 +1051,7 @@ export interface HostifyInboxThread {
     updatedAt: string;
 }
 export interface HostifyCalendarDay {
+    id?: number | string;
     date: string;
     status: string;
     price: number;
@@ -1065,6 +1066,27 @@ export interface HostifyCalendarDay {
     bookingValue: number | null;
     note: string | null;
     statusNote: string | null;
+    reservation_id?: number | string | null;
+    reservationId?: number | string | null;
+    is_available?: number | boolean | null;
+    isAvailable?: number | boolean | null;
+    is_blocked?: number | boolean | null;
+    blocked?: number | boolean | null;
+    reservation?: any;
+    reservations?: any[];
+    guest_name?: string | null;
+    guest_email?: string | null;
+    guest_phone?: string | null;
+    channel_name?: string | null;
+    arrival_date?: string | null;
+    departure_date?: string | null;
+    confirmation_code?: string | null;
+    guests?: number | null;
+    adults?: number | null;
+    children?: number | null;
+    infants?: number | null;
+    nights?: number | null;
+    total_price?: number | string | null;
 }
 
 export interface HostifyListingFees {
