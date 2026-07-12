@@ -344,19 +344,33 @@ export class TurnoverController {
     }
 
     /**
-     * Retry failed notification
+     * Retry a failed (or skipped) notification. Reuses the same send pipeline as Send Now —
+     * the atomic-claim guard in CheckInNotificationService/CleanerNotificationService only
+     * blocks rows that are already 'sent', so a 'failed' row will pass through and try again.
      */
     async retryNotification(req: CustomRequest, res: Response, next: NextFunction) {
         try {
             const reservationId = parseInt(req.params.reservationId);
             const type = req.params.type as 'pre-stay' | 'post-stay';
-
-            // TODO: Implement retry logic
             logger.info(`[TurnoverController] Retry notification: ${reservationId}, ${type}`);
-            
-            return res.status(200).json({ 
-                success: true, 
-                message: 'Notification retry queued' 
+
+            try {
+                if (type === 'pre-stay') {
+                    await this.checkInNotificationService.sendCheckInNotification(reservationId, true);
+                } else {
+                    await this.cleanerNotificationService.sendCheckoutNotification(reservationId);
+                }
+            } catch (sendError: any) {
+                logger.error(`[TurnoverController] Retry failed for ${type} reservation ${reservationId}:`, sendError);
+                return res.status(400).json({
+                    success: false,
+                    message: sendError?.message || `Retry failed for ${type} notification`
+                });
+            }
+
+            return res.status(200).json({
+                success: true,
+                message: 'Notification retry attempted'
             });
         } catch (error) {
             next(error);
