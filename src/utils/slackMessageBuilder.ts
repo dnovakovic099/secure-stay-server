@@ -1595,6 +1595,7 @@ export const buildExpenseSlackMessage = (
                     { type: "mrkdwn", text: `*Expense Date:* ${expense.expenseDate || '-'}` },
                     { type: "mrkdwn", text: `*Date of Work:* ${expense.dateOfWork || '-'}` },
                     { type: "mrkdwn", text: `*Created By:* ${createdBy}` },
+                    { type: "mrkdwn", text: `*LL Cover:* ${expense.llCover ? 'Yes' : 'No'}` },
                     { type: "mrkdwn", text: `*From Claims Fee:* ${expense.fromClaimsFee ? 'Yes' : 'No'}` },
                     { type: "mrkdwn", text: `*From +50:* ${expense.fromPlus50 ? 'Yes' : 'No'}` },
                     { type: "mrkdwn", text: `*Deduct from Rent:* ${expense.deductFromRent ? 'Yes' : 'No'}` },
