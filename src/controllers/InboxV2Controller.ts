@@ -32,6 +32,7 @@ export class InboxV2Controller {
                 arrival: (request.query.arrival as string) || undefined,
                 stayTiming: (request.query.stayTiming as string) || undefined,
                 lastMessageFrom: request.query.lastMessageFrom as any,
+                repliedBy: request.query.repliedBy as any,
                 unresponded: request.query.unresponded === "true",
                 dateType: (request.query.dateType as string) || undefined,
                 dateFrom: (request.query.dateFrom as string) || undefined,
