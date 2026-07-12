@@ -290,7 +290,7 @@ export class InboxService {
     // -------------------------------------------------------------------------
     private buildMessageFromHostify(
         raw: any,
-        ctx: { threadId: number; reservationId: number | null; listingId: number | null; channel: string | null }
+        ctx: { threadId: number; reservationId: number | null; listingId: number | null; channel: string | null; }
     ): InboxMessageEntity | null {
         const externalId = toNumberOrNull(raw?.id ?? raw?.message_id);
         if (!externalId) return null;
@@ -910,14 +910,14 @@ export class InboxService {
         });
 
         // Full channel list for the filter dropdown (independent of pagination).
-        const channelRows: { ch: string }[] = await this.conversationRepo
+        const channelRows: { ch: string; }[] = await this.conversationRepo
             .createQueryBuilder("c")
             .select("DISTINCT c.channel", "ch")
             .where("c.channel IS NOT NULL AND c.channel != ''")
             .getRawMany();
         const channels = channelRows.map((r) => r.ch).filter(Boolean).sort();
 
-        const repliedByRows: { name: string }[] = await this.messageRepo
+        const repliedByRows: { name: string; }[] = await this.messageRepo
             .createQueryBuilder("m")
             .select("DISTINCT m.sentByName", "name")
             .where("m.direction = 'outgoing'")
@@ -966,7 +966,7 @@ export class InboxService {
     // -------------------------------------------------------------------------
     // Outgoing reply: send to Hostify, then persist locally with attribution
     // -------------------------------------------------------------------------
-    async sendReply(threadId: number, body: string, user: any, opts: { attachmentUrls?: string[] } = {}) {
+    async sendReply(threadId: number, body: string, user: any, opts: { attachmentUrls?: string[]; } = {}) {
         const conversation = await this.conversationRepo.findOne({ where: { threadId } });
         if (!conversation) {
             throw new Error(`Conversation ${threadId} not found`);
@@ -1021,7 +1021,7 @@ export class InboxService {
         return saved;
     }
 
-    async addInternalNote(threadId: number, note: string, user: any, opts: { attachmentUrls?: string[] } = {}) {
+    async addInternalNote(threadId: number, note: string, user: any, opts: { attachmentUrls?: string[]; } = {}) {
         const conversation = await this.conversationRepo.findOne({ where: { threadId } });
         if (!conversation) {
             throw new Error(`Conversation ${threadId} not found`);
@@ -1071,7 +1071,7 @@ export class InboxService {
      * This is only ever invoked by InboxAIService.maybeAutoRespond after its
      * guardrails pass; it performs no gating itself.
      */
-    async sendAutomatedReply(threadId: number, body: string, opts: { senderName?: string } = {}) {
+    async sendAutomatedReply(threadId: number, body: string, opts: { senderName?: string; } = {}) {
         const conversation = await this.conversationRepo.findOne({ where: { threadId } });
         if (!conversation) {
             throw new Error(`Conversation ${threadId} not found`);
@@ -1121,7 +1121,7 @@ export class InboxService {
         return saved;
     }
 
-    private async resolveSender(user: any): Promise<{ userId: number | null; userName: string | null }> {
+    private async resolveSender(user: any): Promise<{ userId: number | null; userName: string | null; }> {
         const secureStayUserId = toNumberOrNull(user?.secureStayUserId ?? user?.id);
         let userName: string | null =
             user?.user_metadata?.full_name ||
