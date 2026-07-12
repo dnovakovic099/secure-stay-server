@@ -34,6 +34,7 @@ import { In } from "typeorm";
 import { isCancelledAfterListingLocalCheckIn, isCancelledStatus } from "../utils/reservationCancellation.util";
 import { getEasternDateString } from "../utils/easternTime.util";
 import { findMatchingHostifyChildListing, isUnlistedListingStatus } from "../utils/listingListedStatus.util";
+import { getListingChannelUrl } from "../utils/listingChannelLinks.util";
 
 interface ActivityPayload {
     type: ResolutionsActivityType;
@@ -487,14 +488,12 @@ export class ResolutionsTeamSlackService {
             .map((tag) => ({ label: tag, value: tag }));
     }
 
-    private async resolveListingListedStatus(
+    private async getMatchingChannelListing(
         reservation: ReservationInfoEntity,
-        listing: Listing | null,
         childListingsCache?: Map<number, any[]>,
-    ): Promise<unknown> {
-        const parentStatus = (listing as any)?.is_listed ?? null;
+    ): Promise<any | null> {
         const parentListingId = Number(reservation.listingMapId);
-        if (!parentListingId) return parentStatus;
+        if (!parentListingId) return null;
 
         let childListings = childListingsCache?.get(parentListingId);
         if (!childListings) {
@@ -512,13 +511,40 @@ export class ResolutionsTeamSlackService {
             }
         }
 
-        const matchedChildListing = findMatchingHostifyChildListing(Array.isArray(childListings) ? childListings : [], {
+        return findMatchingHostifyChildListing(Array.isArray(childListings) ? childListings : [], {
             externalPropertyId: reservation.externalPropertyId,
             integration_nickname: reservation.integration_nickname,
             channelName: reservation.channelName,
         });
+    }
+
+    private async resolveListingListedStatus(
+        reservation: ReservationInfoEntity,
+        listing: Listing | null,
+        childListingsCache?: Map<number, any[]>,
+    ): Promise<unknown> {
+        const parentStatus = (listing as any)?.is_listed ?? null;
+        const matchedChildListing = await this.getMatchingChannelListing(reservation, childListingsCache);
 
         return matchedChildListing?.is_listed ?? parentStatus;
+    }
+
+    private async resolveIntegrationUrl(
+        reservation: ReservationInfoEntity,
+        listing: Listing | null,
+        childListingsCache?: Map<number, any[]>,
+    ): Promise<string> {
+        const matchedChildListing = await this.getMatchingChannelListing(reservation, childListingsCache);
+        const linkRecord = matchedChildListing || {
+            ...(listing || {}),
+            id: reservation.listingMapId || listing?.id,
+            channelName: reservation.channelName,
+            channel_listing_id: reservation.externalPropertyId,
+            integration_name: reservation.integration_nickname,
+            nickname: reservation.integration_nickname,
+        };
+
+        return getListingChannelUrl(linkRecord);
     }
 
     private async updateRootMessage(
@@ -532,7 +558,10 @@ export class ResolutionsTeamSlackService {
         try {
             const { emoji } = this.getListingEmoji(listing?.tags);
             const isLateCancelled = isLateCancelledOverride ?? await this.isLateCancelledReservation(reservation, listing);
-            const listingListedStatus = await this.resolveListingListedStatus(reservation, listing);
+            const [listingListedStatus, integrationUrl] = await Promise.all([
+                this.resolveListingListedStatus(reservation, listing),
+                this.resolveIntegrationUrl(reservation, listing),
+            ]);
             const reviewService = new ReviewService();
             const [statusData, assigneeOptions, tagOptions] = await Promise.all([
                 reviewService.getMitigationStatusOptions(),
@@ -552,6 +581,7 @@ export class ResolutionsTeamSlackService {
                 hostifyUrl,
                 channelName: reservation.channelName || "",
                 integrationName: reservation.integration_nickname || "",
+                integrationUrl,
                 checkIn: reservation.arrivalDate
                     ? format(new Date(reservation.arrivalDate), "MMM d")
                     : "",
@@ -677,7 +707,10 @@ export class ResolutionsTeamSlackService {
             : null;
         const { emoji } = this.getListingEmoji(listing?.tags);
         const isLateCancelled = await this.isLateCancelledReservation(reservation, listing);
-        const listingListedStatus = await this.resolveListingListedStatus(reservation, listing);
+        const [listingListedStatus, integrationUrl] = await Promise.all([
+            this.resolveListingListedStatus(reservation, listing),
+            this.resolveIntegrationUrl(reservation, listing),
+        ]);
         const [statusData, assigneeOptions, tagOptions] = await Promise.all([
             reviewService.getMitigationStatusOptions(),
             this.getResolutionsAssigneeOptions(),
@@ -697,6 +730,7 @@ export class ResolutionsTeamSlackService {
             hostifyUrl,
             channelName: reservation.channelName || "",
             integrationName: reservation.integration_nickname || "",
+            integrationUrl,
             checkIn: reservation.arrivalDate ? format(new Date(reservation.arrivalDate), "MMM d") : "",
             checkOut: reservation.departureDate ? format(new Date(reservation.departureDate), "MMM d") : "",
             totalPaid: this.getTotalPaidDisplay(reservation),
@@ -860,7 +894,10 @@ export class ResolutionsTeamSlackService {
                 const ssUrl = `https://securestay.ai/mitigation?reservationId=${reservation.id}`;
 
                 const selectedTags = this.normalizeReservationTags(this.parseJsonValue<any>(reservation.tags, []));
-                const listingListedStatus = await this.resolveListingListedStatus(reservation, listing, childListingsCache);
+                const [listingListedStatus, integrationUrl] = await Promise.all([
+                    this.resolveListingListedStatus(reservation, listing, childListingsCache),
+                    this.resolveIntegrationUrl(reservation, listing, childListingsCache),
+                ]);
                 const buildMsgPayload = (includeTags: boolean) => buildResolutionsCheckoutMessage({
                     emoji,
                     listingName: reservation.listingName || "Unknown Property",
@@ -868,6 +905,7 @@ export class ResolutionsTeamSlackService {
                     hostifyUrl,
                     channelName: reservation.channelName || "",
                     integrationName: reservation.integration_nickname || "",
+                    integrationUrl,
                     checkIn: reservation.arrivalDate
                         ? format(new Date(reservation.arrivalDate), "MMM d")
                         : "",

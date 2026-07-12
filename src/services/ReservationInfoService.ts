@@ -72,6 +72,46 @@ export class ReservationInfoService {
     return this.excludedStatus.filter((status) => status !== "cancelled");
   }
 
+  private getDateKey(value?: Date | string | null): string | null {
+    if (!value) return null;
+    if (typeof value === "string") {
+      const dateOnly = value.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+      if (dateOnly) return dateOnly;
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return getEasternDateString(date);
+  }
+
+  private isAfterResolutionsDailyPostTime(date: Date = new Date()) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(date);
+    const hour = Number(parts.find((part) => part.type === "hour")?.value || 0);
+    const minute = Number(parts.find((part) => part.type === "minute")?.value || 0);
+    return hour > 9 || (hour === 9 && minute >= 5);
+  }
+
+  private shouldCreateImmediateResolutionsThread(reservation: Partial<ReservationInfoEntity> | null, source: string) {
+    if (source !== "webhook" || !reservation?.id) return false;
+    if (!this.validStatus.includes(String(reservation.status || ""))) return false;
+    if (this.getDateKey(reservation.arrivalDate as any) !== getEasternDateString()) return false;
+    return this.isAfterResolutionsDailyPostTime();
+  }
+
+  private queueImmediateResolutionsThreadIfNeeded(reservation: Partial<ReservationInfoEntity> | null, source: string) {
+    if (!this.shouldCreateImmediateResolutionsThread(reservation, source)) return;
+
+    runAsync(
+      new ResolutionsTeamSlackService().ensureThreadForReservation(Number(reservation.id), "system"),
+      "ResolutionsTeamSlackService.ensureThreadForReservation.afterHostifyReservationWebhook"
+    );
+  }
+
   async saveReservationInfo(reservation: Partial<ReservationInfoEntity>, source: string) {
     const listing = reservation.listingMapId
       ? await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } })
@@ -116,6 +156,7 @@ export class ReservationInfoService {
     logger.info(`[saveReservationInfo] ${reservation.guestName} booked ${reservation.listingMapId} from ${reservation.arrivalDate} to ${reservation.departureDate}`);
     const savedReservation = await this.reservationInfoRepository.save(newReservation);
     runAsync(this.velocityAlertService.checkAndTriggerAlert(savedReservation), "VelocityAlertService.checkAndTriggerAlert");
+    this.queueImmediateResolutionsThreadIfNeeded(savedReservation, source);
     return savedReservation;
   }
 
@@ -216,6 +257,7 @@ export class ReservationInfoService {
       this.turnoverReservationChangeService.handleReservationUpdated(previousReservation, savedReservation),
       "TurnoverReservationChangeService.handleReservationUpdated"
     );
+    this.queueImmediateResolutionsThreadIfNeeded(savedReservation, source);
     return savedReservation;
   }
 

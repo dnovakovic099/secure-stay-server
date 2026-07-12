@@ -2463,6 +2463,7 @@ export interface ResolutionsCheckoutMessageData {
     hostifyUrl: string;
     channelName: string;
     integrationName?: string;
+    integrationUrl?: string;
     checkIn: string;
     checkOut: string;
     totalPaid: string;
@@ -2488,7 +2489,7 @@ type ResolutionsAssigneeSlackOption = {
 
 export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessageData) => {
     const {
-        emoji, listingName, guestName, hostifyUrl, channelName, integrationName,
+        emoji, listingName, guestName, hostifyUrl, channelName, integrationName, integrationUrl,
         checkIn, checkOut, totalPaid, ownerRevenue, status, assignee, ssUrl,
         visibility,
         reviewCheckoutId, statusOptions, assigneeOptions, tagOptions = [], selectedTags = [],
@@ -2507,7 +2508,10 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
     const channelLabel = normalizedChannelName.toLowerCase() === "airbnb" && normalizedIntegrationName
         ? `${normalizedChannelName} - ${displayIntegrationName}`
         : normalizedChannelName;
-    const headerText = `*${escapeSlackLinkText(listingName)}* ${emoji} | ${guestText} | ${escapeSlackLinkText(channelLabel)} | ${checkIn} → ${checkOut} | ${totalPaid} | ${ownerRevenue}`;
+    const channelText = integrationUrl
+        ? `<${integrationUrl}|${escapeSlackLinkText(channelLabel)}>`
+        : escapeSlackLinkText(channelLabel);
+    const headerText = `*${escapeSlackLinkText(listingName)}* ${emoji} | ${guestText} | ${channelText} | ${checkIn} → ${checkOut} | ${totalPaid} | ${ownerRevenue}`;
 
     // Slack static_select requires at least 1 option — fall back to defaults if caller passed nothing
     const effectiveStatusOptions = statusOptions.length
