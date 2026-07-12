@@ -1692,7 +1692,7 @@ export const buildExpenseSlackMessageUpdate = (
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*Updated By:* ${updatedBy || 'SecureStay User'}\n*Changes:*\n${changesText}`
+                    text: `*Updated By:* ${updatedBy || 'SecureStay User'}\n*LL Cover:* ${expense.llCover ? 'Yes' : 'No'}\n*Changes:*\n${changesText}`
                 }
             }
         ]
@@ -1756,7 +1756,8 @@ export const buildExpenseStatusUpdateMessage = (
                 type: "section",
                 fields: [
                     { type: "mrkdwn", text: `*Status:* ${statusText}` },
-                    { type: "mrkdwn", text: `*Updated By:* ${updatedBy}` }
+                    { type: "mrkdwn", text: `*Updated By:* ${updatedBy}` },
+                    { type: "mrkdwn", text: `*LL Cover:* ${expense.llCover ? 'Yes' : 'No'}` }
                 ]
             }
         ]
