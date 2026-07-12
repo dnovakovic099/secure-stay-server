@@ -9,7 +9,7 @@ import { validateCreateOwnerStatement, validatePrintExpenseIncomeStatement } fro
 import { AccountingReportController } from "../controllers/AccountingReportController";
 import verifyMobileSession from "../middleware/verifyMobileSession";
 import { ContractorInfoController } from "../controllers/ContractorController";
-import { validateContractorInfo } from "../middleware/validation/accounting/contractor.validation";
+import { validateContractorInfo, validateDeleteContractorInfo, validateMergeContractors, validateUpdateContractorInfo } from "../middleware/validation/accounting/contractor.validation";
 import { ResolutionController } from "../controllers/ResolutionController";
 import { validateCreateResolution, validateGetResolutions, validateUpdateResolution, validateBulkUpdateResolutions } from '../middleware/validation/accounting/resolution.validation';
 import { PublishedStatementController } from "../controllers/PublishedStatementController";
@@ -110,6 +110,25 @@ router.route('/getcontractors')
         verifySession,
         contractorInfoController.getContractors
     )    
+
+router.route('/contractors/merge')
+    .post(
+        verifySession,
+        validateMergeContractors,
+        contractorInfoController.mergeContractors
+    );
+
+router.route('/contractors/:id')
+    .put(
+        verifySession,
+        validateUpdateContractorInfo,
+        contractorInfoController.updateContractorInfo
+    )
+    .delete(
+        verifySession,
+        validateDeleteContractorInfo,
+        contractorInfoController.deleteContractorInfo
+    );
 
 router.route('/createresolution')
     .post(

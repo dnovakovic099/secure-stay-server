@@ -15,4 +15,19 @@ export class ContractorInfoController {
         const contractorInfoService = new ContractorInfoService();
         return response.send(await contractorInfoService.getContractors());
     }
+
+    async updateContractorInfo(request: CustomRequest, response: Response) {
+        const contractorInfoService = new ContractorInfoService();
+        return response.send(await contractorInfoService.updateContractorInfo(request));
+    }
+
+    async deleteContractorInfo(request: CustomRequest, response: Response) {
+        const contractorInfoService = new ContractorInfoService();
+        return response.send(await contractorInfoService.deleteContractorInfo(request));
+    }
+
+    async mergeContractors(request: CustomRequest, response: Response) {
+        const contractorInfoService = new ContractorInfoService();
+        return response.send(await contractorInfoService.mergeContractors(request));
+    }
 }

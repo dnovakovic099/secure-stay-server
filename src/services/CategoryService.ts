@@ -3,10 +3,14 @@ import { CategoryEntity } from "../entity/Category";
 import { Request } from "express";
 import { ExpenseEntity } from "../entity/Expense";
 import CustomErrorHandler from "../middleware/customError.middleware";
+import { ResolutionCategory } from "../entity/ResolutionCategory";
+import { Resolution } from "../entity/Resolution";
 
 export class CategoryService {
     private categoryRepo = appDatabase.getRepository(CategoryEntity);
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
+    private resolutionCategoryRepo = appDatabase.getRepository(ResolutionCategory);
+    private resolutionRepo = appDatabase.getRepository(Resolution);
 
     private parseCategoryIds(value?: string | null): string[] {
         if (!value) return [];
@@ -22,6 +26,34 @@ export class CategoryService {
     private async findByPublicId(id: number) {
         return await this.categoryRepo.findOne({ where: { hostawayId: id } }) ||
             await this.categoryRepo.findOne({ where: { id } });
+    }
+
+    private async findResolutionCategoryByName(categoryName: string) {
+        const normalizedName = String(categoryName || '').trim();
+        if (!normalizedName) return null;
+        return await this.resolutionCategoryRepo
+            .createQueryBuilder("category")
+            .where("LOWER(TRIM(category.name)) = LOWER(TRIM(:categoryName))", { categoryName: normalizedName })
+            .getOne();
+    }
+
+    private async syncResolutionCategoryName(previousName: string, nextName: string) {
+        const resolutionCategory = await this.findResolutionCategoryByName(previousName);
+        const categoryName = String(nextName || '').trim();
+        if (!resolutionCategory || !categoryName) return;
+
+        const existingTarget = await this.findResolutionCategoryByName(categoryName);
+        if (existingTarget && existingTarget.categoryKey !== resolutionCategory.categoryKey) {
+            await this.resolutionRepo.update(
+                { category: resolutionCategory.categoryKey },
+                { category: existingTarget.categoryKey }
+            );
+            await this.resolutionCategoryRepo.delete({ categoryKey: resolutionCategory.categoryKey });
+            return;
+        }
+
+        resolutionCategory.name = categoryName;
+        await this.resolutionCategoryRepo.save(resolutionCategory);
     }
 
     private async createInternalCategory(categoryName: string) {
@@ -72,8 +104,36 @@ export class CategoryService {
         const categoryName = String(body.categoryName || '').trim();
         if (!categoryName) throw CustomErrorHandler.validationError('Category name is required.');
 
+        const previousName = category.categoryName;
+        const existingTarget = await this.categoryRepo
+            .createQueryBuilder("targetCategory")
+            .where("LOWER(TRIM(targetCategory.categoryName)) = LOWER(TRIM(:categoryName))", { categoryName })
+            .andWhere("targetCategory.id != :categoryId", { categoryId: category.id })
+            .getOne();
+
+        if (existingTarget) {
+            const oldIds = new Set([String(category.id), String(category.hostawayId || category.id)]);
+            const newId = String(existingTarget.hostawayId || existingTarget.id);
+            const expenses = await this.expenseRepo.find();
+
+            for (const expense of expenses) {
+                const ids = this.parseCategoryIds(expense.categories);
+                if (!ids.some((id) => oldIds.has(id))) continue;
+
+                const nextIds = Array.from(new Set(ids.map((id) => oldIds.has(id) ? newId : id)));
+                expense.categories = JSON.stringify(nextIds.map((id) => Number.isNaN(Number(id)) ? id : Number(id)));
+                await this.expenseRepo.save(expense);
+            }
+
+            await this.categoryRepo.remove(category);
+            await this.syncResolutionCategoryName(previousName, existingTarget.categoryName);
+            return existingTarget;
+        }
+
         category.categoryName = categoryName;
-        return await this.categoryRepo.save(category);
+        const savedCategory = await this.categoryRepo.save(category);
+        await this.syncResolutionCategoryName(previousName, savedCategory.categoryName);
+        return savedCategory;
     }
 
     async reorderCategories(body: { categoryIds?: number[] }) {
@@ -120,6 +180,8 @@ export class CategoryService {
 
         const replacement = await this.findByPublicId(replacementId);
         if (!replacement) throw CustomErrorHandler.notFound('Replacement category not found.');
+
+        await this.syncResolutionCategoryName(category.categoryName, replacement.categoryName);
 
         const oldIds = new Set([String(category.id), String(category.hostawayId || category.id)]);
         const newId = String(replacement.hostawayId || replacement.id);

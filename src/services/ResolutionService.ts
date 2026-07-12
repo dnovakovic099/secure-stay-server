@@ -14,6 +14,8 @@ import sendEmail from "../utils/sendEmai";
 import { Listing } from "../entity/Listing";
 import { formatCurrency } from "../helpers/helpers";
 import { ResolutionCategory } from "../entity/ResolutionCategory";
+import { CategoryEntity } from "../entity/Category";
+import { ExpenseEntity } from "../entity/Expense";
 
 interface ResolutionData {
     category: string;
@@ -96,6 +98,8 @@ export class ResolutionService {
     private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
     private listingInfoRepository = appDatabase.getRepository(Listing);
     private resolutionCategoryRepo = appDatabase.getRepository(ResolutionCategory);
+    private categoryRepo = appDatabase.getRepository(CategoryEntity);
+    private expenseRepo = appDatabase.getRepository(ExpenseEntity);
 
     private normalizeSortRules(sort: any) {
         const sortItems = Array.isArray(sort) ? sort : sort ? Object.values(sort) : [];
@@ -129,6 +133,100 @@ export class ResolutionService {
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, "_")
             .replace(/^_+|_+$/g, "");
+    }
+
+    private parseAccountingCategoryIds(value?: string | null): string[] {
+        if (!value) return [];
+        try {
+            const parsed = JSON.parse(value);
+            if (Array.isArray(parsed)) return parsed.map((item) => String(item));
+        } catch {
+            return String(value).replace(/[\[\]"]/g, '').split(',').map((item) => item.trim()).filter(Boolean);
+        }
+        return [];
+    }
+
+    private async findAccountingCategoryByName(categoryName: string) {
+        const normalizedName = String(categoryName || "").trim();
+        if (!normalizedName) return null;
+        return await this.categoryRepo
+            .createQueryBuilder("category")
+            .where("LOWER(TRIM(category.categoryName)) = LOWER(TRIM(:categoryName))", { categoryName: normalizedName })
+            .orderBy("category.displayOrder IS NULL", "ASC")
+            .addOrderBy("category.displayOrder", "ASC")
+            .addOrderBy("category.id", "ASC")
+            .getOne();
+    }
+
+    private async ensureAccountingCategory(categoryName: string) {
+        const normalizedName = String(categoryName || "").trim();
+        if (!normalizedName) return null;
+
+        const existing = await this.findAccountingCategoryByName(normalizedName);
+        if (existing) return existing;
+
+        const maxOrder = await this.categoryRepo
+            .createQueryBuilder("category")
+            .select("MAX(category.displayOrder)", "maxOrder")
+            .getRawOne();
+
+        const category = new CategoryEntity();
+        category.categoryName = normalizedName;
+        category.displayOrder = Number(maxOrder?.maxOrder || 0) + 1;
+        const savedCategory = await this.categoryRepo.save(category);
+        if (!savedCategory.hostawayId) {
+            savedCategory.hostawayId = savedCategory.id;
+            return await this.categoryRepo.save(savedCategory);
+        }
+        return savedCategory;
+    }
+
+    private async syncAccountingCategoryName(previousName: string, nextName: string) {
+        const accountingCategory = await this.findAccountingCategoryByName(previousName);
+        const categoryName = String(nextName || "").trim();
+        if (!categoryName) return;
+
+        if (accountingCategory) {
+            const existingTarget = await this.findAccountingCategoryByName(categoryName);
+            if (existingTarget && existingTarget.id !== accountingCategory.id) {
+                await this.replaceAccountingCategory(previousName, categoryName);
+                return;
+            }
+
+            accountingCategory.categoryName = categoryName;
+            await this.categoryRepo.save(accountingCategory);
+            return;
+        }
+
+        await this.ensureAccountingCategory(categoryName);
+    }
+
+    private async replaceAccountingCategory(previousName: string, replacementName: string) {
+        const previousCategory = await this.findAccountingCategoryByName(previousName);
+        if (!previousCategory) {
+            await this.ensureAccountingCategory(replacementName);
+            return;
+        }
+
+        const replacementCategory = await this.ensureAccountingCategory(replacementName);
+        if (!replacementCategory) return;
+
+        const oldIds = new Set([String(previousCategory.id), String(previousCategory.hostawayId || previousCategory.id)]);
+        const newId = String(replacementCategory.hostawayId || replacementCategory.id);
+        const expenses = await this.expenseRepo.find();
+
+        for (const expense of expenses) {
+            const ids = this.parseAccountingCategoryIds(expense.categories);
+            if (!ids.some((id) => oldIds.has(id))) continue;
+
+            const nextIds = Array.from(new Set(ids.map((id) => oldIds.has(id) ? newId : id)));
+            expense.categories = JSON.stringify(nextIds.map((id) => Number.isNaN(Number(id)) ? id : Number(id)));
+            await this.expenseRepo.save(expense);
+        }
+
+        if (previousCategory.id !== replacementCategory.id) {
+            await this.categoryRepo.remove(previousCategory);
+        }
     }
 
     private async ensureResolutionCategories() {
@@ -182,6 +280,7 @@ export class ResolutionService {
         category.name = name;
         category.displayOrder = Number(maxOrder?.maxOrder || 0) + 1;
         await this.resolutionCategoryRepo.save(category);
+        await this.ensureAccountingCategory(name);
 
         return this.getResolutionCategories();
     }
@@ -193,8 +292,10 @@ export class ResolutionService {
         const name = String(body.name || "").trim();
         if (!name) throw CustomErrorHandler.validationError("Category name is required.");
 
+        const previousName = category.name;
         category.name = name;
         await this.resolutionCategoryRepo.save(category);
+        await this.syncAccountingCategoryName(previousName, name);
         return this.getResolutionCategories();
     }
 
@@ -234,6 +335,7 @@ export class ResolutionService {
         if (!replacement) throw CustomErrorHandler.validationError("Replacement category was not found.");
 
         await this.resolutionRepo.update({ category: categoryKey }, { category: replacementCategoryId });
+        await this.replaceAccountingCategory(category.name, replacement.name);
         await this.resolutionCategoryRepo.delete({ categoryKey });
 
         return this.getResolutionCategories();

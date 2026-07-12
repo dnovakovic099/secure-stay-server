@@ -13,3 +13,47 @@ export const validateContractorInfo = (request: Request, response: Response, nex
     }
     next();
 };
+
+export const validateUpdateContractorInfo = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        contractorName: Joi.string().required(),
+        contractorNumber: Joi.string().required().allow(null, ""),
+        updateExistingExpenses: Joi.boolean().optional()
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        next(error);
+        return;
+    }
+    next();
+};
+
+export const validateDeleteContractorInfo = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        replacementContractorId: Joi.number().integer().positive().optional().allow(null, ""),
+        replacementContractorName: Joi.string().optional().allow(null, ""),
+        replacementContractorNumber: Joi.string().optional().allow(null, ""),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        next(error);
+        return;
+    }
+    next();
+};
+
+export const validateMergeContractors = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        sourceContractorIds: Joi.array().items(Joi.number().integer().positive()).min(1).required(),
+        targetContractorId: Joi.number().integer().positive().required(),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        next(error);
+        return;
+    }
+    next();
+};

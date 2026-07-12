@@ -686,8 +686,7 @@ export class ExpenseService {
         // calculate total expense filter values in given period of time without limit and page
         const qb = this.expenseRepo
             .createQueryBuilder('expense')
-            .select('SUM(ABS(expense.amount))', 'totalExpense')
-            .andWhere('expense.isDeleted = :isDeleted', { isDeleted: expenseState === "active" ? 0 : 1 });
+            .select('SUM(ABS(expense.amount))', 'totalExpense');
 
         if (fromDate && toDate) {
             if (accountingTimestampRange) {
@@ -717,10 +716,12 @@ export class ExpenseService {
             qb.andWhere('expense.listingMapId IN (:...typeListingIds)', { typeListingIds: listingIds });
         }
 
-        if (status !== "") {
-            qb.andWhere('expense.status IN (:...statuses)', {
-                statuses: [status],
-            });
+        if (expenseState) {
+            qb.andWhere('expense.isDeleted = :isDeleted', { isDeleted: expenseState === "active" ? 0 : 1 });
+        }
+
+        if (normalizedStatus.length > 0) {
+            qb.andWhere('expense.status IN (:...statuses)', { statuses: normalizedStatus });
         }
 
         if (normalizedContractorName.length > 0) {
@@ -777,6 +778,14 @@ export class ExpenseService {
 
         if (type && type == "expense") {
             qb.andWhere('expense.amount < 0');
+        }
+
+        if (request.hostname !== "securestay.ai") {
+            qb.andWhere('expense.llCover = 0');
+        }
+
+        if (isRecurring !== undefined) {
+            qb.andWhere('expense.isRecurring = :isRecurring', { isRecurring: Number(isRecurring) });
         }
 
         if (keywordText) {
