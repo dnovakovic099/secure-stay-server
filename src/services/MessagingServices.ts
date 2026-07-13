@@ -13,6 +13,7 @@ import sendSlackMessage from "../utils/sendSlackMsg";
 import { buildUnansweredMessageAlert } from "../utils/slackMessageBuilder";
 import { Listing } from "../entity/Listing";
 import { ListingService } from "./ListingService";
+import { ListingGroupService } from "./ListingGroupService";
 import { In, Like } from "typeorm";
 import { OpenPhoneService } from "./OpenPhoneService";
 import { ReservationDetailPreStayAuditService } from "./ReservationDetailPreStayAuditService";
@@ -63,6 +64,7 @@ export class MessagingService {
     private listingRepository = appDatabase.getRepository(Listing);
     private reservationRepository = appDatabase.getRepository(ReservationInfoEntity);
     private listingService = new ListingService();
+    private listingGroupService = new ListingGroupService();
     private openPhoneService = new OpenPhoneService();
     private preStayAuditService = new ReservationDetailPreStayAuditService();
     private postStayAuditService = new ReservationDetailPostStayAuditService();
@@ -1221,6 +1223,7 @@ export class MessagingService {
         const normalizedListing = listing
             ? (this.listingService as any).normalizeListingOverview?.(listing) || null
             : null;
+        const parentListingId = await this.listingGroupService.resolve(reservation.listingMapId);
 
         const hostNote = this.extractHostifyNoteValue(liveReservation, [
             "host_note",
@@ -1289,6 +1292,9 @@ export class MessagingService {
             guestName: resolvedGuestName,
             guestEmail: resolvedGuestEmail,
             listingName: listing?.internalListingName || reservation.listingName || listing?.name || null,
+            parentListingId: parentListingId ?? reservation.listingMapId ?? null,
+            channelListingId: liveReservation?.channel_listing_id ?? reservation.externalPropertyId ?? null,
+            integrationName: liveReservation?.integration_nickname ?? reservation.integration_nickname ?? reservation.source ?? null,
             propertyType: this.normalizePropertyTypeValue(listing),
             serviceType: this.normalizeServiceTypeValue(listing, normalizedListing),
             portfolio: this.normalizePortfolioValue(listing),
@@ -1313,7 +1319,7 @@ export class MessagingService {
             base_price: reservation.base_price ?? liveReservation?.base_price ?? null,
             cleaningFee: liveReservation?.cleaning_fee ?? reservation.cleaningFee ?? null,
             channelCommission: liveReservation?.channel_commission ?? reservation.channelCommissionAmount ?? null,
-            confirmedAt: liveReservation?.confirmed_at ?? reservation.reservationDate ?? null,
+            confirmedAt: liveReservation?.confirmed_at ?? null,
             plannedArrival: liveReservation?.planned_arrival ?? null,
             plannedDeparture: liveReservation?.planned_departure ?? null,
             hostifyCheckinFormLink: liveReservation?.hostify_checkin_form_link ?? null,
