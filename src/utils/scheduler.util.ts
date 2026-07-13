@@ -386,13 +386,18 @@ export function scheduleGetReservation() {
   schedule.scheduleJob(
     { hour: 2, minute: 0, tz: "America/New_York" },
     async () => {
+      const triggeredAt = new Date().toISOString();
+      logger.info(`[backup scheduler] Database backup scheduled task triggered at ${triggeredAt}`);
       try {
-        logger.info('Database backup scheduled task started...');
         const backupService = new DatabaseBackupService();
         await backupService.processScheduledBackup();
-        logger.info('Database backup scheduled task completed successfully.');
+        logger.info('[backup scheduler] Database backup scheduled task completed successfully.');
       } catch (error) {
-        logger.error("Error in database backup scheduled task:", error);
+        const err = error as { message?: string; stack?: string };
+        logger.error(`[backup scheduler] Database backup scheduled task failed: ${err?.message || error}`);
+        if (err?.stack) {
+          logger.error(`[backup scheduler] stack: ${err.stack}`);
+        }
       }
     }
   );
