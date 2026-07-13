@@ -33,6 +33,60 @@ const slug = (s: string) =>
 export class AILearnedFactsService {
     private repo = appDatabase.getRepository(AILearnedFactEntity);
 
+    private static cleanDisplayName(value: unknown): string | null {
+        const text = String(value ?? "").replace(/\s+/g, " ").trim();
+        return text || null;
+    }
+
+    private async resolveListingNicknames(listingIds: number[]): Promise<Map<number, string>> {
+        const uniqueIds = [...new Set(listingIds.map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+        const listingNames = new Map<number, string>();
+        if (!uniqueIds.length) return listingNames;
+
+        const applyRows = (rows: any[] = [], idKey = "listingId", nameKey = "listingName") => {
+            for (const row of rows) {
+                const id = Number(row?.[idKey]);
+                if (!Number.isFinite(id) || listingNames.has(id)) continue;
+                const name = AILearnedFactsService.cleanDisplayName(row?.[nameKey]);
+                if (name) listingNames.set(id, name);
+            }
+        };
+
+        const placeholders = uniqueIds.map(() => "?").join(",");
+        const listingRows: any[] = await appDatabase.query(
+            `SELECT id, internalListingName
+             FROM listing_info
+             WHERE id IN (${placeholders})`,
+            uniqueIds
+        );
+        applyRows(listingRows, "id", "internalListingName");
+
+        const unresolvedIds = () => uniqueIds.filter((id) => !listingNames.has(id));
+        const applyFallback = async (table: string) => {
+            const ids = unresolvedIds();
+            if (!ids.length) return;
+            const fallbackRows: any[] = await appDatabase.query(
+                `SELECT listingId, MAX(NULLIF(TRIM(listingName), '')) AS listingName
+                 FROM ${table}
+                 WHERE listingId IN (${ids.map(() => "?").join(",")})
+                   AND listingName IS NOT NULL
+                   AND TRIM(listingName) <> ''
+                 GROUP BY listingId`,
+                ids
+            );
+            applyRows(fallbackRows);
+        };
+
+        // Some inbox listing ids are Hostify ids that do not have a matching
+        // listing_info row. Fall back to the nickname/name captured on the
+        // source conversation or learning prompt instead of returning null.
+        await applyFallback("inbox_conversations");
+        await applyFallback("quo_conversations");
+        await applyFallback("ai_learning_prompts");
+
+        return listingNames;
+    }
+
     /**
      * Upsert by (scope, listingId, topic): if a matching fact exists we bump its
      * frequency and refresh lastSeenAt (and fill answer/question if empty); else
@@ -182,19 +236,7 @@ export class AILearnedFactsService {
         if (opts.listingId != null) where.listingId = opts.listingId;
         const rows = await this.repo.find({ where, order: { frequency: "DESC", updatedAt: "DESC" }, take: 500 });
         const listingIds = [...new Set(rows.map((f) => f.listingId).filter((id) => id != null).map(Number))];
-        const listingNames = new Map<number, string>();
-        if (listingIds.length) {
-            const listingRows: any[] = await appDatabase.query(
-                `SELECT id, internalListingName, name, externalListingName
-                 FROM listing_info
-                 WHERE id IN (${listingIds.map(() => "?").join(",")})`,
-                listingIds
-            );
-            for (const listing of listingRows) {
-                const name = listing.internalListingName || listing.name || listing.externalListingName || null;
-                if (name) listingNames.set(Number(listing.id), name);
-            }
-        }
+        const listingNames = await this.resolveListingNicknames(listingIds);
 
         // Attribution: resolve who taught / reviewed each fact to display names,
         // so the Learned tab can show "Taught by X" instead of a bare user id.
