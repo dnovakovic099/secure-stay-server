@@ -116,6 +116,33 @@ export class ContractorInfoService {
 
         contractors.sort((a, b) => String(a.contractorName || "").localeCompare(String(b.contractorName || ""), undefined, { sensitivity: "base" }));
 
+        const expenseRows = await this.expenseRepo
+            .createQueryBuilder("expense")
+            .select([
+                "expense.id",
+                "expense.expenseId",
+                "expense.listingMapId",
+                "expense.expenseDate",
+                "expense.dateOfWork",
+                "expense.concept",
+                "expense.amount",
+                "expense.status",
+                "expense.isDeleted",
+                "expense.categories",
+                "expense.contractorName",
+                "expense.createdAt",
+            ])
+            .where("expense.contractorName IS NOT NULL")
+            .andWhere("TRIM(expense.contractorName) != ''")
+            .orderBy("expense.createdAt", "DESC")
+            .getMany();
+        const expensesByKey = new Map<string, ExpenseEntity[]>();
+        expenseRows.forEach((expense) => {
+            const key = this.normalizeKey(expense.contractorName);
+            if (!key) return;
+            expensesByKey.set(key, [...(expensesByKey.get(key) || []), expense]);
+        });
+
         const vendorIds = contractors.map((contractor) => contractor.vendorProfileId).filter((id): id is number => Boolean(id));
         const vendors = vendorIds.length
             ? await this.vendorProfileRepo.createQueryBuilder("vendor").where("vendor.id IN (:...vendorIds)", { vendorIds }).getMany()
@@ -130,6 +157,9 @@ export class ContractorInfoService {
                 vendorProfile: vendorProfile ? {
                     id: vendorProfile.id,
                     name: vendorProfile.name,
+                    firstName: vendorProfile.firstName,
+                    lastName: vendorProfile.lastName,
+                    preferredName: vendorProfile.preferredName,
                     contact: vendorProfile.contact,
                     companyName: vendorProfile.companyName,
                 } : null,
@@ -137,6 +167,19 @@ export class ContractorInfoService {
                 activeExpenseCount: usage?.activeExpenseCount ?? 0,
                 totalExpenseAmount: usage?.totalExpenseAmount ?? 0,
                 lastExpenseDate: usage?.lastExpenseDate ?? null,
+                expenses: (expensesByKey.get(this.normalizeKey(contractor.contractorName)) || []).map(expense => ({
+                    id: expense.id,
+                    expenseId: expense.expenseId,
+                    listingMapId: expense.listingMapId,
+                    expenseDate: expense.expenseDate,
+                    dateOfWork: expense.dateOfWork,
+                    concept: expense.concept,
+                    amount: expense.amount,
+                    status: expense.status,
+                    isDeleted: expense.isDeleted,
+                    categories: expense.categories,
+                    createdAt: expense.createdAt,
+                })),
             };
         });
     }
@@ -253,6 +296,9 @@ export class ContractorInfoService {
         return vendor ? {
             id: vendor.id,
             name: vendor.name,
+            firstName: vendor.firstName,
+            lastName: vendor.lastName,
+            preferredName: vendor.preferredName,
             contact: vendor.contact,
             companyName: vendor.companyName,
         } : null;
