@@ -93,11 +93,15 @@ export class VendorProfileService {
             CREATE TABLE IF NOT EXISTS vendor_profiles (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 name VARCHAR(255) NOT NULL,
+                firstName VARCHAR(255) NULL,
+                lastName VARCHAR(255) NULL,
+                preferredName VARCHAR(255) NULL,
                 companyName VARCHAR(255) NULL,
                 contact VARCHAR(100) NULL,
                 email VARCHAR(255) NULL,
                 source VARCHAR(100) NULL,
                 vendorAddress VARCHAR(255) NULL,
+                dateStarted DATE NULL,
                 notes TEXT NULL,
                 avatarUrl VARCHAR(2048) NULL,
                 icon VARCHAR(100) NULL,
@@ -198,7 +202,11 @@ export class VendorProfileService {
         `);
 
         await this.addColumnIfMissing("vendor_profiles", "companyName", "VARCHAR(255) NULL");
+        await this.addColumnIfMissing("vendor_profiles", "firstName", "VARCHAR(255) NULL");
+        await this.addColumnIfMissing("vendor_profiles", "lastName", "VARCHAR(255) NULL");
+        await this.addColumnIfMissing("vendor_profiles", "preferredName", "VARCHAR(255) NULL");
         await this.addColumnIfMissing("vendor_profiles", "vendorAddress", "VARCHAR(255) NULL");
+        await this.addColumnIfMissing("vendor_profiles", "dateStarted", "DATE NULL");
         await this.addColumnIfMissing("vendor_profiles", "notes", "TEXT NULL");
         await this.addColumnIfMissing("vendor_profiles", "avatarUrl", "VARCHAR(2048) NULL");
         await this.addColumnIfMissing("vendor_profiles", "icon", "VARCHAR(100) NULL");
@@ -293,14 +301,36 @@ export class VendorProfileService {
         return String(value);
     }
 
+    private splitVendorName(name?: string | null) {
+        const cleanName = String(name || "").trim();
+        if (!cleanName) return { firstName: null, lastName: null };
+        const parts = cleanName.split(/\s+/);
+        if (parts.length <= 1) return { firstName: cleanName, lastName: null };
+        return {
+            firstName: parts[0],
+            lastName: parts.slice(1).join(" "),
+        };
+    }
+
+    private buildVendorName(body: Partial<VendorProfile>, fallbackName?: string | null) {
+        const firstName = String(body.firstName ?? "").trim();
+        const lastName = String(body.lastName ?? "").trim();
+        const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
+        return fullName || String(body.name || fallbackName || body.preferredName || body.companyName || "").trim();
+    }
+
     private getProfileAuditChanges(existing: VendorProfile, next: Partial<VendorProfile>) {
         const fields: Array<{ key: keyof VendorProfile; label: string; nextValue?: any }> = [
             { key: "name", label: "Vendor Name", nextValue: next.name },
+            { key: "firstName", label: "First Name", nextValue: next.firstName },
+            { key: "lastName", label: "Last Name", nextValue: next.lastName },
+            { key: "preferredName", label: "Preferred Name", nextValue: next.preferredName },
             { key: "companyName", label: "Company Name", nextValue: next.companyName },
             { key: "contact", label: "Phone Number", nextValue: next.contact },
             { key: "email", label: "Email", nextValue: next.email },
             { key: "source", label: "Source", nextValue: next.source },
             { key: "vendorAddress", label: "Vendor Address", nextValue: next.vendorAddress },
+            { key: "dateStarted", label: "Date Started", nextValue: next.dateStarted },
             { key: "notes", label: "General Notes", nextValue: next.notes },
             { key: "avatarUrl", label: "Avatar", nextValue: next.avatarUrl },
             { key: "icon", label: "Icon", nextValue: next.icon },
@@ -539,8 +569,12 @@ export class VendorProfileService {
                     let profile = existingProfileId ? await profileRepo.findOneBy({ id: existingProfileId }) : null;
 
                     if (!profile) {
+                        const legacyName = this.splitVendorName(first.name || null);
                         profile = await profileRepo.save(profileRepo.create({
                             name: first.name || first.contact || first.email || `Vendor #${first.id}`,
+                            firstName: legacyName.firstName,
+                            lastName: legacyName.lastName,
+                            preferredName: null,
                             contact: first.contact || null,
                             email: first.email || null,
                             source: first.source || null,
@@ -641,6 +675,9 @@ export class VendorProfileService {
         const where = keyword
             ? [
                 { name: Like(`%${keyword}%`) },
+                { firstName: Like(`%${keyword}%`) },
+                { lastName: Like(`%${keyword}%`) },
+                { preferredName: Like(`%${keyword}%`) },
                 { contact: Like(`%${keyword}%`) },
                 { email: Like(`%${keyword}%`) },
                 { vendorAddress: Like(`%${keyword}%`) },
@@ -791,14 +828,19 @@ export class VendorProfileService {
         const profileId = await appDatabase.transaction(async manager => {
             const profileRepo = manager.getRepository(VendorProfile);
             const assignmentRepo = manager.getRepository(VendorAssignment);
+            const computedName = this.buildVendorName(body);
 
             const profile = await profileRepo.save(profileRepo.create({
-                name: body.name,
+                name: computedName || "Unnamed Vendor",
+                firstName: body.firstName || null,
+                lastName: body.lastName || null,
+                preferredName: body.preferredName || null,
                 companyName: body.companyName || null,
                 contact: body.contact || null,
                 email: body.email || null,
                 source: body.source || null,
                 vendorAddress: body.vendorAddress || null,
+                dateStarted: body.dateStarted || null,
                 notes: body.notes || null,
                 avatarUrl: body.avatarUrl || null,
                 icon: body.icon || null,
@@ -828,13 +870,29 @@ export class VendorProfileService {
         await this.ensureVendorSchema();
         const existing = await this.vendorProfileRepo.findOneBy({ id });
         if (!existing) throw CustomErrorHandler.notFound(`Vendor profile with ID ${id} not found.`);
+        const nextName = this.buildVendorName({
+            ...body,
+            firstName: body.firstName !== undefined ? body.firstName : existing.firstName,
+            lastName: body.lastName !== undefined ? body.lastName : existing.lastName,
+            preferredName: body.preferredName !== undefined ? body.preferredName : existing.preferredName,
+            companyName: body.companyName !== undefined ? body.companyName : existing.companyName,
+        }, existing.name);
+        const shouldRefreshName = body.name !== undefined
+            || body.firstName !== undefined
+            || body.lastName !== undefined
+            || body.preferredName !== undefined
+            || body.companyName !== undefined;
         const nextValues = {
-            name: body.name,
+            name: shouldRefreshName ? nextName : body.name,
+            firstName: body.firstName,
+            lastName: body.lastName,
+            preferredName: body.preferredName,
             companyName: body.companyName,
             contact: body.contact,
             email: body.email,
             source: body.source,
             vendorAddress: body.vendorAddress,
+            dateStarted: body.dateStarted,
             notes: body.notes,
             avatarUrl: body.avatarUrl,
             icon: body.icon,
@@ -843,7 +901,7 @@ export class VendorProfileService {
         const changes = this.getProfileAuditChanges(existing, nextValues);
         const saved = await this.vendorProfileRepo.save(this.vendorProfileRepo.merge(existing, nextValues));
         await this.createProfileChangeUpdate(saved, changes, userId);
-        const nameChanged = body.name !== undefined && String(body.name || "").trim() !== String(existing.name || "").trim();
+        const nameChanged = shouldRefreshName && String(nextName || "").trim() !== String(existing.name || "").trim();
         const phoneChanged = body.contact !== undefined && String(body.contact || "").trim() !== String(existing.contact || "").trim();
         if (nameChanged || phoneChanged) {
             const contractorService = new ContractorInfoService();

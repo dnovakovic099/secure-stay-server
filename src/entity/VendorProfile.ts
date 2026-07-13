@@ -11,6 +11,15 @@ export class VendorProfile {
     name: string;
 
     @Column({ type: "varchar", length: 255, nullable: true })
+    firstName: string | null;
+
+    @Column({ type: "varchar", length: 255, nullable: true })
+    lastName: string | null;
+
+    @Column({ type: "varchar", length: 255, nullable: true })
+    preferredName: string | null;
+
+    @Column({ type: "varchar", length: 255, nullable: true })
     companyName: string | null;
 
     @Column({ type: "varchar", length: 100, nullable: true })
@@ -24,6 +33,9 @@ export class VendorProfile {
 
     @Column({ type: "varchar", length: 255, nullable: true })
     vendorAddress: string | null;
+
+    @Column({ type: "date", nullable: true })
+    dateStarted: Date | null;
 
     @Column({ type: "text", nullable: true })
     notes: string | null;
