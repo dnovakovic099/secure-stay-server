@@ -8,6 +8,7 @@ import { UsersEntity } from "../entity/Users";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Listing } from "../entity/Listing";
 import { ListingService } from "./ListingService";
+import { ListingGroupService } from "./ListingGroupService";
 
 /**
  * Raw Hostify webhook payload for a `message_new` event.
@@ -113,6 +114,7 @@ export class InboxService {
     private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
     private listingRepo = appDatabase.getRepository(Listing);
     private listingService = new ListingService();
+    private listingGroupService = new ListingGroupService();
     private hostify = new Hostify();
 
     private get apiKey(): string {
@@ -897,17 +899,19 @@ export class InboxService {
             : [];
         const listingMap = new Map(listings.map((listing) => [Number(listing.id), listing]));
 
-        const enrichedConversations = conversations.map((conversation) => {
+        const enrichedConversations = await Promise.all(conversations.map(async (conversation) => {
             const listing = listingMap.get(Number(conversation.listingId)) || null;
             const normalizedListing = listing
                 ? (this.listingService as any).normalizeListingOverview?.(listing) || null
                 : null;
+            const parentListingId = await this.listingGroupService.resolve(conversation.listingId);
             return {
                 ...conversation,
+                parentListingId,
                 propertyType: this.normalizePropertyTypeValue(listing),
                 serviceType: this.normalizeServiceTypeValue(listing, normalizedListing),
             };
-        });
+        }));
 
         // Full channel list for the filter dropdown (independent of pagination).
         const channelRows: { ch: string; }[] = await this.conversationRepo
@@ -960,7 +964,9 @@ export class InboxService {
             await this.conversationRepo.save(conversation);
         }
 
-        return { conversation, messages };
+        const parentListingId = await this.listingGroupService.resolve(conversation.listingId);
+
+        return { conversation: { ...conversation, parentListingId }, messages };
     }
 
     // -------------------------------------------------------------------------
