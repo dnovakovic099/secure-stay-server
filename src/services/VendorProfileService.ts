@@ -96,6 +96,7 @@ export class VendorProfileService {
                 contact VARCHAR(100) NULL,
                 email VARCHAR(255) NULL,
                 source VARCHAR(100) NULL,
+                vendorAddress VARCHAR(255) NULL,
                 notes TEXT NULL,
                 avatarUrl VARCHAR(2048) NULL,
                 icon VARCHAR(100) NULL,
@@ -196,6 +197,7 @@ export class VendorProfileService {
         `);
 
         await this.addColumnIfMissing("vendor_profiles", "companyName", "VARCHAR(255) NULL");
+        await this.addColumnIfMissing("vendor_profiles", "vendorAddress", "VARCHAR(255) NULL");
         await this.addColumnIfMissing("vendor_profiles", "notes", "TEXT NULL");
         await this.addColumnIfMissing("vendor_profiles", "avatarUrl", "VARCHAR(2048) NULL");
         await this.addColumnIfMissing("vendor_profiles", "icon", "VARCHAR(100) NULL");
@@ -297,6 +299,7 @@ export class VendorProfileService {
             { key: "contact", label: "Phone Number", nextValue: next.contact },
             { key: "email", label: "Email", nextValue: next.email },
             { key: "source", label: "Source", nextValue: next.source },
+            { key: "vendorAddress", label: "Vendor Address", nextValue: next.vendorAddress },
             { key: "notes", label: "General Notes", nextValue: next.notes },
             { key: "avatarUrl", label: "Avatar", nextValue: next.avatarUrl },
             { key: "icon", label: "Icon", nextValue: next.icon },
@@ -540,6 +543,7 @@ export class VendorProfileService {
                             contact: first.contact || null,
                             email: first.email || null,
                             source: first.source || null,
+                            vendorAddress: first.vendorAddress || null,
                             notes: null,
                             createdBy: first.createdBy || userId,
                             updatedBy: first.updatedBy || userId,
@@ -638,6 +642,7 @@ export class VendorProfileService {
                 { name: Like(`%${keyword}%`) },
                 { contact: Like(`%${keyword}%`) },
                 { email: Like(`%${keyword}%`) },
+                { vendorAddress: Like(`%${keyword}%`) },
             ]
             : {};
 
@@ -792,6 +797,7 @@ export class VendorProfileService {
                 contact: body.contact || null,
                 email: body.email || null,
                 source: body.source || null,
+                vendorAddress: body.vendorAddress || null,
                 notes: body.notes || null,
                 avatarUrl: body.avatarUrl || null,
                 icon: body.icon || null,
@@ -827,6 +833,7 @@ export class VendorProfileService {
             contact: body.contact,
             email: body.email,
             source: body.source,
+            vendorAddress: body.vendorAddress,
             notes: body.notes,
             avatarUrl: body.avatarUrl,
             icon: body.icon,

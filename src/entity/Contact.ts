@@ -27,6 +27,9 @@ export class Contact {
     @Column({ nullable: true })
     source: string;
 
+    @Column({ nullable: true })
+    vendorAddress: string;
+
     @Column({ type: "text", nullable: true })
     notes: string;
 

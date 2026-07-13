@@ -78,6 +78,7 @@ export class ContactService {
             { key: 'contact', label: 'Phone Number', nextValue: next.contact },
             { key: 'email', label: 'Email', nextValue: next.email },
             { key: 'source', label: 'Source', nextValue: next.source },
+            { key: 'vendorAddress', label: 'Vendor Address', nextValue: next.vendorAddress },
             { key: 'notes', label: 'Notes', nextValue: next.notes },
             { key: 'website_name', label: 'Website Name', nextValue: next.website_name },
             { key: 'website_link', label: 'Website Link', nextValue: next.website_link },
@@ -325,6 +326,7 @@ export class ContactService {
                 { ...baseWhere, name: ILike(`%${keyword}%`) },
                 { ...baseWhere, contact: ILike(`%${keyword}%`) },
                 { ...baseWhere, email: ILike(`%${keyword}%`) },
+                { ...baseWhere, vendorAddress: ILike(`%${keyword}%`) },
                 { ...baseWhere, website_name: ILike(`%${keyword}%`) },
                 { ...baseWhere, notes: ILike(`%${keyword}%`) }
             ]
@@ -595,6 +597,10 @@ export class ContactService {
                 if (updateData.source !== undefined) {
                     auditPayload.source = updateData.source;
                     contact.source = updateData.source;
+                }
+                if (updateData.vendorAddress !== undefined) {
+                    auditPayload.vendorAddress = updateData.vendorAddress;
+                    contact.vendorAddress = updateData.vendorAddress;
                 }
                 if (updateData.status !== undefined) {
                     auditPayload.status = updateData.status;

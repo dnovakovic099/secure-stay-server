@@ -22,6 +22,9 @@ export class VendorProfile {
     @Column({ type: "varchar", length: 100, nullable: true })
     source: string | null;
 
+    @Column({ type: "varchar", length: 255, nullable: true })
+    vendorAddress: string | null;
+
     @Column({ type: "text", nullable: true })
     notes: string | null;
 
