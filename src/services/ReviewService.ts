@@ -1339,6 +1339,7 @@ export class ReviewService {
                 const matchedChildListing = findMatchingHostifyChildListing(childListings, {
                     externalPropertyId: reservation.externalPropertyId,
                     integration_nickname: reservation.integration_nickname,
+                    source: reservation.source,
                     channelName: reservation.channelName,
                 });
 
@@ -1348,14 +1349,16 @@ export class ReviewService {
             }
 
             // Persist the resolved value back to the per-reservation TTL cache so the *next*
-            // /reviewcheckout call for this reservation is served entirely from memory. Note
-            // this caches whichever value we ended up with — parent-fallback for timed-out
-            // listings, child-refined otherwise. On the next request within TTL we skip the
-            // Hostify fan-out for this reservation entirely.
-            reservationListedStatusCache.set(reservationId, {
-                value: result.get(reservationId) ?? null,
-                expiresAt: now + RESERVATION_LISTED_STATUS_TTL_MS,
-            });
+            // /reviewcheckout call for this reservation is served entirely from memory. Only
+            // cache listings whose child fetch actually returned; timeouts keep the fast
+            // parent fallback for this response, but the next load gets another chance to
+            // resolve child-level listed status instead of freezing the fallback for an hour.
+            if (childListingsByParentId.has(Number(reservation.listingMapId))) {
+                reservationListedStatusCache.set(reservationId, {
+                    value: result.get(reservationId) ?? null,
+                    expiresAt: now + RESERVATION_LISTED_STATUS_TTL_MS,
+                });
+            }
         });
 
         return result;

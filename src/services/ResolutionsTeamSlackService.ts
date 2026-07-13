@@ -514,6 +514,7 @@ export class ResolutionsTeamSlackService {
         return findMatchingHostifyChildListing(Array.isArray(childListings) ? childListings : [], {
             externalPropertyId: reservation.externalPropertyId,
             integration_nickname: reservation.integration_nickname,
+            source: reservation.source,
             channelName: reservation.channelName,
         });
     }
