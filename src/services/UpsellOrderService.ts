@@ -8,13 +8,107 @@ import { ListingService } from "./ListingService";
 import { categoryIds, tagIds } from "../constant";
 import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
+import { UpsellOrderHistoryEntity } from "../entity/UpsellOrderHistory";
+import { UsersEntity } from "../entity/Users";
 
 export class UpsellOrderService {
     private upsellOrderRepo = appDatabase.getRepository(UpsellOrder);
+    private upsellOrderHistoryRepo = appDatabase.getRepository(UpsellOrderHistoryEntity);
+    private usersRepository = appDatabase.getRepository(UsersEntity);
     private hostAwayClient = new HostAwayClient();
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
     private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
     private requestedDateColumnPromise: Promise<boolean> | null = null;
+    private historyFields: Array<keyof UpsellOrder> = [
+        "status",
+        "listing_id",
+        "listing_name",
+        "cost",
+        "order_date",
+        "client_name",
+        "property_owner",
+        "type",
+        "description",
+        "payment_method",
+        "booking_id",
+        "arrival_date",
+        "departure_date",
+        "phone",
+        "archived",
+    ];
+
+    private normalizeHistoryValue(value: any) {
+        if (value === undefined || value === null || value === "") return "";
+        if (typeof value === "boolean") return value ? "Yes" : "No";
+        if (value instanceof Date) return value.toISOString();
+        if (Array.isArray(value)) return JSON.stringify(value);
+        if (typeof value === "object") return JSON.stringify(value);
+        return String(value);
+    }
+
+    private historyValueChanged(previous: any, next: any) {
+        return this.normalizeHistoryValue(previous) !== this.normalizeHistoryValue(next);
+    }
+
+    private getUserDisplayName(user?: UsersEntity | null) {
+        if (!user) return "";
+        const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+        return fullName || user.email || user.uid || "";
+    }
+
+    private formatUpsellTimestamp(value?: Date | null) {
+        if (!value) return "";
+        return new Intl.DateTimeFormat("en-US", {
+            month: "short",
+            day: "2-digit",
+            year: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+            timeZone: "America/New_York",
+        }).format(value);
+    }
+
+    private async logOrderChanges(
+        orderId: number,
+        previous: Partial<UpsellOrder>,
+        next: Partial<UpsellOrder>,
+        userId: string,
+        fields: Array<keyof UpsellOrder>,
+        action: "CREATE" | "UPDATE" | "DELETE" = "UPDATE"
+    ) {
+        const rows = fields
+            .filter((fieldName) => this.historyValueChanged(previous[fieldName], next[fieldName]))
+            .map((fieldName) => this.upsellOrderHistoryRepo.create({
+                orderId,
+                fieldName: String(fieldName),
+                oldValue: this.normalizeHistoryValue(previous[fieldName]) || null,
+                newValue: this.normalizeHistoryValue(next[fieldName]) || null,
+                changedBy: userId,
+                action,
+            }));
+
+        if (rows.length) await this.upsellOrderHistoryRepo.save(rows);
+    }
+
+    private async logOrderFieldChange(
+        orderId: number,
+        fieldName: string,
+        oldValue: any,
+        newValue: any,
+        userId: string,
+        action: "CREATE" | "UPDATE" | "DELETE" = "UPDATE"
+    ) {
+        if (!this.historyValueChanged(oldValue, newValue)) return;
+        await this.upsellOrderHistoryRepo.save(this.upsellOrderHistoryRepo.create({
+            orderId,
+            fieldName,
+            oldValue: this.normalizeHistoryValue(oldValue) || null,
+            newValue: this.normalizeHistoryValue(newValue) || null,
+            changedBy: userId,
+            action,
+        }));
+    }
 
     async createOrder(data: Partial<UpsellOrder>, userId: string) {
         const requestedDate = (data as any).requested_date || (data as any).requestedDate || null;
@@ -42,6 +136,8 @@ export class UpsellOrderService {
         const order = this.upsellOrderRepo.create({ ...data, created_by: userId });
         const savedOrder = await this.upsellOrderRepo.save(order);
         await this.setRequestedDateIfSupported(savedOrder.id, requestedDate);
+        await this.logOrderChanges(savedOrder.id, {}, savedOrder, userId, this.historyFields, "CREATE");
+        await this.logOrderFieldChange(savedOrder.id, "requested_date", null, requestedDate, userId, "CREATE");
         await sendUpsellOrderEmail(savedOrder);
         return savedOrder;
     }
@@ -176,6 +272,7 @@ export class UpsellOrderService {
         const requestedDate = (data as any).requested_date || (data as any).requestedDate;
         delete (data as any).requested_date;
         delete (data as any).requestedDate;
+        const previousRequestedDate = (await this.getRequestedDateMap([id])).get(id) || null;
 
         if ((data as any).archived !== undefined) {
             const nextArchived = this.toBoolean((data as any).archived);
@@ -216,12 +313,48 @@ export class UpsellOrderService {
         await this.upsellOrderRepo.update(id, { ...data, updated_by: userId, updated_at: new Date() });
         if (requestedDate !== undefined) {
             await this.setRequestedDateIfSupported(id, requestedDate);
+            await this.logOrderFieldChange(id, "requested_date", previousRequestedDate, requestedDate, userId);
         }
-        return await this.upsellOrderRepo.findOne({ where: { id } });
+        const updatedOrder = await this.upsellOrderRepo.findOne({ where: { id } });
+        if (updatedOrder) {
+            await this.logOrderChanges(id, existingOrder, updatedOrder, userId, this.historyFields);
+        }
+        return updatedOrder;
     }
 
-    async deleteOrder(id: number) {
+    async deleteOrder(id: number, userId: string = "System") {
+        const existingOrder = await this.upsellOrderRepo.findOne({ where: { id } });
+        if (existingOrder) {
+            await this.logOrderChanges(id, existingOrder, {}, userId, this.historyFields, "DELETE");
+        }
         return await this.upsellOrderRepo.delete(id);
+    }
+
+    async getOrderHistory(orderId: number) {
+        const history = await this.upsellOrderHistoryRepo.find({
+            where: { orderId },
+            order: { changedAt: "DESC", id: "DESC" },
+        });
+
+        if (!history.length) return [];
+
+        const users = await this.usersRepository.find({
+            where: { uid: In(Array.from(new Set(history.map((row) => row.changedBy).filter(Boolean)))) },
+        });
+        const userMap = new Map(users.map((user) => [user.uid, this.getUserDisplayName(user)]));
+
+        return history.map((row) => ({
+            id: row.id,
+            orderId: row.orderId,
+            fieldName: row.fieldName,
+            oldValue: row.oldValue,
+            newValue: row.newValue,
+            changedBy: row.changedBy,
+            changedByName: userMap.get(row.changedBy) || row.changedBy || "System",
+            action: row.action,
+            changedAt: this.formatUpsellTimestamp(row.changedAt),
+            changedAtTimestamp: row.changedAt?.getTime() || 0,
+        }));
     }
 
     async getUpsells(fromDate: string, toDate: string, listingId: number) {

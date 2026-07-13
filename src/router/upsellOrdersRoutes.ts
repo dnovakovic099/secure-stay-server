@@ -31,6 +31,12 @@ router.route('/orders/:id')
         upsellOrderController.deleteOrder
     );
 
+router.route('/orders/:id/history')
+    .get(
+        verifySession,
+        upsellOrderController.getOrderHistory
+    );
+
 // router.route('/process-checkout-upsells')
 //     .post(verifySession, upsellOrderController.processCheckoutDateUpsells);
 

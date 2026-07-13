@@ -152,11 +152,37 @@ export class UpsellOrderController {
         }
     }
 
-    async deleteOrder(request: Request, response: Response) {
+    async getOrderHistory(request: Request, response: Response) {
         const upsellOrderService = new UpsellOrderService();
         try {
             const { id } = request.params;
-            await upsellOrderService.deleteOrder(Number(id));
+
+            if (!id || isNaN(Number(id))) {
+                return response.status(400).json({
+                    status: false,
+                    message: 'Invalid order ID'
+                });
+            }
+
+            const result = await upsellOrderService.getOrderHistory(Number(id));
+
+            return response.send({
+                status: true,
+                data: result
+            });
+        } catch (error) {
+            return response.status(400).json({
+                status: false,
+                message: error.message
+            });
+        }
+    }
+
+    async deleteOrder(request: CustomRequest, response: Response) {
+        const upsellOrderService = new UpsellOrderService();
+        try {
+            const { id } = request.params;
+            await upsellOrderService.deleteOrder(Number(id), request.user?.id || "System");
             return response.send({
                 status: true,
                 message: "Order deleted successfully"
