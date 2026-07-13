@@ -24,6 +24,15 @@ type VendorAssignmentPayload = Partial<VendorAssignment> & {
     copyFromAssignmentId?: number;
 };
 
+type VendorExpenseUsage = {
+    totalExpenseCount: number;
+    activeExpenseCount: number;
+    totalExpenseAmount: number;
+    totalExpenseIds: number[];
+    activeExpenseIds: number[];
+    byListingId: Map<string, VendorExpenseUsage>;
+};
+
 export class VendorProfileService {
     private vendorProfileRepo = appDatabase.getRepository(VendorProfile);
     private vendorAssignmentRepo = appDatabase.getRepository(VendorAssignment);
@@ -489,11 +498,33 @@ export class VendorProfileService {
         return String(name || "").trim().toLowerCase();
     }
 
+    private getEmptyVendorExpenseUsage(): VendorExpenseUsage {
+        return {
+            totalExpenseCount: 0,
+            activeExpenseCount: 0,
+            totalExpenseAmount: 0,
+            totalExpenseIds: [],
+            activeExpenseIds: [],
+            byListingId: new Map(),
+        };
+    }
+
+    private addExpenseToUsage(usage: VendorExpenseUsage, expense: ExpenseEntity) {
+        const expenseId = Number(expense.id);
+        const isActive = Number(expense.isDeleted || 0) === 0;
+        usage.totalExpenseCount += 1;
+        usage.totalExpenseAmount += Number(expense.amount || 0);
+        if (Number.isFinite(expenseId)) usage.totalExpenseIds.push(expenseId);
+        if (isActive) {
+            usage.activeExpenseCount += 1;
+            if (Number.isFinite(expenseId)) usage.activeExpenseIds.push(expenseId);
+        }
+    }
+
     private async getVendorExpenseUsageByProfile(profiles: VendorProfile[]) {
         const profileIds = profiles.map(profile => profile.id).filter(Boolean);
-        const defaultUsage = { totalExpenseCount: 0, activeExpenseCount: 0, totalExpenseAmount: 0 };
-        const usageByProfileId = new Map<number, typeof defaultUsage>();
-        profileIds.forEach(id => usageByProfileId.set(id, { ...defaultUsage }));
+        const usageByProfileId = new Map<number, VendorExpenseUsage>();
+        profileIds.forEach(id => usageByProfileId.set(id, this.getEmptyVendorExpenseUsage()));
         if (!profileIds.length) return usageByProfileId;
 
         const contractors = await this.contractorInfoRepo.find({ where: { vendorProfileId: In(profileIds) } });
@@ -514,32 +545,33 @@ export class VendorProfileService {
 
         const expenseUsageRows = await this.expenseRepo
             .createQueryBuilder("expense")
-            .select("LOWER(TRIM(expense.contractorName))", "contractorKey")
-            .addSelect("COUNT(expense.id)", "totalExpenseCount")
-            .addSelect("SUM(CASE WHEN expense.isDeleted = 0 THEN 1 ELSE 0 END)", "activeExpenseCount")
-            .addSelect("COALESCE(SUM(expense.amount), 0)", "totalExpenseAmount")
+            .select([
+                "expense.id",
+                "expense.listingMapId",
+                "expense.contractorName",
+                "expense.isDeleted",
+                "expense.amount",
+            ])
             .where("LOWER(TRIM(expense.contractorName)) IN (:...contractorKeys)", { contractorKeys: allContractorKeys })
-            .groupBy("LOWER(TRIM(expense.contractorName))")
-            .getRawMany();
-        const expenseUsageByKey = new Map(expenseUsageRows.map(row => [
-            String(row.contractorKey || ""),
-            {
-                totalExpenseCount: Number(row.totalExpenseCount || 0),
-                activeExpenseCount: Number(row.activeExpenseCount || 0),
-                totalExpenseAmount: Number(row.totalExpenseAmount || 0),
-            },
-        ]));
+            .getMany();
+        const expensesByKey = new Map<string, ExpenseEntity[]>();
+        expenseUsageRows.forEach(expense => {
+            const key = this.normalizeExpenseContractorKey(expense.contractorName);
+            if (!key) return;
+            expensesByKey.set(key, [...(expensesByKey.get(key) || []), expense]);
+        });
 
         contractorKeysByProfileId.forEach((keys, profileId) => {
-            const usage = Array.from(keys).reduce((total, key) => {
-                const keyUsage = expenseUsageByKey.get(key);
-                if (!keyUsage) return total;
-                return {
-                    totalExpenseCount: total.totalExpenseCount + keyUsage.totalExpenseCount,
-                    activeExpenseCount: total.activeExpenseCount + keyUsage.activeExpenseCount,
-                    totalExpenseAmount: total.totalExpenseAmount + keyUsage.totalExpenseAmount,
-                };
-            }, { ...defaultUsage });
+            const usage = this.getEmptyVendorExpenseUsage();
+            Array.from(keys).forEach(key => {
+                (expensesByKey.get(key) || []).forEach(expense => {
+                    this.addExpenseToUsage(usage, expense);
+                    const listingKey = String(expense.listingMapId || "").trim();
+                    if (!listingKey) return;
+                    if (!usage.byListingId.has(listingKey)) usage.byListingId.set(listingKey, this.getEmptyVendorExpenseUsage());
+                    this.addExpenseToUsage(usage.byListingId.get(listingKey)!, expense);
+                });
+            });
             usageByProfileId.set(profileId, usage);
         });
 
@@ -550,11 +582,22 @@ export class VendorProfileService {
         profile: VendorProfile,
         listingMeta: Awaited<ReturnType<VendorProfileService["getListingMeta"]>>,
         userMap: Map<string, string>,
-        expenseUsage?: { totalExpenseCount: number; activeExpenseCount: number; totalExpenseAmount: number },
+        expenseUsage?: VendorExpenseUsage,
     ) {
         const assignments = (profile.assignments || [])
             .filter(assignment => !assignment.deletedAt)
-            .map(assignment => this.hydrateAssignment(assignment, listingMeta, userMap));
+            .map(assignment => {
+                const hydratedAssignment = this.hydrateAssignment(assignment, listingMeta, userMap);
+                const assignmentUsage = expenseUsage?.byListingId.get(String(assignment.listingId || ""));
+                return {
+                    ...hydratedAssignment,
+                    totalExpenseCount: assignmentUsage?.totalExpenseCount ?? 0,
+                    activeExpenseCount: assignmentUsage?.activeExpenseCount ?? 0,
+                    totalExpenseAmount: assignmentUsage?.totalExpenseAmount ?? 0,
+                    totalExpenseIds: assignmentUsage?.totalExpenseIds ?? [],
+                    activeExpenseIds: assignmentUsage?.activeExpenseIds ?? [],
+                };
+            });
         const statuses = assignments.map((assignment: any) => String(assignment.status || "").trim()).filter(Boolean);
         const activeCount = statuses.filter(status => status === "active").length;
         const profileStatus = activeCount > 0 ? "active" : statuses[0] || "inactive";
