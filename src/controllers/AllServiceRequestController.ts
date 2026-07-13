@@ -1,5 +1,8 @@
 import { NextFunction, Request, Response } from "express";
 import { AllServiceRequestService } from "../services/AllServiceRequestService";
+import { ServiceRequestThreadService } from "../services/ServiceRequestThreadService";
+
+const SERVICE_REQUEST_THREAD_TYPES = new Set(["photographer", "cleaner", "maintenance", "itemSupply"]);
 
 export class AllServiceRequestController {
     async getAll(req: Request, res: Response, next: NextFunction) {
@@ -62,6 +65,49 @@ export class AllServiceRequestController {
             );
 
             return res.send(excelBuffer);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async getThread(req: Request, res: Response, next: NextFunction) {
+        try {
+            const requestType = String(req.params.type || "");
+            const requestId = Number(req.params.id);
+
+            if (!SERVICE_REQUEST_THREAD_TYPES.has(requestType) || !Number.isFinite(requestId)) {
+                return res.status(400).json({ message: "Invalid service request thread target" });
+            }
+
+            const service = new ServiceRequestThreadService();
+            const result = await service.getThread(requestType as any, requestId);
+
+            return res.status(200).json(result);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async postThreadMessage(req: Request, res: Response, next: NextFunction) {
+        try {
+            const requestType = String(req.params.type || "");
+            const requestId = Number(req.params.id);
+            const content = String(req.body?.content || "").trim();
+
+            if (!SERVICE_REQUEST_THREAD_TYPES.has(requestType) || !Number.isFinite(requestId)) {
+                return res.status(400).json({ message: "Invalid service request thread target" });
+            }
+
+            if (!content) {
+                return res.status(400).json({ message: "Content is required" });
+            }
+
+            const user = (req as any).user;
+            const userName = user?.user_metadata?.full_name || user?.email || "SecureStay User";
+            const service = new ServiceRequestThreadService();
+            const message = await service.postThreadMessage(requestType as any, requestId, content, userName);
+
+            return res.status(201).json(message);
         } catch (error) {
             next(error);
         }

@@ -4,6 +4,8 @@ import { Contact } from "../entity/Contact";
 import { Listing } from "../entity/Listing";
 import { ListingDetail } from "../entity/ListingDetails";
 import { ListingSchedule } from "../entity/ListingSchedule";
+import { ContractorEntity } from "../entity/ContractorInfo";
+import { ExpenseEntity } from "../entity/Expense";
 import { UsersEntity } from "../entity/Users";
 import { VendorAssignment } from "../entity/VendorAssignment";
 import { VendorAssignmentUpdate } from "../entity/VendorAssignmentUpdate";
@@ -32,6 +34,8 @@ export class VendorProfileService {
     private listingRepo = appDatabase.getRepository(Listing);
     private listingDetailRepo = appDatabase.getRepository(ListingDetail);
     private listingScheduleRepo = appDatabase.getRepository(ListingSchedule);
+    private contractorInfoRepo = appDatabase.getRepository(ContractorEntity);
+    private expenseRepo = appDatabase.getRepository(ExpenseEntity);
     private static schemaReady = false;
     private static schemaPromise: Promise<void> | null = null;
     private static legacyBackfillReady = false;
@@ -481,7 +485,73 @@ export class VendorProfileService {
         };
     }
 
-    private buildHydratedProfile(profile: VendorProfile, listingMeta: Awaited<ReturnType<VendorProfileService["getListingMeta"]>>, userMap: Map<string, string>) {
+    private normalizeExpenseContractorKey(name?: string | null) {
+        return String(name || "").trim().toLowerCase();
+    }
+
+    private async getVendorExpenseUsageByProfile(profiles: VendorProfile[]) {
+        const profileIds = profiles.map(profile => profile.id).filter(Boolean);
+        const defaultUsage = { totalExpenseCount: 0, activeExpenseCount: 0, totalExpenseAmount: 0 };
+        const usageByProfileId = new Map<number, typeof defaultUsage>();
+        profileIds.forEach(id => usageByProfileId.set(id, { ...defaultUsage }));
+        if (!profileIds.length) return usageByProfileId;
+
+        const contractors = await this.contractorInfoRepo.find({ where: { vendorProfileId: In(profileIds) } });
+        const contractorKeysByProfileId = new Map<number, Set<string>>();
+        profiles.forEach(profile => {
+            contractorKeysByProfileId.set(profile.id, new Set([this.normalizeExpenseContractorKey(profile.name)].filter(Boolean)));
+        });
+        contractors.forEach(contractor => {
+            if (!contractor.vendorProfileId) return;
+            const key = this.normalizeExpenseContractorKey(contractor.contractorName);
+            if (!key) return;
+            if (!contractorKeysByProfileId.has(contractor.vendorProfileId)) contractorKeysByProfileId.set(contractor.vendorProfileId, new Set());
+            contractorKeysByProfileId.get(contractor.vendorProfileId)!.add(key);
+        });
+
+        const allContractorKeys = Array.from(new Set(Array.from(contractorKeysByProfileId.values()).flatMap(keys => Array.from(keys))));
+        if (!allContractorKeys.length) return usageByProfileId;
+
+        const expenseUsageRows = await this.expenseRepo
+            .createQueryBuilder("expense")
+            .select("LOWER(TRIM(expense.contractorName))", "contractorKey")
+            .addSelect("COUNT(expense.id)", "totalExpenseCount")
+            .addSelect("SUM(CASE WHEN expense.isDeleted = 0 THEN 1 ELSE 0 END)", "activeExpenseCount")
+            .addSelect("COALESCE(SUM(expense.amount), 0)", "totalExpenseAmount")
+            .where("LOWER(TRIM(expense.contractorName)) IN (:...contractorKeys)", { contractorKeys: allContractorKeys })
+            .groupBy("LOWER(TRIM(expense.contractorName))")
+            .getRawMany();
+        const expenseUsageByKey = new Map(expenseUsageRows.map(row => [
+            String(row.contractorKey || ""),
+            {
+                totalExpenseCount: Number(row.totalExpenseCount || 0),
+                activeExpenseCount: Number(row.activeExpenseCount || 0),
+                totalExpenseAmount: Number(row.totalExpenseAmount || 0),
+            },
+        ]));
+
+        contractorKeysByProfileId.forEach((keys, profileId) => {
+            const usage = Array.from(keys).reduce((total, key) => {
+                const keyUsage = expenseUsageByKey.get(key);
+                if (!keyUsage) return total;
+                return {
+                    totalExpenseCount: total.totalExpenseCount + keyUsage.totalExpenseCount,
+                    activeExpenseCount: total.activeExpenseCount + keyUsage.activeExpenseCount,
+                    totalExpenseAmount: total.totalExpenseAmount + keyUsage.totalExpenseAmount,
+                };
+            }, { ...defaultUsage });
+            usageByProfileId.set(profileId, usage);
+        });
+
+        return usageByProfileId;
+    }
+
+    private buildHydratedProfile(
+        profile: VendorProfile,
+        listingMeta: Awaited<ReturnType<VendorProfileService["getListingMeta"]>>,
+        userMap: Map<string, string>,
+        expenseUsage?: { totalExpenseCount: number; activeExpenseCount: number; totalExpenseAmount: number },
+    ) {
         const assignments = (profile.assignments || [])
             .filter(assignment => !assignment.deletedAt)
             .map(assignment => this.hydrateAssignment(assignment, listingMeta, userMap));
@@ -494,6 +564,9 @@ export class VendorProfileService {
             status: profileStatus,
             assignmentCount: assignments.length,
             activeAssignmentCount: activeCount,
+            totalExpenseCount: expenseUsage?.totalExpenseCount ?? 0,
+            activeExpenseCount: expenseUsage?.activeExpenseCount ?? 0,
+            totalExpenseAmount: expenseUsage?.totalExpenseAmount ?? 0,
             createdById: profile.createdBy,
             updatedById: profile.updatedBy,
             createdBy: profile.createdBy ? userMap.get(profile.createdBy) || profile.createdBy : profile.createdBy,
@@ -508,8 +581,12 @@ export class VendorProfileService {
     }
 
     private async hydrateProfile(profile: VendorProfile, userId: string) {
-        const [userMap, listingMeta] = await Promise.all([this.getUserMap(), this.getListingMeta(userId)]);
-        return this.buildHydratedProfile(profile, listingMeta, userMap);
+        const [userMap, listingMeta, expenseUsageByProfileId] = await Promise.all([
+            this.getUserMap(),
+            this.getListingMeta(userId),
+            this.getVendorExpenseUsageByProfile([profile]),
+        ]);
+        return this.buildHydratedProfile(profile, listingMeta, userMap, expenseUsageByProfileId.get(profile.id));
     }
 
     private async ensureLegacyBackfill(userId: string) {
@@ -708,7 +785,8 @@ export class VendorProfileService {
             this.getListingMeta(userId),
         ]);
 
-        const hydrated = profiles.map(profile => this.buildHydratedProfile(profile, listingMeta, userMap));
+        const expenseUsageByProfileId = await this.getVendorExpenseUsageByProfile(profiles);
+        const hydrated = profiles.map(profile => this.buildHydratedProfile(profile, listingMeta, userMap, expenseUsageByProfileId.get(profile.id)));
         return { vendors: hydrated, total };
     }
 
