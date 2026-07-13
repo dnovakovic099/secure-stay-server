@@ -69,24 +69,47 @@ export class ContractorInfoService {
         await this.ensureContractorSchema();
         const contractors = await this.contractorInfoRepo.find({ order: { contractorName: "ASC" } });
         const knownContractorNames = new Set(contractors.map((contractor) => this.normalizeKey(contractor.contractorName)));
-        const expenseContractors = await this.expenseRepo
+
+        const expenseUsageRows = await this.expenseRepo
             .createQueryBuilder("expense")
-            .select("MIN(TRIM(expense.contractorName))", "contractorName")
+            .select("LOWER(TRIM(expense.contractorName))", "contractorKey")
+            .addSelect("MIN(TRIM(expense.contractorName))", "contractorName")
             .addSelect("MAX(NULLIF(TRIM(expense.contractorNumber), ''))", "contractorNumber")
+            .addSelect("COUNT(expense.id)", "totalExpenseCount")
+            .addSelect("SUM(CASE WHEN expense.isDeleted = 0 THEN 1 ELSE 0 END)", "activeExpenseCount")
+            .addSelect("COALESCE(SUM(expense.amount), 0)", "totalExpenseAmount")
+            .addSelect("MAX(expense.createdAt)", "lastExpenseDate")
             .where("expense.contractorName IS NOT NULL")
             .andWhere("TRIM(expense.contractorName) != ''")
             .groupBy("LOWER(TRIM(expense.contractorName))")
-            .orderBy("TRIM(expense.contractorName)", "ASC")
             .getRawMany();
 
-        for (const expenseContractor of expenseContractors) {
-            const contractorName = this.normalizeName(expenseContractor.contractorName);
-            const contractorKey = this.normalizeKey(contractorName);
+        const usageByKey = new Map<string, {
+            contractorName: string;
+            contractorNumber: string | null;
+            totalExpenseCount: number;
+            activeExpenseCount: number;
+            totalExpenseAmount: number;
+            lastExpenseDate: string | null;
+        }>();
+        for (const row of expenseUsageRows) {
+            usageByKey.set(row.contractorKey, {
+                contractorName: row.contractorName,
+                contractorNumber: row.contractorNumber || null,
+                totalExpenseCount: Number(row.totalExpenseCount || 0),
+                activeExpenseCount: Number(row.activeExpenseCount || 0),
+                totalExpenseAmount: Number(row.totalExpenseAmount || 0),
+                lastExpenseDate: row.lastExpenseDate || null,
+            });
+        }
+
+        for (const [contractorKey, usage] of usageByKey) {
+            const contractorName = this.normalizeName(usage.contractorName);
             if (!contractorName || knownContractorNames.has(contractorKey)) continue;
 
             const contractor = new ContractorEntity();
             contractor.contractorName = contractorName;
-            contractor.contractorNumber = expenseContractor.contractorNumber || null;
+            contractor.contractorNumber = usage.contractorNumber || null;
             contractors.push(await this.contractorInfoRepo.save(contractor));
             knownContractorNames.add(contractorKey);
         }
@@ -99,8 +122,9 @@ export class ContractorInfoService {
             : [];
         const vendorById = new Map(vendors.map((vendor) => [vendor.id, vendor]));
 
-        return await Promise.all(contractors.map(async (contractor) => {
+        return contractors.map((contractor) => {
             const vendorProfile = contractor.vendorProfileId ? vendorById.get(contractor.vendorProfileId) : null;
+            const usage = usageByKey.get(this.normalizeKey(contractor.contractorName));
             return {
                 ...contractor,
                 vendorProfile: vendorProfile ? {
@@ -109,9 +133,12 @@ export class ContractorInfoService {
                     contact: vendorProfile.contact,
                     companyName: vendorProfile.companyName,
                 } : null,
-                ...(await this.getExpenseUsageByContractorName(contractor.contractorName)),
+                totalExpenseCount: usage?.totalExpenseCount ?? 0,
+                activeExpenseCount: usage?.activeExpenseCount ?? 0,
+                totalExpenseAmount: usage?.totalExpenseAmount ?? 0,
+                lastExpenseDate: usage?.lastExpenseDate ?? null,
             };
-        }));
+        });
     }
 
     async updateContractorInfo(request: Request) {
