@@ -243,7 +243,13 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
         isRecurring: Joi.number().valid(0, 1).optional(),
         excludeCategories: Joi.string().valid('true', 'false').optional(),
         excludeContractorName: Joi.string().valid('true', 'false').optional(),
-        type: Joi.string().optional().valid("expense", "extras")
+        type: Joi.string().optional().valid("expense", "extras"),
+        sort: Joi.array()
+            .items(Joi.object({
+                field: Joi.string().required().allow(''),
+                direction: Joi.string().valid('asc', 'desc').required(),
+            }))
+            .optional(),
     })
         // enforce fromDate <-> toDate dependency
         .with("fromDate", "toDate")
