@@ -541,14 +541,21 @@ export class ExpenseService {
             }
 
             if (categoriesFilter.length > 0) {
-                if (excludeCategories === 'true') {
-                    qb.andWhere(`(expense.categories IS NULL OR JSON_LENGTH(expense.categories) = 0 OR NOT (JSON_EXTRACT(expense.categories, '$') REGEXP :regex))`, {
-                        regex: categoriesFilter.join('|'),
-                    });
-                } else {
-                    qb.andWhere(`JSON_EXTRACT(expense.categories, '$') REGEXP :regex`, {
-                        regex: categoriesFilter.join('|'),
-                    });
+                const validCategoryIds = categoriesFilter.filter((id) => Number.isFinite(id));
+                if (validCategoryIds.length > 0) {
+                    const containsClauses = validCategoryIds
+                        .map((_, index) => `JSON_CONTAINS(expense.categories, :categoryId${index}, '$')`)
+                        .join(' OR ');
+                    const containsParams = validCategoryIds.reduce((params, id, index) => ({
+                        ...params,
+                        [`categoryId${index}`]: String(id),
+                    }), {} as Record<string, string>);
+                    const hasJsonCategories = "expense.categories IS NOT NULL AND JSON_VALID(expense.categories) AND JSON_LENGTH(expense.categories) > 0";
+                    if (excludeCategories === 'true') {
+                        qb.andWhere(`(expense.categories IS NULL OR NOT JSON_VALID(expense.categories) OR JSON_LENGTH(expense.categories) = 0 OR NOT (${containsClauses}))`, containsParams);
+                    } else {
+                        qb.andWhere(`(${hasJsonCategories} AND (${containsClauses}))`, containsParams);
+                    }
                 }
             }
 
@@ -733,14 +740,21 @@ export class ExpenseService {
         }
 
         if (categoriesFilter.length > 0) {
-            if (excludeCategories === 'true') {
-                qb.andWhere(`(expense.categories IS NULL OR JSON_LENGTH(expense.categories) = 0 OR NOT (JSON_EXTRACT(expense.categories, '$') REGEXP :regex))`, {
-                    regex: categoriesFilter.join('|'),
-                });
-            } else {
-                qb.andWhere(`JSON_EXTRACT(expense.categories, '$') REGEXP :regex`, {
-                    regex: categoriesFilter.join('|'),
-                });
+            const validCategoryIds = categoriesFilter.filter((id) => Number.isFinite(id));
+            if (validCategoryIds.length > 0) {
+                const containsClauses = validCategoryIds
+                    .map((_, index) => `JSON_CONTAINS(expense.categories, :categoryId${index}, '$')`)
+                    .join(' OR ');
+                const containsParams = validCategoryIds.reduce((params, id, index) => ({
+                    ...params,
+                    [`categoryId${index}`]: String(id),
+                }), {} as Record<string, string>);
+                const hasJsonCategories = "expense.categories IS NOT NULL AND JSON_VALID(expense.categories) AND JSON_LENGTH(expense.categories) > 0";
+                if (excludeCategories === 'true') {
+                    qb.andWhere(`(expense.categories IS NULL OR NOT JSON_VALID(expense.categories) OR JSON_LENGTH(expense.categories) = 0 OR NOT (${containsClauses}))`, containsParams);
+                } else {
+                    qb.andWhere(`(${hasJsonCategories} AND (${containsClauses}))`, containsParams);
+                }
             }
         }
 

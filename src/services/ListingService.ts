@@ -1363,10 +1363,10 @@ export class ListingService {
   private getListingTagMatchParams(normalizedType: string, paramPrefix: string) {
     return {
       [`${paramPrefix}Token`]: `%,${normalizedType},%`,
-      [`${paramPrefix}Name`]: `%name:${normalizedType}%`,
-      [`${paramPrefix}Tag`]: `%tag:${normalizedType}%`,
-      [`${paramPrefix}Label`]: `%label:${normalizedType}%`,
-      [`${paramPrefix}Value`]: `%value:${normalizedType}%`,
+      [`${paramPrefix}Name`]: `%,name:${normalizedType},%`,
+      [`${paramPrefix}Tag`]: `%,tag:${normalizedType},%`,
+      [`${paramPrefix}Label`]: `%,label:${normalizedType},%`,
+      [`${paramPrefix}Value`]: `%,value:${normalizedType},%`,
     };
   }
 
