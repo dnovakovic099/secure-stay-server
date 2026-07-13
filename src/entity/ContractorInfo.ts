@@ -10,4 +10,7 @@ export class ContractorEntity {
 
     @Column({ nullable: true })
     contractorNumber: string;
+
+    @Column({ type: 'int', nullable: true })
+    vendorProfileId: number | null;
 }

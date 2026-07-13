@@ -11,6 +11,7 @@ import { VendorProfile } from "../entity/VendorProfile";
 import { VendorProfileUpdate } from "../entity/VendorProfileUpdate";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
+import { ContractorInfoService } from "./ContractorService";
 import { ListingService } from "./ListingService";
 
 type VendorProfilePayload = Partial<VendorProfile> & {
@@ -823,7 +824,7 @@ export class VendorProfileService {
         return this.getVendorProfile(profileId, userId);
     }
 
-    async updateVendorProfile(id: number, body: Partial<VendorProfile>, userId: string) {
+    async updateVendorProfile(id: number, body: Partial<VendorProfile> & { updateExistingExpenseLogs?: boolean }, userId: string) {
         await this.ensureVendorSchema();
         const existing = await this.vendorProfileRepo.findOneBy({ id });
         if (!existing) throw CustomErrorHandler.notFound(`Vendor profile with ID ${id} not found.`);
@@ -842,6 +843,17 @@ export class VendorProfileService {
         const changes = this.getProfileAuditChanges(existing, nextValues);
         const saved = await this.vendorProfileRepo.save(this.vendorProfileRepo.merge(existing, nextValues));
         await this.createProfileChangeUpdate(saved, changes, userId);
+        const nameChanged = body.name !== undefined && String(body.name || "").trim() !== String(existing.name || "").trim();
+        const phoneChanged = body.contact !== undefined && String(body.contact || "").trim() !== String(existing.contact || "").trim();
+        if (nameChanged || phoneChanged) {
+            const contractorService = new ContractorInfoService();
+            await contractorService.syncVendorProfileToContractors(
+                saved.id,
+                saved.name,
+                saved.contact || null,
+                body.updateExistingExpenseLogs !== false,
+            );
+        }
         return this.getVendorProfile(saved.id, userId);
     }
 

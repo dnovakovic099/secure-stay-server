@@ -83,7 +83,7 @@ export class CategoryService {
     }
 
     async getAllCategories() {
-        return await this.categoryRepo
+        const categories = await this.categoryRepo
             .createQueryBuilder("category")
             .select([
                 "category.hostawayId AS id",
@@ -95,6 +95,15 @@ export class CategoryService {
             .addOrderBy("category.displayOrder", "ASC")
             .addOrderBy("category.categoryName", "ASC")
             .getRawMany();
+        const resolutionCategories = await this.resolutionCategoryRepo.find();
+        const resolutionCategoryNames = new Set(
+            resolutionCategories.map((category) => String(category.name || "").trim().toLowerCase()).filter(Boolean)
+        );
+
+        return categories.map((category) => ({
+            ...category,
+            mappedFromResolution: resolutionCategoryNames.has(String(category.categoryName || "").trim().toLowerCase()),
+        }));
     }
 
     async updateCategory(categoryId: number, body: { categoryName?: string }) {

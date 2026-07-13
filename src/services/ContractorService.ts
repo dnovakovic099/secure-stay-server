@@ -2,13 +2,34 @@ import { appDatabase } from "../utils/database.util";
 import { Request } from "express";
 import { ContractorEntity } from "../entity/ContractorInfo";
 import { ExpenseEntity } from "../entity/Expense";
+import { VendorProfile } from "../entity/VendorProfile";
 
 export class ContractorInfoService {
     private contractorInfoRepo = appDatabase.getRepository(ContractorEntity);
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
+    private vendorProfileRepo = appDatabase.getRepository(VendorProfile);
+    private static schemaReady = false;
 
     private normalizeName(name: string) {
         return String(name || "").trim();
+    }
+
+    private normalizeKey(name: string) {
+        return this.normalizeName(name).toLowerCase();
+    }
+
+    private async ensureContractorSchema() {
+        if (ContractorInfoService.schemaReady) return;
+        await appDatabase.query(`
+            ALTER TABLE contractor_info
+            ADD COLUMN IF NOT EXISTS vendorProfileId INT NULL
+        `).catch(async () => {
+            const columns = await appDatabase.query("SHOW COLUMNS FROM contractor_info LIKE 'vendorProfileId'");
+            if (!columns?.length) {
+                await appDatabase.query("ALTER TABLE contractor_info ADD COLUMN vendorProfileId INT NULL");
+            }
+        });
+        ContractorInfoService.schemaReady = true;
     }
 
     private async getExpenseUsageByContractorName(name: string) {
@@ -33,6 +54,7 @@ export class ContractorInfoService {
     }
 
     async saveContractorInfo(request: Request) {
+        await this.ensureContractorSchema();
         const { contractorName, contractorNumber } = request.body;
 
         const newContractor = new ContractorEntity();
@@ -44,16 +66,58 @@ export class ContractorInfoService {
     }
 
     async getContractors() {
+        await this.ensureContractorSchema();
         const contractors = await this.contractorInfoRepo.find({ order: { contractorName: "ASC" } });
-        return await Promise.all(contractors.map(async (contractor) => ({
-            ...contractor,
-            ...(await this.getExpenseUsageByContractorName(contractor.contractorName)),
-        })));
+        const knownContractorNames = new Set(contractors.map((contractor) => this.normalizeKey(contractor.contractorName)));
+        const expenseContractors = await this.expenseRepo
+            .createQueryBuilder("expense")
+            .select("MIN(TRIM(expense.contractorName))", "contractorName")
+            .addSelect("MAX(NULLIF(TRIM(expense.contractorNumber), ''))", "contractorNumber")
+            .where("expense.contractorName IS NOT NULL")
+            .andWhere("TRIM(expense.contractorName) != ''")
+            .groupBy("LOWER(TRIM(expense.contractorName))")
+            .orderBy("TRIM(expense.contractorName)", "ASC")
+            .getRawMany();
+
+        for (const expenseContractor of expenseContractors) {
+            const contractorName = this.normalizeName(expenseContractor.contractorName);
+            const contractorKey = this.normalizeKey(contractorName);
+            if (!contractorName || knownContractorNames.has(contractorKey)) continue;
+
+            const contractor = new ContractorEntity();
+            contractor.contractorName = contractorName;
+            contractor.contractorNumber = expenseContractor.contractorNumber || null;
+            contractors.push(await this.contractorInfoRepo.save(contractor));
+            knownContractorNames.add(contractorKey);
+        }
+
+        contractors.sort((a, b) => String(a.contractorName || "").localeCompare(String(b.contractorName || ""), undefined, { sensitivity: "base" }));
+
+        const vendorIds = contractors.map((contractor) => contractor.vendorProfileId).filter((id): id is number => Boolean(id));
+        const vendors = vendorIds.length
+            ? await this.vendorProfileRepo.createQueryBuilder("vendor").where("vendor.id IN (:...vendorIds)", { vendorIds }).getMany()
+            : [];
+        const vendorById = new Map(vendors.map((vendor) => [vendor.id, vendor]));
+
+        return await Promise.all(contractors.map(async (contractor) => {
+            const vendorProfile = contractor.vendorProfileId ? vendorById.get(contractor.vendorProfileId) : null;
+            return {
+                ...contractor,
+                vendorProfile: vendorProfile ? {
+                    id: vendorProfile.id,
+                    name: vendorProfile.name,
+                    contact: vendorProfile.contact,
+                    companyName: vendorProfile.companyName,
+                } : null,
+                ...(await this.getExpenseUsageByContractorName(contractor.contractorName)),
+            };
+        }));
     }
 
     async updateContractorInfo(request: Request) {
+        await this.ensureContractorSchema();
         const contractorId = Number(request.params.id);
-        const { contractorName, contractorNumber, updateExistingExpenses = true } = request.body;
+        const { contractorName, contractorNumber, updateExistingExpenses = true, syncVendorProfile = true } = request.body;
         const contractor = await this.contractorInfoRepo.findOne({ where: { id: contractorId } });
 
         if (!contractor) {
@@ -68,24 +132,107 @@ export class ContractorInfoService {
         const saved = await this.contractorInfoRepo.save(contractor);
 
         if (updateExistingExpenses && previousName) {
-            await this.expenseRepo
-                .createQueryBuilder()
-                .update(ExpenseEntity)
-                .set({
-                    contractorName: saved.contractorName,
-                    contractorNumber: saved.contractorNumber,
-                })
-                .where("LOWER(TRIM(contractorName)) = LOWER(TRIM(:name))", { name: previousName })
-                .execute();
+            await this.updateExpensesForContractor(previousName, saved.contractorName, saved.contractorNumber);
+        }
+
+        if (syncVendorProfile && saved.vendorProfileId) {
+            await this.vendorProfileRepo.update(saved.vendorProfileId, {
+                name: saved.contractorName,
+                contact: saved.contractorNumber || null,
+            });
         }
 
         return {
             ...saved,
+            vendorProfile: saved.vendorProfileId ? await this.getVendorSummary(saved.vendorProfileId) : null,
             ...(await this.getExpenseUsageByContractorName(saved.contractorName)),
         };
     }
 
+    async mapContractorToVendorProfile(request: Request) {
+        await this.ensureContractorSchema();
+        const contractorId = Number(request.params.id);
+        const {
+            vendorProfileId,
+            keepNameFrom = "contractor",
+            keepPhoneFrom = "contractor",
+            updateExistingExpenses = true,
+        } = request.body;
+        const contractor = await this.contractorInfoRepo.findOne({ where: { id: contractorId } });
+        if (!contractor) throw new Error("Contractor not found");
+
+        const vendor = await this.vendorProfileRepo.findOne({ where: { id: Number(vendorProfileId) } });
+        if (!vendor) throw new Error("Vendor profile not found");
+
+        const previousName = contractor.contractorName;
+        const nextName = keepNameFrom === "vendor" ? this.normalizeName(vendor.name) : this.normalizeName(contractor.contractorName);
+        const nextPhone = keepPhoneFrom === "vendor" ? (vendor.contact || null) : (contractor.contractorNumber || null);
+
+        contractor.vendorProfileId = vendor.id;
+        contractor.contractorName = nextName;
+        contractor.contractorNumber = nextPhone;
+        const saved = await this.contractorInfoRepo.save(contractor);
+
+        await this.vendorProfileRepo.update(vendor.id, {
+            name: nextName,
+            contact: nextPhone,
+        });
+
+        if (updateExistingExpenses && previousName) {
+            await this.updateExpensesForContractor(previousName, nextName, nextPhone);
+        }
+
+        return {
+            ...saved,
+            vendorProfile: await this.getVendorSummary(vendor.id),
+            ...(await this.getExpenseUsageByContractorName(saved.contractorName)),
+        };
+    }
+
+    async syncVendorProfileToContractors(
+        vendorProfileId: number,
+        nextName: string,
+        nextPhone: string | null,
+        updateExistingExpenses = true,
+    ) {
+        await this.ensureContractorSchema();
+        const contractors = await this.contractorInfoRepo.find({ where: { vendorProfileId } });
+        for (const contractor of contractors) {
+            const previousName = contractor.contractorName;
+            contractor.contractorName = this.normalizeName(nextName);
+            contractor.contractorNumber = nextPhone || null;
+            await this.contractorInfoRepo.save(contractor);
+            if (updateExistingExpenses && previousName) {
+                await this.updateExpensesForContractor(previousName, contractor.contractorName, contractor.contractorNumber);
+            }
+        }
+        return contractors.length;
+    }
+
+    private async updateExpensesForContractor(previousName: string, contractorName: string, contractorNumber: string | null) {
+        await this.expenseRepo
+            .createQueryBuilder()
+            .update(ExpenseEntity)
+            .set({
+                contractorName,
+                contractorNumber,
+            })
+            .where("LOWER(TRIM(contractorName)) = LOWER(TRIM(:name))", { name: previousName })
+            .execute();
+    }
+
+    private async getVendorSummary(vendorProfileId: number) {
+        const vendor = await this.vendorProfileRepo.findOne({ where: { id: vendorProfileId } });
+        return vendor ? {
+            id: vendor.id,
+            name: vendor.name,
+            contact: vendor.contact,
+            companyName: vendor.companyName,
+        } : null;
+    }
+
     async deleteContractorInfo(request: Request) {
+        await this.ensureContractorSchema();
         const contractorId = Number(request.params.id);
         const { replacementContractorId, replacementContractorName, replacementContractorNumber } = request.body;
         const contractor = await this.contractorInfoRepo.findOne({ where: { id: contractorId } });
@@ -132,6 +279,7 @@ export class ContractorInfoService {
     }
 
     async mergeContractors(request: Request) {
+        await this.ensureContractorSchema();
         const { sourceContractorIds, targetContractorId } = request.body;
         const target = await this.contractorInfoRepo.findOne({ where: { id: Number(targetContractorId) } });
 

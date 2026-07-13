@@ -30,4 +30,9 @@ export class ContractorInfoController {
         const contractorInfoService = new ContractorInfoService();
         return response.send(await contractorInfoService.mergeContractors(request));
     }
+
+    async mapContractorToVendorProfile(request: CustomRequest, response: Response) {
+        const contractorInfoService = new ContractorInfoService();
+        return response.send(await contractorInfoService.mapContractorToVendorProfile(request));
+    }
 }

@@ -356,6 +356,14 @@ const buildIssueStatusDropdown = (issue: Issue, statusField: "ir" | "gr", label:
 
 export const formatSecureStayMarkdownForSlack = (value?: unknown) => {
     return String(value || "")
+        .replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gi, (_match, url, label) => {
+            const text = String(label || "")
+                .replace(/<[^>]*>/g, "")
+                .replace(/&nbsp;/g, " ")
+                .trim();
+            const normalizedUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+            return `<${normalizedUrl}|${escapeSlackLinkText(text || normalizedUrl)}>`;
+        })
         .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, label, url) => {
             const normalizedUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
             return `<${normalizedUrl}|${label}>`;
@@ -1541,6 +1549,14 @@ const formatExpenseSlackAmount = (amount: number): string => {
     return `${amountPrefix}${formatCurrency(Math.abs(amount))}`;
 };
 
+const getExpenseSlackDetailUrl = (expenseId: number | string) =>
+    `https://securestay.ai/accounting/transactions/expense?expenseId=${expenseId}&openDetails=1`;
+
+const formatExpenseSlackRichText = (value?: unknown, fallback = "—") => {
+    const formatted = formatSecureStayMarkdownForSlack(value);
+    return normalizeSlackField(formatted, fallback);
+};
+
 // Expense Slack Message Builders
 export const buildExpenseSlackMessage = (
     expense: ExpenseEntity,
@@ -1562,7 +1578,7 @@ export const buildExpenseSlackMessage = (
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*${title}* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.id}|View>*`
+                    text: `*${title}* *<${getExpenseSlackDetailUrl(expense.id)}|View>*`
                 }
             },
             {
@@ -1576,14 +1592,14 @@ export const buildExpenseSlackMessage = (
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*Description:*\n${expense.concept || 'No description provided'}`
+                    text: `*Description:*\n${formatExpenseSlackRichText(expense.concept, 'No description provided')}`
                 }
             },
             {
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*Findings:*\n${expense.findings || 'No findings provided'}`
+                    text: `*Findings:*\n${formatExpenseSlackRichText(expense.findings, 'No findings provided')}`
                 }
             },
             {
@@ -1607,14 +1623,14 @@ export const buildExpenseSlackMessage = (
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*Payment Details:*\n${expense.paymentDetails}`
+                    text: `*Payment Details:*\n${formatExpenseSlackRichText(expense.paymentDetails)}`
                 }
             }] : []),
             ...(expense.slackNotes ? [{
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*Slack Notes:*\n${expense.slackNotes}`
+                    text: `*Slack Notes:*\n${formatExpenseSlackRichText(expense.slackNotes)}`
                 }
             }] : []),
             {
@@ -1685,7 +1701,7 @@ export const buildExpenseSlackMessageUpdate = (
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*${typeLabel} Updated: 🏠 ${listingName || 'Unknown Property'}* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.id}|View>*`
+                    text: `*${typeLabel} Updated: 🏠 ${listingName || 'Unknown Property'}* *<${getExpenseSlackDetailUrl(expense.id)}|View>*`
                 }
             },
             {
@@ -1721,7 +1737,7 @@ export const buildExpenseSlackMessageDelete = (
                 type: "section",
                 fields: [
                     { type: "mrkdwn", text: `*Amount:* ${formatExpenseSlackAmount(expense.amount)}` },
-                    { type: "mrkdwn", text: `*Description:* ${expense.concept || 'No description provided'}` },
+                    { type: "mrkdwn", text: `*Description:* ${formatExpenseSlackRichText(expense.concept, 'No description provided')}` },
                     { type: "mrkdwn", text: `*Categories:* ${categoryNames || '-'}` },
                     { type: "mrkdwn", text: `*Deleted By:* ${deletedBy}` }
                 ]
@@ -1749,7 +1765,7 @@ export const buildExpenseStatusUpdateMessage = (
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*${typeLabel} Status Updated* *<https://securestay.ai/accounting/transactions/expense?expenseId=${expense.id}|View>*`
+                    text: `*${typeLabel} Status Updated* *<${getExpenseSlackDetailUrl(expense.id)}|View>*`
                 }
             },
             {

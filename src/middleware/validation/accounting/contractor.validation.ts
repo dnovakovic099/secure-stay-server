@@ -18,7 +18,24 @@ export const validateUpdateContractorInfo = (request: Request, response: Respons
     const schema = Joi.object({
         contractorName: Joi.string().required(),
         contractorNumber: Joi.string().required().allow(null, ""),
-        updateExistingExpenses: Joi.boolean().optional()
+        updateExistingExpenses: Joi.boolean().optional(),
+        syncVendorProfile: Joi.boolean().optional()
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        next(error);
+        return;
+    }
+    next();
+};
+
+export const validateMapContractorVendorProfile = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        vendorProfileId: Joi.number().integer().positive().required(),
+        keepNameFrom: Joi.string().valid("contractor", "vendor").optional(),
+        keepPhoneFrom: Joi.string().valid("contractor", "vendor").optional(),
+        updateExistingExpenses: Joi.boolean().optional(),
     });
 
     const { error } = schema.validate(request.body);
