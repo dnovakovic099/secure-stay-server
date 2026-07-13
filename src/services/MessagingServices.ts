@@ -1343,10 +1343,10 @@ export class MessagingService {
 
         const hostifyPayload: Record<string, any> = {};
         if (payload.hostNote !== undefined) {
-            hostifyPayload.host_note = payload.hostNote || "";
+            hostifyPayload.notes = payload.hostNote || "";
         }
         if (payload.cleaningNote !== undefined) {
-            hostifyPayload.cleaning_note = payload.cleaningNote || "";
+            hostifyPayload.cleaning_notes = payload.cleaningNote || "";
         }
 
         let syncStatus: "synced" | "local_only" = "local_only";
