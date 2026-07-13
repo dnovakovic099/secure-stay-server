@@ -319,6 +319,18 @@ export class VendorProfileService {
         return fullName || String(body.name || fallbackName || body.preferredName || body.companyName || "").trim();
     }
 
+    private normalizeDateOnlyValue(value: any) {
+        if (value === undefined) return undefined;
+        if (value === null || value === "") return null;
+        if (value instanceof Date) return value;
+        const normalized = String(value).trim();
+        if (!normalized) return null;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+            throw CustomErrorHandler.validationError("Date Started must use YYYY-MM-DD format.");
+        }
+        return new Date(`${normalized}T00:00:00.000Z`);
+    }
+
     private getProfileAuditChanges(existing: VendorProfile, next: Partial<VendorProfile>) {
         const fields: Array<{ key: keyof VendorProfile; label: string; nextValue?: any }> = [
             { key: "name", label: "Vendor Name", nextValue: next.name },
@@ -840,7 +852,7 @@ export class VendorProfileService {
                 email: body.email || null,
                 source: body.source || null,
                 vendorAddress: body.vendorAddress || null,
-                dateStarted: body.dateStarted || null,
+                dateStarted: this.normalizeDateOnlyValue(body.dateStarted) || null,
                 notes: body.notes || null,
                 avatarUrl: body.avatarUrl || null,
                 icon: body.icon || null,
@@ -892,7 +904,7 @@ export class VendorProfileService {
             email: body.email,
             source: body.source,
             vendorAddress: body.vendorAddress,
-            dateStarted: body.dateStarted,
+            dateStarted: this.normalizeDateOnlyValue(body.dateStarted),
             notes: body.notes,
             avatarUrl: body.avatarUrl,
             icon: body.icon,
@@ -900,17 +912,25 @@ export class VendorProfileService {
         };
         const changes = this.getProfileAuditChanges(existing, nextValues);
         const saved = await this.vendorProfileRepo.save(this.vendorProfileRepo.merge(existing, nextValues));
-        await this.createProfileChangeUpdate(saved, changes, userId);
+        try {
+            await this.createProfileChangeUpdate(saved, changes, userId);
+        } catch (error) {
+            logger.error(`Vendor profile ${saved.id} was saved, but profile audit logging failed. ${error}`);
+        }
         const nameChanged = shouldRefreshName && String(nextName || "").trim() !== String(existing.name || "").trim();
         const phoneChanged = body.contact !== undefined && String(body.contact || "").trim() !== String(existing.contact || "").trim();
         if (nameChanged || phoneChanged) {
             const contractorService = new ContractorInfoService();
-            await contractorService.syncVendorProfileToContractors(
-                saved.id,
-                saved.name,
-                saved.contact || null,
-                body.updateExistingExpenseLogs !== false,
-            );
+            try {
+                await contractorService.syncVendorProfileToContractors(
+                    saved.id,
+                    saved.name,
+                    saved.contact || null,
+                    body.updateExistingExpenseLogs !== false,
+                );
+            } catch (error) {
+                logger.error(`Vendor profile ${saved.id} was saved, but contractor sync failed. ${error}`);
+            }
         }
         return this.getVendorProfile(saved.id, userId);
     }
