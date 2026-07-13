@@ -148,7 +148,7 @@ export class ItemSupplyRequestService {
 
                 if (response?.ok && response?.ts) {
                     await slackMessageService.saveSlackMessageInfo({
-                        channel: slackMsg.channel,
+                        channel: response.channel || slackMsg.channel,
                         messageTs: response.ts,
                         threadTs: response.ts,
                         entityType,

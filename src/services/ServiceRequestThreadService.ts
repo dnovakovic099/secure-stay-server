@@ -31,6 +31,11 @@ interface SlackUser {
     };
 }
 
+interface SlackChannel {
+    id: string;
+    name?: string;
+}
+
 export interface ServiceRequestThreadMessageDTO {
     id: string;
     source: "slack" | "securestay";
@@ -51,11 +56,13 @@ const ENTITY_TYPE_BY_REQUEST_TYPE: Record<ServiceRequestThreadType, string> = {
 export class ServiceRequestThreadService {
     private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
     private userCache: Map<string, SlackUser> = new Map();
+    private channelCache: Map<string, string> = new Map();
 
     async getThread(requestType: ServiceRequestThreadType, requestId: number) {
         const slackMessage = await this.getSlackMessage(requestType, requestId);
-        const slackPermalink = slackMessage ? await this.getSlackPermalink(slackMessage.channel, slackMessage.messageTs) : null;
-        const messages = slackMessage ? await this.getSlackThreadMessages(slackMessage.channel, slackMessage.messageTs) : [];
+        const channel = slackMessage?.channel ? await this.resolveSlackChannel(slackMessage.channel) : null;
+        const slackPermalink = slackMessage && channel ? await this.getSlackPermalink(channel, slackMessage.messageTs) : null;
+        const messages = slackMessage && channel ? await this.getSlackThreadMessages(channel, slackMessage.messageTs) : [];
 
         return {
             slackPermalink,
@@ -70,8 +77,9 @@ export class ServiceRequestThreadService {
             throw new Error("Slack thread not linked for this service request");
         }
 
+        const channel = await this.resolveSlackChannel(slackMessage.channel);
         const result = await sendSlackMessage({
-            channel: slackMessage.channel,
+            channel,
             text: `[SecureStay - ${userName}]: ${content}`,
         }, slackMessage.messageTs);
 
@@ -94,6 +102,51 @@ export class ServiceRequestThreadService {
             where: { entityType: ENTITY_TYPE_BY_REQUEST_TYPE[requestType], entityId: requestId },
             order: { createdAt: "DESC" },
         });
+    }
+
+    private async resolveSlackChannel(channel: string) {
+        const trimmedChannel = String(channel || "").trim();
+        if (!trimmedChannel) return trimmedChannel;
+        if (/^[CGD][A-Z0-9]+$/.test(trimmedChannel)) return trimmedChannel;
+
+        const cacheKey = trimmedChannel.toLowerCase();
+        if (this.channelCache.has(cacheKey)) return this.channelCache.get(cacheKey)!;
+
+        const targetName = trimmedChannel.replace(/^#/, "").toLowerCase();
+
+        try {
+            let cursor: string | undefined;
+
+            do {
+                const response = await axios.get("https://slack.com/api/conversations.list", {
+                    headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
+                    params: {
+                        types: "public_channel,private_channel",
+                        limit: 1000,
+                        cursor,
+                    },
+                });
+
+                if (!response.data?.ok) {
+                    logger.warn(`[ServiceRequestThreadService] Slack channel lookup error: ${response.data?.error}`);
+                    break;
+                }
+
+                const channels: SlackChannel[] = response.data.channels || [];
+                const matchedChannel = channels.find((item) => item.id === trimmedChannel || item.name?.toLowerCase() === targetName);
+
+                if (matchedChannel?.id) {
+                    this.channelCache.set(cacheKey, matchedChannel.id);
+                    return matchedChannel.id;
+                }
+
+                cursor = response.data.response_metadata?.next_cursor || undefined;
+            } while (cursor);
+        } catch (error) {
+            logger.warn(`[ServiceRequestThreadService][resolveSlackChannel] Error: ${error}`);
+        }
+
+        return trimmedChannel;
     }
 
     private async getSlackThreadMessages(channel: string, threadTs: string): Promise<ServiceRequestThreadMessageDTO[]> {

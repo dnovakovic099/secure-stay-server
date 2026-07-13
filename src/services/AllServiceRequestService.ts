@@ -11,6 +11,7 @@ interface UnifiedRequest {
     type: string;
     status: string;
     propertyName: string;
+    propertyAddress: string;
     clientName: string;
     createdAt: Date;
 }
@@ -81,6 +82,12 @@ export class AllServiceRequestService {
             property?.propertyInfo?.externalListingName ||
             property?.address ||
             `Property ${row.propertyId}`;
+        const propertyAddress =
+            property?.address ||
+            row.completeAddress ||
+            row.fullAddress ||
+            row.sendToAddress ||
+            "—";
 
         const client = property?.client;
         const clientName = client
@@ -92,6 +99,7 @@ export class AllServiceRequestService {
             type,
             status: row.status || "new",
             propertyName,
+            propertyAddress,
             clientName,
             createdAt: row.createdAt,
         };
