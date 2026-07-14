@@ -1287,6 +1287,17 @@ export class MessagingService {
             this.postStayAuditService.fetchCompletionStatusByReservationId(reservation.id),
         ]);
 
+        // Last-minute reservations show as freshly-created rows where the local
+        // DB hasn't yet been backfilled (confirmation_code, confirmed_at,
+        // arrival/departure dates, payout). Prefer the local value when we
+        // have one; fall back to Hostify's live reservation before showing
+        // "—". Without these fallbacks the right panel renders empty chips
+        // and dashes on same-day inquiries.
+        const liveArrivalDate = liveReservation?.checkIn ?? liveReservation?.checkin ?? liveReservation?.arrival_date ?? null;
+        const liveDepartureDate = liveReservation?.checkOut ?? liveReservation?.checkout ?? liveReservation?.departure_date ?? null;
+        const arrivalDate = reservation.arrivalDate || liveArrivalDate;
+        const departureDate = reservation.departureDate || liveDepartureDate;
+
         return {
             ...reservation,
             guestName: resolvedGuestName,
@@ -1299,7 +1310,17 @@ export class MessagingService {
             serviceType: this.normalizeServiceTypeValue(listing, normalizedListing),
             portfolio: this.normalizePortfolioValue(listing),
             status: liveReservation?.status_description || liveReservation?.status || reservation.status || null,
-            stayTiming: this.getStayTiming(reservation.arrivalDate || liveReservation?.checkIn, reservation.departureDate || liveReservation?.checkOut, timeZoneIdentifier),
+            arrivalDate,
+            departureDate,
+            stayTiming: this.getStayTiming(arrivalDate, departureDate, timeZoneIdentifier),
+            // Confirmation code lands on the reservation row once the booking
+            // is confirmed and our nightly sync runs; last-minute bookings
+            // usually predate the sync — surface Hostify's copy in the meantime.
+            confirmation_code:
+                (reservation as any).confirmation_code ??
+                liveReservation?.confirmation_code ??
+                liveReservation?.confirmationCode ??
+                null,
             guestPicture: reservation.guestPicture || guestRecord?.picture || guestRecord?.thumbnail_url || hostifyReservation?.guest?.picture || liveReservation?.guest?.picture || liveReservation?.guest_picture || null,
             phones,
             hostNote,
@@ -1309,8 +1330,18 @@ export class MessagingService {
             children: liveReservation?.children ?? reservation.children ?? null,
             infants: liveReservation?.infants ?? reservation.infants ?? null,
             pets: liveReservation?.pets ?? reservation.pets ?? null,
+            // Prefer live Hostify totals on last-minute reservations — the
+            // local `totalPrice` sometimes holds a stale pre-tax estimate that
+            // predates the guest's actual payment (screenshot 8 showed a wrong
+            // Total Paid because we were still reading the local value).
             revenue: liveReservation?.revenue ?? reservation.totalPrice ?? null,
-            netRevenue: liveReservation?.net_revenue ?? liveReservation?.payout_price ?? reservation.owner_revenue ?? null,
+            totalPrice: liveReservation?.total_price ?? liveReservation?.total_paid ?? reservation.totalPrice ?? null,
+            netRevenue:
+                liveReservation?.net_revenue ??
+                liveReservation?.payout_price ??
+                liveReservation?.payout ??
+                reservation.owner_revenue ??
+                null,
             nightRate: liveReservation?.price_per_night ?? liveReservation?.base_price ?? null,
             // reservation.base_price only gets populated on records synced *after* the
             // 20260705_add_base_price_to_reservation_info migration; for older rows the
@@ -1319,7 +1350,7 @@ export class MessagingService {
             base_price: reservation.base_price ?? liveReservation?.base_price ?? null,
             cleaningFee: liveReservation?.cleaning_fee ?? reservation.cleaningFee ?? null,
             channelCommission: liveReservation?.channel_commission ?? reservation.channelCommissionAmount ?? null,
-            confirmedAt: liveReservation?.confirmed_at ?? null,
+            confirmedAt: liveReservation?.confirmed_at ?? (reservation as any).confirmedAt ?? (reservation as any).reservationDate ?? null,
             plannedArrival: liveReservation?.planned_arrival ?? null,
             plannedDeparture: liveReservation?.planned_departure ?? null,
             hostifyCheckinFormLink: liveReservation?.hostify_checkin_form_link ?? null,

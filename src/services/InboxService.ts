@@ -107,6 +107,55 @@ const firstDisplayName = (...values: any[]) => {
     return null;
 };
 
+const extractAttachmentUrls = (raw: any): string[] => {
+    const urls: string[] = [];
+    const push = (value: any) => {
+        if (typeof value !== "string") return;
+        const url = value.trim();
+        if (!url) return;
+        if (!urls.includes(url)) urls.push(url);
+    };
+    push(raw?.attachment_url);
+    push(raw?.image);
+    if (Array.isArray(raw?.attachments)) {
+        for (const attachment of raw.attachments) {
+            if (typeof attachment === "string") {
+                push(attachment);
+            } else if (attachment && typeof attachment === "object") {
+                push(attachment.url || attachment.attachment_url || attachment.src || attachment.file || attachment.fileUrl);
+            }
+        }
+    }
+    if (Array.isArray(raw?.images)) {
+        for (const image of raw.images) {
+            if (typeof image === "string") push(image);
+            else if (image && typeof image === "object") push(image.url || image.src);
+        }
+    }
+    return urls;
+};
+
+const pickFirstAttachmentUrl = (raw: any): string | null => {
+    const [first] = extractAttachmentUrls(raw);
+    return first ?? null;
+};
+
+// Split listing tags into normalized tokens so classification uses whole-word
+// matches — otherwise "pm" collides with "compare"/"impact" and "arb" with
+// "harbor". Tags come from Hostify comma-separated (e.g. "PM, Full, G1").
+const tagTokens = (...values: (string | null | undefined)[]): Set<string> => {
+    const bag = new Set<string>();
+    for (const value of values) {
+        if (!value) continue;
+        String(value)
+            .toLowerCase()
+            .split(/[^a-z0-9]+/)
+            .filter(Boolean)
+            .forEach((token) => bag.add(token));
+    }
+    return bag;
+};
+
 export class InboxService {
     private conversationRepo = appDatabase.getRepository(InboxConversationEntity);
     private messageRepo = appDatabase.getRepository(InboxMessageEntity);
@@ -123,28 +172,37 @@ export class InboxService {
 
     /**
      * Map a Hostify `from` value to our normalized direction.
-     * Guest messages are incoming; everything else (host/automatic/system) is outgoing.
+     * "system" events (e.g. pre-approval expired) preserve their own bucket so
+     * the UI can render them as a centered system notice; guest messages are
+     * incoming; everything else (host/automatic) is outgoing.
      */
-    private resolveDirection(from?: string | null, isIncoming?: number): string {
+    private resolveDirection(from?: string | null, isIncoming?: number, isAutomatic?: number): string {
+        const fromKey = String(from || "").toLowerCase();
+        if (fromKey === "system") return "system";
+        // Hostify auto-messages sometimes come through with is_incoming=1 or an
+        // unexpected `from` value even though they were sent BY us — treat any
+        // is_automatic=1 row as outgoing so the welcome/checkin templates land
+        // on the correct side of the thread.
+        if (Number(isAutomatic) === 1) return "outgoing";
         if (typeof isIncoming === "number") {
             return isIncoming === 1 ? "incoming" : "outgoing";
         }
-        return String(from || "").toLowerCase() === "guest" ? "incoming" : "outgoing";
+        return fromKey === "guest" ? "incoming" : "outgoing";
     }
 
     private normalizePropertyTypeValue(listing: Listing | null | undefined) {
-        const raw = `${listing?.tags || ""} ${listing?.propertyType || ""}`.toLowerCase();
-        if (raw.includes("own")) return "Own";
-        if (raw.includes("arb")) return "Arb";
-        if (raw.includes("pm")) return "PM";
+        const tokens = tagTokens(listing?.tags, listing?.propertyType);
+        if (tokens.has("own")) return "Own";
+        if (tokens.has("arb")) return "Arb";
+        if (tokens.has("pm")) return "PM";
         return null;
     }
 
     private normalizeServiceTypeValue(listing: Listing | null | undefined, normalizedListing?: any) {
-        const raw = `${listing?.tags || ""} ${normalizedListing?.serviceType || ""}`.toLowerCase();
-        if (raw.includes("full")) return "Full";
-        if (raw.includes("pro")) return "Pro";
-        if (raw.includes("launch")) return "Launch";
+        const tokens = tagTokens(listing?.tags, normalizedListing?.serviceType);
+        if (tokens.has("full")) return "Full";
+        if (tokens.has("pro")) return "Pro";
+        if (tokens.has("launch")) return "Launch";
         return null;
     }
 
@@ -298,7 +356,7 @@ export class InboxService {
         if (!externalId) return null;
 
         const from = raw?.from ?? null;
-        const direction = this.resolveDirection(from, raw?.is_incoming);
+        const direction = this.resolveDirection(from, raw?.is_incoming, raw?.is_automatic);
         // Sender name lives in different fields depending on source:
         //  - incoming (guest): `guest_name`
         //  - outgoing webhook payload: `sent_by` (rep), while `guest_name` is the guest
@@ -306,21 +364,28 @@ export class InboxService {
         const senderName =
             direction === "incoming"
                 ? firstDisplayName(raw?.guest_name, raw?.sender_name, raw?.sender)
-                : firstDisplayName(raw?.user_name, raw?.sender_name, raw?.sender, raw?.guest_name, raw?.sent_by);
+                : firstDisplayName(raw?.user_name, raw?.sender_name, raw?.sender, raw?.sent_by);
+        // Hostify exposes attachments in several shapes: a single `attachment_url`
+        // (older webhook payloads), an `image` field, or an `attachments[]` /
+        // `images[]` array (thread-detail responses can carry multiple photos on
+        // one message). Pick the first URL we can find so the thread renders at
+        // least one image; the full list is preserved for the frontend via the
+        // extractAttachmentUrls() helper below.
+        const attachmentUrl = pickFirstAttachmentUrl(raw);
         const message = this.messageRepo.create({
             externalId,
             threadId: ctx.threadId,
             reservationId: ctx.reservationId,
             listingId: ctx.listingId,
             body: raw?.message ?? null,
-            note: raw?.notes ?? null,
+            note: raw?.notes ?? raw?.note ?? raw?.internal_note ?? null,
             direction,
             senderType: from ? String(from).toLowerCase() : direction === "incoming" ? "guest" : "host",
             senderName,
             isAutomatic: raw?.is_automatic ? 1 : 0,
             isSms: raw?.is_sms ? 1 : 0,
             channel: ctx.channel,
-            attachmentUrl: raw?.attachment_url ?? raw?.image ?? null,
+            attachmentUrl,
             guestId: toNumberOrNull(raw?.guest_id),
             sentAt: toDateOrNull(raw?.created) ?? new Date(),
             sentByUserId: null,
@@ -341,7 +406,17 @@ export class InboxService {
         const externalIds = messages.map((m) => m.externalId);
         const existing = await this.messageRepo.find({
             where: { externalId: In(externalIds) },
-            select: ["id", "externalId", "direction", "senderType", "senderName", "note", "attachmentUrl"],
+            select: [
+                "id",
+                "externalId",
+                "direction",
+                "senderType",
+                "senderName",
+                "note",
+                "attachmentUrl",
+                "isAutomatic",
+                "sentVia",
+            ],
         });
         const existingIds = new Set(existing.map((m) => Number(m.externalId)));
         const existingByExternalId = new Map(existing.map((m) => [Number(m.externalId), m]));
@@ -365,6 +440,20 @@ export class InboxService {
                 existingMessage.attachmentUrl = incoming.attachmentUrl;
                 changed = true;
             }
+            // Repair rows written by the old resolveDirection (which mapped
+            // Hostify's `system` events and mis-flagged auto-messages to
+            // "outgoing"/"incoming" respectively). Only overwrite when the row
+            // came from a Hostify sync — never touch locally-attributed sends.
+            const locallyAttributed = existingMessage.sentVia === "inbox_v2" || existingMessage.sentVia === "ai_auto";
+            if (!locallyAttributed && incoming.direction && incoming.direction !== existingMessage.direction) {
+                existingMessage.direction = incoming.direction;
+                if (incoming.senderType) existingMessage.senderType = incoming.senderType;
+                changed = true;
+            }
+            if (!locallyAttributed && incoming.isAutomatic && !existingMessage.isAutomatic) {
+                existingMessage.isAutomatic = incoming.isAutomatic;
+                changed = true;
+            }
             return changed ? [existingMessage] : [];
         });
         if (toUpdate.length) {
@@ -379,30 +468,64 @@ export class InboxService {
     /**
      * Reconcile locally-sent replies with the canonical Hostify message.
      *
-     * When we send from the v2 inbox we insert an immediately-visible row with a
-     * synthetic negative externalId (Hostify's reply endpoint may not echo the
-     * real id). On the next sync that same message comes back from Hostify with
-     * its real id; without reconciliation we'd store it twice. Here we adopt the
-     * real id onto our attributed local row so the later insert is skipped.
+     * When we send from the v2 inbox (or the AI auto-responder) we insert an
+     * immediately-visible row with a synthetic negative externalId — Hostify's
+     * reply endpoint sometimes doesn't echo the real message id. On the next
+     * sync the same message comes back from Hostify with its real id; without
+     * reconciliation we'd store it twice, showing the guest the same reply as a
+     * duplicate bubble (see: automated welcome messages appearing twice in the
+     * thread). Here we adopt the real id onto our attributed local row so the
+     * later insert is skipped by `saveMessages`.
+     *
+     * We also match automated Hostify rows against our own ai_auto rows even
+     * when the local row already has a positive externalId — Hostify's message
+     * id for auto-sends can differ from the one returned by its reply endpoint,
+     * so we compare body + timestamp and adopt the sync-provided id.
      */
     private async reconcileOutgoing(threadId: number, rawMessages: any[]) {
         const pending = await this.messageRepo.find({
-            where: { threadId, sentVia: "inbox_v2" },
+            where: { threadId, sentVia: In(["inbox_v2", "ai_auto"]) },
         });
-        const synthetic = pending.filter((m) => Number(m.externalId) < 0);
-        if (!synthetic.length) return;
+        if (!pending.length) return;
 
-        for (const local of synthetic) {
+        const bodyKey = (value: string | null | undefined) =>
+            (value || "").replace(/\s+/g, " ").trim().toLowerCase();
+
+        for (const local of pending) {
+            const localKey = bodyKey(local.body);
+            if (!localKey) continue;
+            const isSynthetic = Number(local.externalId) < 0;
+            const isAuto = local.sentVia === "ai_auto" || Number(local.isAutomatic) === 1;
+            // Automated rows may already have a Hostify id from the reply
+            // endpoint, but the thread-detail sync sometimes returns a
+            // different id for the SAME message (Hostify assigns ids at
+            // delivery, not at accept). Allow reconciling those too, matched
+            // by body and a ~2-minute send-time window.
+            if (!isSynthetic && !isAuto) continue;
+
+            const localSentAt = local.sentAt ? new Date(local.sentAt).getTime() : null;
             const match = rawMessages.find((raw) => {
                 const from = String(raw?.from || "").toLowerCase();
-                const isOutgoing = from && from !== "guest";
-                const sameBody =
-                    (raw?.message || "").trim() === (local.body || "").trim();
-                const realId = toNumberOrNull(raw?.id);
-                return isOutgoing && sameBody && realId && realId > 0;
+                const isOutgoing = from ? from !== "guest" : Number(raw?.is_incoming) === 0;
+                if (!isOutgoing) return false;
+                if (bodyKey(raw?.message) !== localKey) return false;
+                const realId = toNumberOrNull(raw?.id ?? raw?.message_id);
+                if (!realId || realId <= 0) return false;
+                if (Number(local.externalId) === realId) return false;
+                if (!isSynthetic) {
+                    // For non-synthetic rows only reconcile if we're the auto
+                    // sender AND the sync row is also flagged automatic, to
+                    // avoid accidentally collapsing a rep-sent duplicate.
+                    if (Number(raw?.is_automatic) !== 1) return false;
+                    if (localSentAt) {
+                        const rawSentAt = raw?.created ? new Date(raw.created).getTime() : null;
+                        if (rawSentAt && Math.abs(rawSentAt - localSentAt) > 2 * 60 * 1000) return false;
+                    }
+                }
+                return true;
             });
             if (match) {
-                local.externalId = toNumberOrNull(match.id) as number;
+                local.externalId = toNumberOrNull(match.id ?? match.message_id) as number;
                 await this.messageRepo.save(local);
             }
         }
@@ -450,7 +573,7 @@ export class InboxService {
         // Roll the conversation summary forward.
         conversation.lastMessageText = payload?.message ?? conversation.lastMessageText ?? null;
         conversation.lastMessageAt = toDateOrNull(payload?.created) ?? new Date();
-        const direction = this.resolveDirection(payload?.from, payload?.is_incoming);
+        const direction = this.resolveDirection(payload?.from, payload?.is_incoming, payload?.is_automatic);
         if (direction === "incoming") {
             conversation.unread = 1;
             conversation.answered = 0;
@@ -695,14 +818,26 @@ export class InboxService {
 
         const lastMessageBuckets = parseListParam(options.lastMessageFrom).map((value) => value.toLowerCase());
         if (lastMessageBuckets.length) {
+            // The stored `answered` flag flips to 1 whenever a rep replies,
+            // even if the guest later sends more messages, so relying on it
+            // mis-classified threads whose newest message was ours. Look at
+            // the actual latest message row instead (mirrors `unresponded`).
+            const latestDirectionSubquery = `(
+                SELECT latest_message.direction
+                FROM inbox_messages latest_message
+                WHERE latest_message.threadId = c.threadId
+                  AND latest_message.direction IN ('incoming', 'outgoing')
+                ORDER BY latest_message.sentAt DESC, latest_message.id DESC
+                LIMIT 1
+            )`;
             qb.andWhere(
                 new Brackets((b) => {
                     lastMessageBuckets.forEach((bucket, index) => {
                         const method = index === 0 ? "where" : "orWhere";
                         if (bucket === "guest") {
-                            b[method]("c.answered = 0");
+                            b[method](`${latestDirectionSubquery} = 'incoming'`);
                         } else if (bucket === "us" || bucket === "host" || bucket === "securestay") {
-                            b[method]("c.answered = 1");
+                            b[method](`${latestDirectionSubquery} = 'outgoing'`);
                         }
                     });
                 })
@@ -765,6 +900,12 @@ export class InboxService {
 
         // PM / Arb / Own from listing tags. Mirrors normalizePropertyTypeValue's
         // priority (own > arb > pm) so filtering agrees with the badge shown.
+        // Uses REGEXP word boundaries — plain LIKE '%pm%' had been matching
+        // unrelated tokens (e.g. any listing whose tag string contained
+        // "compare" or "shipment"), so filters returned listings that don't
+        // wear the PM chip.
+        const wordBoundary = (raw: string, token: string) =>
+            `${raw} REGEXP '(^|[^a-z0-9])${token}([^a-z0-9]|$)'`;
         const typeBuckets = parseListParam(options.propertyType).map((value) => value.toLowerCase());
         if (typeBuckets.length) {
             const raw = "LOWER(CONCAT(COALESCE(l.tags, ''), ' ', COALESCE(l.propertyType, '')))";
@@ -773,11 +914,11 @@ export class InboxService {
                     typeBuckets.forEach((typeBucket, index) => {
                         const method = index === 0 ? "where" : "orWhere";
                         if (typeBucket === "own") {
-                            b[method](`${raw} LIKE '%own%'`);
+                            b[method](wordBoundary(raw, "own"));
                         } else if (typeBucket === "arb") {
-                            b[method](`${raw} LIKE '%arb%' AND ${raw} NOT LIKE '%own%'`);
+                            b[method](`${wordBoundary(raw, "arb")} AND NOT ${wordBoundary(raw, "own")}`);
                         } else if (typeBucket === "pm") {
-                            b[method](`${raw} LIKE '%pm%' AND ${raw} NOT LIKE '%own%' AND ${raw} NOT LIKE '%arb%'`);
+                            b[method](`${wordBoundary(raw, "pm")} AND NOT ${wordBoundary(raw, "own")} AND NOT ${wordBoundary(raw, "arb")}`);
                         }
                     });
                 })
@@ -792,7 +933,7 @@ export class InboxService {
                     serviceBuckets.forEach((serviceBucket, index) => {
                         const method = index === 0 ? "where" : "orWhere";
                         if (serviceBucket === "full" || serviceBucket === "pro" || serviceBucket === "launch") {
-                            b[method](`${raw} LIKE :serviceBucket${index}`, { [`serviceBucket${index}`]: `%${serviceBucket}%` });
+                            b[method](wordBoundary(raw, serviceBucket));
                         }
                     });
                 })
@@ -807,9 +948,13 @@ export class InboxService {
                     portfolioBuckets.forEach((portfolioBucket, index) => {
                         const method = index === 0 ? "where" : "orWhere";
                         if (portfolioBucket === "g1" || portfolioBucket === "group1" || portfolioBucket === "group 1") {
-                            b[method](`(${raw} LIKE '%group 1%' OR ${raw} LIKE '%group1%' OR ${raw} LIKE '%g1%')`);
+                            b[method](
+                                `(${raw} REGEXP '(^|[^a-z0-9])group[ ]?1([^a-z0-9]|$)' OR ${wordBoundary(raw, "g1")})`
+                            );
                         } else if (portfolioBucket === "g2" || portfolioBucket === "group2" || portfolioBucket === "group 2") {
-                            b[method](`(${raw} LIKE '%group 2%' OR ${raw} LIKE '%group2%' OR ${raw} LIKE '%g2%')`);
+                            b[method](
+                                `(${raw} REGEXP '(^|[^a-z0-9])group[ ]?2([^a-z0-9]|$)' OR ${wordBoundary(raw, "g2")})`
+                            );
                         }
                     });
                 })
@@ -951,6 +1096,17 @@ export class InboxService {
             } catch (err: any) {
                 logger.warn(`[InboxService] getConversation guest backfill failed for thread ${threadId}: ${err.message}`);
             }
+        }
+
+        // Pull the freshest thread history from Hostify on open — Hostify's
+        // webhooks occasionally miss guest replies (esp. photo-only messages)
+        // and running a targeted sync here is what keeps the thread from
+        // silently falling behind when someone opens it. Best-effort; the
+        // local read below still returns whatever we have on failure.
+        try {
+            await this.syncThread(threadId);
+        } catch (err: any) {
+            logger.warn(`[InboxService] on-open sync failed for thread ${threadId}: ${err.message}`);
         }
 
         const messages = await this.messageRepo.find({
