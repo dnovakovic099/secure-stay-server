@@ -23,6 +23,8 @@ import { ItemSupplyRequest } from "../entity/ItemSupplyRequest";
 import { prefixUnlistedListingMarker } from "./listingListedStatus.util";
 
 const REFUND_REQUEST_CHANNEL = "#resolutions-team";
+const AIRBNB_RESOLUTIONS_CENTER_PAYMENT_METHOD = "airbnb resolutions center";
+const FERDY_SLACK_USER_ID = "U07P974D65P";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
 const CLIENT_RELATIONS = "#client-relations";
 const GUEST_RELATIONS = "#guest-relations";
@@ -63,6 +65,17 @@ const normalizeSlackField = (value?: unknown, fallback = "—") => {
 const normalizeRefundChargeToClient = (value?: unknown) => {
     return value === true || value === 1 || value === "1" || value === "true" ? "Yes" : "No";
 };
+
+const isPaidAirbnbResolutionsCenterRefund = (refundRequest: RefundRequestEntity) => (
+    String(refundRequest.status || "").trim().toLowerCase() === "paid"
+    && String(refundRequest.paymentMethod || "").trim().toLowerCase() === AIRBNB_RESOLUTIONS_CENTER_PAYMENT_METHOD
+);
+
+const buildPaidRcTransactionNote = (refundRequest: RefundRequestEntity) => (
+    isPaidAirbnbResolutionsCenterRefund(refundRequest)
+        ? `\n<@${FERDY_SLACK_USER_ID}> Please take note of the Paid RC transaction`
+        : ""
+);
 
 const REFUND_APPROVED_BY_STATUS_OPTIONS = ["Approved", "For Processing", "Paid"];
 const REFUND_APPROVED_BY_OPTIONS = ["Louis", "Darko", "Anj", "Jade", "Owner", "Custom"];
@@ -615,8 +628,9 @@ export const buildMitigationRefundRequestUpdateMessage = (
     const processingMention = normalizedNewStatus.toLowerCase() === "for processing"
         ? ` <@${options.anjSlackId || "U08END0JTBM"}> please process`
         : "";
+    const paidRcTransactionNote = buildPaidRcTransactionNote(refundRequest);
     const rawDescription = isStatusUpdate
-        ? `Refund request status updated from *${options.oldStatus || "—"}* → *${getRefundStatusLabelWithEmoji(normalizedNewStatus)}*${processingMention}`
+        ? `Refund request status updated from *${options.oldStatus || "—"}* → *${getRefundStatusLabelWithEmoji(normalizedNewStatus)}*${processingMention}${paidRcTransactionNote}`
         : options.description.trim();
     const description = rawDescription.startsWith("💸") ? rawDescription : `💸 ${rawDescription}`;
     const assigneeLabel = normalizeSlackField(options.assigneeMention, "Unassigned");
@@ -739,6 +753,7 @@ export const buildUpdatedRefundRequestMessage = (refundRequest: RefundRequestEnt
 
 export const buildUpdatedStatusRefundRequestMessage = (refundRequest: RefundRequestEntity, user: string) => {
     const issueLink = buildRefundIssueLink(refundRequest);
+    const paidRcTransactionNote = buildPaidRcTransactionNote(refundRequest);
     const slackMessage = {
         channel: REFUND_REQUEST_CHANNEL,
         text: `${user} updated the status of refund request for ${refundRequest.guestName}`,
@@ -747,7 +762,7 @@ export const buildUpdatedStatusRefundRequestMessage = (refundRequest: RefundRequ
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `${refundRequest.status.toLowerCase() == "approved" ? "✅" : refundRequest.status.toLowerCase() == "for processing" ? "🔄" : refundRequest.status.toLowerCase() == "denied" ? "❌" : refundRequest.status.toLowerCase() == "cancelled" ? "🚫" : refundRequest.status.toLowerCase() == "paid" ? "💰" : "⏳"} *${user}* ${refundRequest.status.toLowerCase()} *${formatCurrency(refundRequest.refundAmount)}* refund request for *${refundRequest.guestName}*.${issueLink ? ` ${issueLink}` : ""}`
+                    text: `${refundRequest.status.toLowerCase() == "approved" ? "✅" : refundRequest.status.toLowerCase() == "for processing" ? "🔄" : refundRequest.status.toLowerCase() == "denied" ? "❌" : refundRequest.status.toLowerCase() == "cancelled" ? "🚫" : refundRequest.status.toLowerCase() == "paid" ? "💰" : "⏳"} *${user}* ${refundRequest.status.toLowerCase()} *${formatCurrency(refundRequest.refundAmount)}* refund request for *${refundRequest.guestName}*.${issueLink ? ` ${issueLink}` : ""}${paidRcTransactionNote}`
                 }
             },
         ]

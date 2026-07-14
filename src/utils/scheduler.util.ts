@@ -38,6 +38,7 @@ import { AutoMessageService } from "../services/AutoMessageService";
 import { OverduePaymentService } from "../services/OverduePaymentService";
 import { QuoInboxService } from "../services/QuoInboxService";
 import { QuoItemDetectionService } from "../services/QuoItemDetectionService";
+import { RefundRequestService } from "../services/RefundRequestService";
 
 
 export function scheduleGetReservation() {
@@ -63,6 +64,20 @@ export function scheduleGetReservation() {
   schedule.scheduleJob({ hour: 9, minute: 0, tz: "America/New_York" }, checkUpdatedReviews);
 
   schedule.scheduleJob("0 14 * * *", checkForPendingRefundRequest);
+
+  schedule.scheduleJob(
+    { hour: 6, minute: 5, dayOfWeek: 1, tz: "America/New_York" },
+    async () => {
+      try {
+        logger.info("Sending weekly Paid RC refund report...");
+        const refundRequestService = new RefundRequestService();
+        await refundRequestService.sendWeeklyPaidRcRefundReport();
+        logger.info("Weekly Paid RC refund report completed.");
+      } catch (error) {
+        logger.error("Error sending weekly Paid RC refund report:", error);
+      }
+    }
+  );
 
   schedule.scheduleJob({ hour: 2, minute: 15, tz: "America/New_York" }, syncReservation);
 

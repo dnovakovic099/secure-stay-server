@@ -2,6 +2,7 @@ import { appDatabase } from "../utils/database.util";
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { Between, Brackets, EntityManager, ILike, In, IsNull, LessThanOrEqual, MoreThanOrEqual, Not } from "typeorm";
 import { format } from "date-fns";
+import axios from "axios";
 import { ExpenseService } from "./ExpenseService";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import sendEmail from "../utils/sendEmai";
@@ -25,9 +26,14 @@ import { ReviewDiscussionService } from "./ReviewDiscussionService";
 import { Listing } from "../entity/Listing";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Employee } from "../entity/Employee";
-import { getEasternDateString, getEasternTimestampRange } from "../utils/easternTime.util";
+import { easternDateTimeToUtc, getEasternDateString, getEasternTimestampRange } from "../utils/easternTime.util";
 import { ReservationInfoLog } from "../entity/ReservationInfologs";
 import { ReviewEntity } from "../entity/Review";
+import { ReviewDiscussionMessageEntity } from "../entity/ReviewDiscussionMessage";
+
+const AIRBNB_RESOLUTIONS_CENTER_PAYMENT_METHOD = "airbnb resolutions center";
+const FERDY_SLACK_USER_ID = "U07P974D65P";
+const ANJ_SLACK_USER_ID = "U08END0JTBM";
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
@@ -40,6 +46,7 @@ export class RefundRequestService {
   private fileInfoRepo = appDatabase.getRepository(FileInfo);
   private employeeRepo = appDatabase.getRepository(Employee);
   private reservationInfoLogRepo = appDatabase.getRepository(ReservationInfoLog);
+  private reviewDiscussionMessageRepo = appDatabase.getRepository(ReviewDiscussionMessageEntity);
   private reservationHistoryService = new ReservationHistoryService();
 
   private normalizeChargeToClient(value: unknown): number {
@@ -52,6 +59,15 @@ export class RefundRequestService {
 
   private getExpenseStatusForRefund(status?: string | null, chargeToClient?: number | boolean | string | null) {
     return status === "Paid" ? ExpenseStatus.PAID : null;
+  }
+
+  private isAirbnbResolutionsCenterPaymentMethod(value?: string | null) {
+    return String(value || "").trim().toLowerCase() === AIRBNB_RESOLUTIONS_CENTER_PAYMENT_METHOD;
+  }
+
+  private shouldSkipExpenseForRefundRequest(request: Partial<RefundRequestEntity>) {
+    return String(request.status || "").trim() === "Paid"
+      && this.isAirbnbResolutionsCenterPaymentMethod(request.paymentMethod);
   }
 
   private getUserDisplayName(user?: UsersEntity | null) {
@@ -664,6 +680,10 @@ export class RefundRequestService {
     ) {
         const expenseService = new ExpenseService();
         const expenseStatus = this.getExpenseStatusForRefund(status, request.chargeToClient);
+        if (this.shouldSkipExpenseForRefundRequest(request)) {
+          await transactionalEntityManager.save(request);
+          return;
+        }
 
         if (!expenseStatus) {
           if (request.expenseId) {
@@ -1617,6 +1637,141 @@ export class RefundRequestService {
         `;
 
         await sendEmail(subject, html, process.env.EMAIL_FROM, email);
+    }
+
+    private shiftEasternDateString(dateString: string, days: number) {
+        const date = new Date(`${dateString}T12:00:00Z`);
+        date.setUTCDate(date.getUTCDate() + days);
+        return date.toISOString().slice(0, 10);
+    }
+
+    private getPaidRcReportWindow(now = new Date()) {
+        const currentEasternDate = getEasternDateString(now);
+        const easternDateAtNoonUtc = new Date(`${currentEasternDate}T12:00:00Z`);
+        const easternDayOfWeek = easternDateAtNoonUtc.getUTCDay();
+        const daysSinceMonday = (easternDayOfWeek + 6) % 7;
+        const currentMonday = this.shiftEasternDateString(currentEasternDate, -daysSinceMonday);
+        const previousMonday = this.shiftEasternDateString(currentMonday, -7);
+
+        return {
+            start: easternDateTimeToUtc(previousMonday, 6, 1, 0, 0),
+            end: easternDateTimeToUtc(currentMonday, 6, 0, 0, 0),
+            startLabel: `${previousMonday} 6:01 AM ET`,
+            endLabel: `${currentMonday} 6:00 AM ET`,
+        };
+    }
+
+    private getPaidRcReportRecipientUserIds() {
+        const configuredUserIds = String(process.env.REFUND_RC_REPORT_SLACK_USER_IDS || "")
+            .split(",")
+            .map((userId) => userId.trim())
+            .filter(Boolean);
+        return configuredUserIds.length ? configuredUserIds : [FERDY_SLACK_USER_ID, ANJ_SLACK_USER_ID];
+    }
+
+    private async getPaidRcReportSlackChannel() {
+        const configuredChannel = String(process.env.REFUND_RC_REPORT_SLACK_CHANNEL_ID || "").trim();
+        if (configuredChannel) return configuredChannel;
+
+        const userIds = Array.from(new Set(this.getPaidRcReportRecipientUserIds()));
+        if (!userIds.length || !process.env.SLACK_BOT_TOKEN) return null;
+
+        try {
+            const response = await axios.post(
+                "https://slack.com/api/conversations.open",
+                { users: userIds.join(",") },
+                {
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+                    },
+                }
+            );
+
+            if (!response.data?.ok) {
+                logger.error(`[RefundRequestService] Failed to open Paid RC report Slack conversation: ${response.data?.error || "unknown error"}`);
+                return null;
+            }
+
+            return response.data?.channel?.id || null;
+        } catch (error) {
+            logger.error("[RefundRequestService] Error opening Paid RC report Slack conversation:", error);
+            return null;
+        }
+    }
+
+    private async getPaidRcRefundRequestsForReport(start: Date, end: Date) {
+        const systemMessages = await this.reviewDiscussionMessageRepo.find({
+            where: {
+                sourceType: "system",
+                createdAt: Between(start, end),
+            },
+            order: { createdAt: "ASC" },
+        });
+        const paidRefundRequestIds = Array.from(new Set(systemMessages
+            .filter((message) => {
+                const metadata = message.metadata || {};
+                const source = String(metadata.source || "").trim();
+                const eventType = String(metadata.eventType || "").trim();
+                const newStatus = String(metadata.newStatus || metadata.status || "").trim();
+                return source === "refund_request"
+                    && eventType === "refund_request"
+                    && newStatus === "Paid"
+                    && metadata.refundRequestId;
+            })
+            .map((message) => Number(message.metadata?.refundRequestId))
+            .filter((id) => Number.isFinite(id) && id > 0)));
+
+        if (!paidRefundRequestIds.length) return [];
+
+        const refundRequests = await this.refundRequestRepo.find({
+            where: {
+                id: In(paidRefundRequestIds),
+                status: "Paid",
+                deletedAt: IsNull(),
+            },
+            order: { guestName: "ASC" },
+        });
+
+        return refundRequests.filter((request) => this.shouldSkipExpenseForRefundRequest(request));
+    }
+
+    async sendWeeklyPaidRcRefundReport(now = new Date()) {
+        const window = this.getPaidRcReportWindow(now);
+        const channel = await this.getPaidRcReportSlackChannel();
+        if (!channel) {
+            logger.error("[RefundRequestService] Paid RC refund report skipped because Slack channel could not be resolved.");
+            return;
+        }
+
+        const refundRequests = await this.getPaidRcRefundRequestsForReport(window.start, window.end);
+        const reportLines = refundRequests.length
+            ? refundRequests.map((request) => {
+                const refundUrl = `https://securestay.ai/luxury-lodging/refund-requests?id=${request.id}`;
+                return `• <${refundUrl}|${request.guestName}> - ${formatCurrency(Number(request.refundAmount || 0))}`;
+            }).join("\n")
+            : "No Paid Airbnb Resolutions Center refund transactions for this cutoff.";
+
+        await sendSlackMessage({
+            channel,
+            text: `Paid RC Refund Transactions Report (${window.startLabel} - ${window.endLabel})`,
+            blocks: [
+                {
+                    type: "section",
+                    text: {
+                        type: "mrkdwn",
+                        text: `*Paid RC Refund Transactions Report*\nCutoff: ${window.startLabel} - ${window.endLabel}`,
+                    },
+                },
+                {
+                    type: "section",
+                    text: {
+                        type: "mrkdwn",
+                        text: reportLines,
+                    },
+                },
+            ],
+        });
     }
 
     public async deleteRefundRequest(id: number, userId: string){
