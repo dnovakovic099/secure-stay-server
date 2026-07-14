@@ -28,7 +28,6 @@ import reservationDetailPostStayAuditRoutes from "./reservationDetailPostStayAud
 import reservationInfoRoutes from "./reservationInfoRoutes";
 import overduePaymentRoutes from "./overduePaymentRoutes";
 import quoInboxRoutes from "./quoInboxRoutes";
-import adminInsightsRoutes from "./adminInsightsRoutes";
 import ownerInfoRoutes from "./ownerInfoRoutes";
 import refundRequestRoutes from "./refundRequestRoutes";
 import reportsRoutes from "./reportsRoutes";
@@ -105,7 +104,6 @@ router.use("/reservation-detail-post-stay-audit", reservationDetailPostStayAudit
 router.use("/reservation-info", reservationInfoRoutes);
 router.use("/overdue-payments", overduePaymentRoutes);
 router.use("/quo-inbox", quoInboxRoutes);
-router.use("/admin-insights", adminInsightsRoutes);
 router.use("/owner", ownerInfoRoutes)
 router.use('/refund-request', refundRequestRoutes)
 router.use('/owner-portal', ownerPortalRoutes)

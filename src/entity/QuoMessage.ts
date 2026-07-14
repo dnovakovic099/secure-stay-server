@@ -49,11 +49,6 @@ export class QuoMessageEntity {
     @Column({ length: 255, nullable: true })
     senderName: string | null;
 
-    /** Internal SecureStay users.id when the message was sent from our dashboard. */
-    @Index()
-    @Column({ type: "int", nullable: true })
-    sentByUserId: number | null;
-
     @Index()
     @Column({ type: "datetime" })
     sentAt: Date;

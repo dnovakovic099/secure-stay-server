@@ -908,12 +908,7 @@ export class QuoInboxService {
     // Send
     // -------------------------------------------------------------------------
 
-    async sendReply(
-        conversationId: string,
-        body: string,
-        senderName?: string | null,
-        sentByUserId?: number | null
-    ): Promise<QuoMessageEntity> {
+    async sendReply(conversationId: string, body: string, senderName?: string | null): Promise<QuoMessageEntity> {
         const conv = await this.conversationRepo.findOne({ where: { conversationId } });
         if (!conv) throw new Error("Conversation not found");
         if (!conv.lineNumber) throw new Error("Conversation has no line number");
@@ -940,7 +935,6 @@ export class QuoInboxService {
                 status: sent.status || "sent",
                 quoUserId: sent.userId || null,
                 senderName: senderName || null,
-                sentByUserId: sentByUserId ?? null,
                 sentAt,
             })
         );
