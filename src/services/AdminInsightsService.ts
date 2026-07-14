@@ -247,150 +247,48 @@ export class AdminInsightsService {
     }
 
     // -------------------------------------------------------------------------
-    // Unified training-activity log: every way a person taught/steered the AI —
-    // thumbs & written feedback, taught facts, answered/dismissed bot questions,
-    // and resolved analytics misses — merged into one time-ordered feed (so the
-    // log matches the per-user counts on the overview tab).
+    // Detailed feedback log ("who left what feedback").
     // -------------------------------------------------------------------------
     async feedbackLog(days: number, limit = 50, offset = 0): Promise<any> {
         const since = this.sinceDate(days);
         const names = await this.userNames();
-        const nameOf = (id: any) => (id != null && names.get(Number(id))) || "unknown";
-        const lim = Math.min(Math.max(limit, 1), 200);
-        const off = Math.max(offset, 0);
-        // Fetch up to offset+limit newest rows from each source, merge, sort, slice.
-        const cap = off + lim;
-
-        const safeParse = (s: any) => {
-            try {
-                return JSON.parse(s || "[]");
-            } catch {
-                return [];
-            }
-        };
-        const q = (sql: string, params: any[]): Promise<any[]> => appDatabase.query(sql, params).catch(() => []);
-
-        const [feedback, facts, prompts, misses, counts] = await Promise.all([
-            q(
-                `SELECT f.id, f.userId, f.rating, f.categories, f.feedbackText, f.correctedResponse,
-                        f.createdAt, f.threadId, f.suggestionId,
-                        LEFT(s.suggestedReply, 300) AS suggestedReply, s.source AS src, s.quoConversationId
-                 FROM ai_message_feedback f
-                 LEFT JOIN ai_message_suggestions s ON s.id = f.suggestionId
-                 WHERE f.createdAt >= ?
-                 ORDER BY f.createdAt DESC LIMIT ${cap}`,
-                [since]
-            ),
-            // Taught facts. source='learning_prompt' rows are excluded — the
-            // prompt-answer entry below already shows that Q&A; 'nightly_audit'
-            // is self-learned (no human).
-            q(
-                `SELECT id, createdByUserId AS userId, question, answer, scope, listingId, source, createdAt
-                 FROM ai_learned_facts
-                 WHERE createdByUserId IS NOT NULL AND source NOT IN ('learning_prompt', 'nightly_audit') AND createdAt >= ?
-                 ORDER BY createdAt DESC LIMIT ${cap}`,
-                [since]
-            ),
-            q(
-                `SELECT id, answeredByUserId AS userId, question, answerText, answerScope, status,
-                        threadId, source AS src, listingName, resolvedAt
-                 FROM ai_learning_prompts
-                 WHERE answeredByUserId IS NOT NULL AND status IN ('answered', 'dismissed') AND resolvedAt >= ?
-                 ORDER BY resolvedAt DESC LIMIT ${cap}`,
-                [since]
-            ),
-            q(
-                `SELECT id, missResolvedBy, missResolvedAt, threadId, source AS src, quoConversationId,
-                        LEFT(suggestedReply, 300) AS suggestedReply
-                 FROM ai_message_suggestions
-                 WHERE missResolvedBy IS NOT NULL AND missResolvedAt >= ?
-                 ORDER BY missResolvedAt DESC LIMIT ${cap}`,
-                [since]
-            ),
-            q(
-                `SELECT
-                    (SELECT COUNT(*) FROM ai_message_feedback WHERE createdAt >= ?) fb,
-                    (SELECT COUNT(*) FROM ai_learned_facts
-                       WHERE createdByUserId IS NOT NULL AND source NOT IN ('learning_prompt', 'nightly_audit') AND createdAt >= ?) facts,
-                    (SELECT COUNT(*) FROM ai_learning_prompts
-                       WHERE answeredByUserId IS NOT NULL AND status IN ('answered', 'dismissed') AND resolvedAt >= ?) prompts,
-                    (SELECT COUNT(*) FROM ai_message_suggestions WHERE missResolvedBy IS NOT NULL AND missResolvedAt >= ?) misses`,
-                [since, since, since, since]
-            ),
-        ]);
-
-        const items: any[] = [];
-        for (const r of feedback) {
-            items.push({
-                id: `fb-${r.id}`,
-                kind: "feedback",
+        const rows: any[] = await appDatabase.query(
+            `SELECT f.id, f.userId, f.rating, f.categories, f.feedbackText, f.correctedResponse,
+                    f.createdAt, f.threadId, f.listingId, f.suggestionId,
+                    LEFT(s.suggestedReply, 300) AS suggestedReply, s.source AS suggestionSource, s.quoConversationId
+             FROM ai_message_feedback f
+             LEFT JOIN ai_message_suggestions s ON s.id = f.suggestionId
+             WHERE f.createdAt >= ?
+             ORDER BY f.createdAt DESC
+             LIMIT ? OFFSET ?`,
+            [since, Math.min(Math.max(limit, 1), 200), Math.max(offset, 0)]
+        );
+        const [{ total }] = (await appDatabase.query(
+            `SELECT COUNT(*) total FROM ai_message_feedback WHERE createdAt >= ?`,
+            [since]
+        )) as any[];
+        return {
+            total: Number(total),
+            items: rows.map((r) => ({
+                id: r.id,
                 userId: r.userId != null ? Number(r.userId) : null,
-                userName: nameOf(r.userId),
+                userName: (r.userId != null && names.get(Number(r.userId))) || "unknown",
                 rating: r.rating,
-                categories: safeParse(r.categories),
+                categories: (() => {
+                    try {
+                        return JSON.parse(r.categories || "[]");
+                    } catch {
+                        return [];
+                    }
+                })(),
                 feedbackText: r.feedbackText,
                 correctedResponse: r.correctedResponse,
                 suggestedReply: r.suggestedReply,
-                source: r.src || "hostify",
+                suggestionSource: r.suggestionSource || null,
                 threadId: r.threadId != null ? Number(r.threadId) : null,
                 quoConversationId: r.quoConversationId || null,
                 createdAt: r.createdAt,
-            });
-        }
-        for (const r of facts) {
-            items.push({
-                id: `fact-${r.id}`,
-                kind: "fact_taught",
-                userId: Number(r.userId),
-                userName: nameOf(r.userId),
-                question: r.question,
-                answer: r.answer,
-                scope: r.scope,
-                listingId: r.listingId != null ? Number(r.listingId) : null,
-                factSource: r.source,
-                createdAt: r.createdAt,
-            });
-        }
-        for (const r of prompts) {
-            items.push({
-                id: `prompt-${r.id}`,
-                kind: r.status === "dismissed" ? "prompt_dismissed" : "prompt_answered",
-                userId: Number(r.userId),
-                userName: nameOf(r.userId),
-                question: r.question,
-                answer: r.answerText,
-                scope: r.answerScope,
-                listingName: r.listingName,
-                source: r.src || "hostify",
-                threadId: r.src === "quo" ? null : r.threadId != null ? Number(r.threadId) : null,
-                createdAt: r.resolvedAt,
-            });
-        }
-        for (const r of misses) {
-            items.push({
-                id: `miss-${r.id}`,
-                kind: "miss_resolved",
-                userId: null,
-                userName: r.missResolvedBy,
-                suggestedReply: r.suggestedReply,
-                source: r.src || "hostify",
-                threadId: r.src === "quo" ? null : r.threadId != null ? Number(r.threadId) : null,
-                quoConversationId: r.quoConversationId || null,
-                createdAt: r.missResolvedAt,
-            });
-        }
-
-        items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        const c = counts[0] || {};
-        return {
-            total: Number(c.fb || 0) + Number(c.facts || 0) + Number(c.prompts || 0) + Number(c.misses || 0),
-            byKind: {
-                feedback: Number(c.fb || 0),
-                factsTaught: Number(c.facts || 0),
-                promptsResolved: Number(c.prompts || 0),
-                missesResolved: Number(c.misses || 0),
-            },
-            items: items.slice(off, off + lim),
+            })),
         };
     }
 }
