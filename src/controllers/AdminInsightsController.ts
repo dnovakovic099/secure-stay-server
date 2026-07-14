@@ -12,19 +12,6 @@ const daysOf = (req: Request): number => {
     return Number.isFinite(d) && d > 0 ? Math.min(d, 90) : 30;
 };
 
-const numOrNull = (value: any): number | null => {
-    const n = Number(value);
-    return Number.isFinite(n) && n > 0 ? n : null;
-};
-
-const filtersOf = (req: Request) => ({
-    days: daysOf(req),
-    startDate: req.query.startDate ? String(req.query.startDate) : null,
-    endDate: req.query.endDate ? String(req.query.endDate) : null,
-    listingId: numOrNull(req.query.listingId),
-    userId: numOrNull(req.query.userId),
-});
-
 /** Admin insights: AI-training attribution, inbox reply stats, employee workload. */
 export class AdminInsightsController {
     /** Lightweight probe so the dashboard can show/hide the admin page. */
@@ -34,44 +21,7 @@ export class AdminInsightsController {
 
     overview = async (req: CustomRequest, res: Response, next: NextFunction) => {
         try {
-            const data = await new AdminInsightsService().overview(filtersOf(req));
-            return res.status(200).json({ status: true, data });
-        } catch (error) {
-            return next(error);
-        }
-    };
-
-    filters = async (_req: CustomRequest, res: Response, next: NextFunction) => {
-        try {
-            const data = await new AdminInsightsService().filterOptions();
-            return res.status(200).json({ status: true, data });
-        } catch (error) {
-            return next(error);
-        }
-    };
-
-    trainingDetails = async (req: CustomRequest, res: Response, next: NextFunction) => {
-        try {
-            const data = await new AdminInsightsService().trainingDetails(
-                filtersOf(req),
-                String(req.query.metric || ""),
-                numOrNull(req.query.userId),
-                Number(req.query.limit) || 50,
-                Number(req.query.offset) || 0
-            );
-            return res.status(200).json({ status: true, data });
-        } catch (error) {
-            return next(error);
-        }
-    };
-
-    replyQualityDetails = async (req: CustomRequest, res: Response, next: NextFunction) => {
-        try {
-            const data = await new AdminInsightsService().replyQualityDetails(
-                filtersOf(req),
-                numOrNull(req.query.userId),
-                req.query.name ? String(req.query.name) : null
-            );
+            const data = await new AdminInsightsService().overview(daysOf(req));
             return res.status(200).json({ status: true, data });
         } catch (error) {
             return next(error);
@@ -81,7 +31,7 @@ export class AdminInsightsController {
     feedbackLog = async (req: CustomRequest, res: Response, next: NextFunction) => {
         try {
             const data = await new AdminInsightsService().feedbackLog(
-                filtersOf(req),
+                daysOf(req),
                 Number(req.query.limit) || 50,
                 Number(req.query.offset) || 0
             );

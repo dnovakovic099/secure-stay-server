@@ -22,10 +22,7 @@ const requireAdmin = (req: Request & { user?: any }, res: Response, next: NextFu
 };
 
 router.get("/me", verifySession, controller.me);
-router.get("/filters", verifySession, requireAdmin, controller.filters);
 router.get("/overview", verifySession, requireAdmin, controller.overview);
-router.get("/training-details", verifySession, requireAdmin, controller.trainingDetails);
-router.get("/reply-quality-details", verifySession, requireAdmin, controller.replyQualityDetails);
 router.get("/feedback-log", verifySession, requireAdmin, controller.feedbackLog);
 router.get("/workload", verifySession, requireAdmin, controller.workload);
 router.get("/workload/status", verifySession, requireAdmin, controller.workloadStatus);
