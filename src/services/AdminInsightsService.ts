@@ -13,6 +13,17 @@ const DEFAULT_ADMIN_EMAILS = [
     "admin@luxurylodgingpm.com",
 ];
 
+export interface AdminInsightFilters {
+    days?: number;
+    startDate?: string | null;
+    endDate?: string | null;
+    listingId?: number | null;
+    userId?: number | null;
+}
+
+type DateWindow = { from: Date; to: Date; days: number };
+type Row = Record<string, any>;
+
 export function adminEmails(): Set<string> {
     const extra = (process.env.ADMIN_INSIGHTS_EMAILS || "")
         .split(",")
@@ -26,13 +37,17 @@ export function isAdminEmail(email: string | null | undefined): boolean {
 }
 
 export class AdminInsightsService {
-    private sinceDate(days: number): Date {
-        return new Date(Date.now() - Math.min(Math.max(days || 30, 1), 365) * 86400000);
+    private window(filters: AdminInsightFilters): DateWindow {
+        const days = Math.min(Math.max(Number(filters.days) || 30, 1), 365);
+        const fallbackFrom = new Date(Date.now() - days * 86400000);
+        const from = filters.startDate ? new Date(`${filters.startDate}T00:00:00.000Z`) : fallbackFrom;
+        const to = filters.endDate ? new Date(`${filters.endDate}T23:59:59.999Z`) : new Date();
+        const spanDays = Math.max(1, Math.ceil((to.getTime() - from.getTime()) / 86400000));
+        return { from, to, days: spanDays };
     }
 
-    /** users.id -> display name map for everything below. */
     private async userNames(): Promise<Map<number, string>> {
-        const rows: any[] = await appDatabase.query(
+        const rows: Row[] = await appDatabase.query(
             "SELECT id, firstName, lastName, email FROM users WHERE deletedAt IS NULL"
         );
         const map = new Map<number, string>();
@@ -43,17 +58,129 @@ export class AdminInsightsService {
         return map;
     }
 
-    // -------------------------------------------------------------------------
-    // Overview: per-user AI-training + reply counts + quality + time estimate.
-    // -------------------------------------------------------------------------
-    async overview(days: number): Promise<any> {
-        const since = this.sinceDate(days);
+    private range(column: string, w: DateWindow, params: any[]): string {
+        params.push(w.from, w.to);
+        return `${column} >= ? AND ${column} <= ?`;
+    }
+
+    private scoped(
+        clauses: string[],
+        params: any[],
+        filters: AdminInsightFilters,
+        opts: { listingColumn?: string; userColumn?: string; userNameColumn?: string; userName?: string | null } = {}
+    ) {
+        if (filters.listingId != null && opts.listingColumn) {
+            clauses.push(`${opts.listingColumn} = ?`);
+            params.push(filters.listingId);
+        }
+        if (filters.userId != null && opts.userColumn) {
+            clauses.push(`${opts.userColumn} = ?`);
+            params.push(filters.userId);
+        } else if (filters.userId != null && opts.userNameColumn && opts.userName) {
+            clauses.push(`${opts.userNameColumn} = ?`);
+            params.push(opts.userName);
+        }
+    }
+
+    private async q(sql: string, params: any[] = []): Promise<Row[]> {
+        return appDatabase.query(sql, params).catch(() => [] as Row[]);
+    }
+
+    async filterOptions(): Promise<any> {
+        const [users, listings] = await Promise.all([
+            this.q(
+                `SELECT id, firstName, lastName, email
+                 FROM users
+                 WHERE deletedAt IS NULL
+                 ORDER BY firstName, lastName, email`
+            ),
+            this.q(
+                `SELECT listingId AS id, MAX(listingName) AS name
+                 FROM (
+                    SELECT listingId, listingName FROM inbox_conversations WHERE listingId IS NOT NULL
+                    UNION ALL
+                    SELECT listingId, listingName FROM quo_conversations WHERE listingId IS NOT NULL
+                    UNION ALL
+                    SELECT listingId, listingName FROM ai_learning_prompts WHERE listingId IS NOT NULL
+                    UNION ALL
+                    SELECT listingId, NULL AS listingName FROM ai_learned_facts WHERE listingId IS NOT NULL
+                 ) x
+                 GROUP BY listingId
+                 ORDER BY MAX(listingName), listingId
+                 LIMIT 1000`
+            ),
+        ]);
+        return {
+            users: users.map((u) => ({
+                id: Number(u.id),
+                name: [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.email || `user ${u.id}`,
+                email: u.email || null,
+            })),
+            properties: listings.map((l) => ({
+                id: Number(l.id),
+                name: l.name || `Listing ${l.id}`,
+            })),
+        };
+    }
+
+    async overview(filters: AdminInsightFilters): Promise<any> {
+        const w = this.window(filters);
         const names = await this.userNames();
         const nameOf = (id: any) => (id != null && names.get(Number(id))) || null;
+        const selectedUserName = filters.userId != null ? nameOf(filters.userId) : null;
 
-        type Row = Record<string, any>;
-        const q = (sql: string, params: any[] = [since]): Promise<Row[]> =>
-            appDatabase.query(sql, params).catch(() => [] as Row[]);
+        const withRange = (column: string) => {
+            const params: any[] = [];
+            const clauses = [this.range(column, w, params)];
+            return { clauses, params };
+        };
+
+        const feedbackScope = withRange("createdAt");
+        this.scoped(feedbackScope.clauses, feedbackScope.params, filters, { listingColumn: "listingId", userColumn: "userId" });
+        const promptScope = withRange("resolvedAt");
+        this.scoped(promptScope.clauses, promptScope.params, filters, { listingColumn: "listingId", userColumn: "answeredByUserId" });
+        const factsCreatedScope = withRange("createdAt");
+        this.scoped(factsCreatedScope.clauses, factsCreatedScope.params, filters, { listingColumn: "listingId", userColumn: "createdByUserId" });
+        const factsReviewedScope = withRange("updatedAt");
+        this.scoped(factsReviewedScope.clauses, factsReviewedScope.params, filters, { listingColumn: "listingId", userColumn: "reviewedByUserId" });
+        const suggestionScope = withRange("generatedAt");
+        this.scoped(suggestionScope.clauses, suggestionScope.params, filters, { listingColumn: "listingId", userColumn: "acceptedByUserId" });
+        const missesScope = withRange("missResolvedAt");
+        this.scoped(missesScope.clauses, missesScope.params, filters, {
+            listingColumn: "listingId",
+            userNameColumn: "missResolvedBy",
+            userName: selectedUserName,
+        });
+        const discardScope = withRange("createdAt");
+        this.scoped(discardScope.clauses, discardScope.params, filters, {
+            listingColumn: "listingId",
+            userNameColumn: "discardedBy",
+            userName: selectedUserName,
+        });
+        const autoFactsScope = withRange("createdAt");
+        if (filters.listingId != null) {
+            autoFactsScope.clauses.push("listingId = ?");
+            autoFactsScope.params.push(filters.listingId);
+        }
+
+        const hostifyScope = withRange("m.sentAt");
+        this.scoped(hostifyScope.clauses, hostifyScope.params, filters, { listingColumn: "m.listingId", userColumn: "m.sentByUserId" });
+        const quoScope = withRange("m.sentAt");
+        if (filters.listingId != null) {
+            quoScope.clauses.push("c.listingId = ?");
+            quoScope.params.push(filters.listingId);
+        }
+        if (filters.userId != null) {
+            quoScope.clauses.push("m.sentByUserId = ?");
+            quoScope.params.push(filters.userId);
+        }
+        const qualityScope = withRange("s.actualReplyAt");
+        this.scoped(qualityScope.clauses, qualityScope.params, filters, { listingColumn: "s.listingId", userColumn: "m.sentByUserId" });
+        const aiQualityScope = withRange("s.auditedAt");
+        if (filters.listingId != null) {
+            aiQualityScope.clauses.push("s.listingId = ?");
+            aiQualityScope.params.push(filters.listingId);
+        }
 
         const [
             feedback,
@@ -63,64 +190,122 @@ export class AdminInsightsService {
             suggestionActions,
             missesResolved,
             discards,
+            autoFacts,
             hostifyReplies,
+            aiReplies,
             quoReplies,
             replyQuality,
+            aiReplyQuality,
+            responseSummary,
+            responseUsers,
         ] = await Promise.all([
-            q(`SELECT userId, rating, COUNT(*) c,
-                      SUM(feedbackText IS NOT NULL AND feedbackText <> '') withText,
-                      SUM(correctedResponse IS NOT NULL AND correctedResponse <> '') withCorrection
-               FROM ai_message_feedback WHERE userId IS NOT NULL AND createdAt >= ? GROUP BY userId, rating`),
-            q(`SELECT answeredByUserId AS userId, status, COUNT(*) c
-               FROM ai_learning_prompts WHERE answeredByUserId IS NOT NULL AND resolvedAt >= ? GROUP BY answeredByUserId, status`),
-            q(`SELECT createdByUserId AS userId, COUNT(*) c
-               FROM ai_learned_facts WHERE createdByUserId IS NOT NULL AND createdAt >= ? GROUP BY createdByUserId`),
-            q(`SELECT reviewedByUserId AS userId, COUNT(*) c
-               FROM ai_learned_facts WHERE reviewedByUserId IS NOT NULL AND updatedAt >= ? GROUP BY reviewedByUserId`),
-            q(`SELECT acceptedByUserId AS userId, status, COUNT(*) c
-               FROM ai_message_suggestions WHERE acceptedByUserId IS NOT NULL AND generatedAt >= ? GROUP BY acceptedByUserId, status`),
-            q(`SELECT missResolvedBy AS name, COUNT(*) c
-               FROM ai_message_suggestions WHERE missResolvedBy IS NOT NULL AND missResolvedAt >= ? GROUP BY missResolvedBy`),
-            q(`SELECT discardedBy AS name, COUNT(*) c
-               FROM ai_discard_feedback WHERE discardedBy IS NOT NULL AND createdAt >= ? GROUP BY discardedBy`),
-            // Team replies land two ways: sent from our dashboard (sentByUserId)
-            // or sent in Hostify itself and synced back with the rep's name in
-            // senderName. Count both; exclude the AI's auto-sends.
-            q(`SELECT sentByUserId AS userId, COALESCE(sentByName, senderName) AS name, COUNT(*) c,
-                      COUNT(DISTINCT threadId) threads, MIN(sentAt) firstAt, MAX(sentAt) lastAt
-               FROM inbox_messages
-               WHERE direction = 'outgoing' AND sentVia <> 'ai_auto' AND sentAt >= ?
-                 AND TRIM(COALESCE(sentByName, senderName, '')) <> ''
-               GROUP BY sentByUserId, COALESCE(sentByName, senderName)`),
-            q(`SELECT sentByUserId AS userId, senderName AS name, COUNT(*) c,
-                      COUNT(DISTINCT conversationId) threads, MIN(sentAt) firstAt, MAX(sentAt) lastAt
-               FROM quo_messages
-               WHERE direction = 'outgoing' AND sentAt >= ? AND (sentByUserId IS NOT NULL OR senderName IS NOT NULL)
-               GROUP BY sentByUserId, senderName`),
-            // "Replied best": team replies captured by the nightly audit, joined
-            // back to the sender. replyRelevance='relevant' means the judge said
-            // their reply actually addressed the guest's message.
-            q(`SELECT COALESCE(m.sentByName, m.senderName) AS name, m.sentByUserId AS userId,
-                      COUNT(*) compared,
-                      SUM(s.replyRelevance = 'relevant') answers,
-                      SUM(s.replyRelevance = 'off_topic') offTopic,
-                      AVG(NULLIF(s.replyCoverageScore, -1)) avgCoverage
-               FROM ai_message_suggestions s
-               JOIN inbox_messages m ON m.externalId = s.actualReplyMessageId AND m.threadId = s.threadId
-               WHERE s.source = 'hostify' AND s.actualReplyAt >= ? AND s.actualReplyText IS NOT NULL
-                 AND COALESCE(m.sentByName, m.senderName) IS NOT NULL
-               GROUP BY COALESCE(m.sentByName, m.senderName), m.sentByUserId
-               HAVING compared >= 3
-               ORDER BY compared DESC`),
+            this.q(
+                `SELECT userId, rating, COUNT(*) c,
+                        SUM(feedbackText IS NOT NULL AND feedbackText <> '') withText,
+                        SUM(correctedResponse IS NOT NULL AND correctedResponse <> '') withCorrection
+                 FROM ai_message_feedback WHERE ${feedbackScope.clauses.join(" AND ")} GROUP BY userId, rating`,
+                feedbackScope.params
+            ),
+            this.q(
+                `SELECT answeredByUserId AS userId, status, COUNT(*) c
+                 FROM ai_learning_prompts WHERE ${promptScope.clauses.join(" AND ")} GROUP BY answeredByUserId, status`,
+                promptScope.params
+            ),
+            this.q(
+                `SELECT createdByUserId AS userId, COUNT(*) c
+                 FROM ai_learned_facts WHERE ${factsCreatedScope.clauses.join(" AND ")} GROUP BY createdByUserId`,
+                factsCreatedScope.params
+            ),
+            this.q(
+                `SELECT reviewedByUserId AS userId, COUNT(*) c
+                 FROM ai_learned_facts WHERE ${factsReviewedScope.clauses.join(" AND ")} GROUP BY reviewedByUserId`,
+                factsReviewedScope.params
+            ),
+            this.q(
+                `SELECT acceptedByUserId AS userId, status, COUNT(*) c
+                 FROM ai_message_suggestions WHERE ${suggestionScope.clauses.join(" AND ")} GROUP BY acceptedByUserId, status`,
+                suggestionScope.params
+            ),
+            this.q(
+                `SELECT missResolvedBy AS name, COUNT(*) c
+                 FROM ai_message_suggestions WHERE ${missesScope.clauses.join(" AND ")} GROUP BY missResolvedBy`,
+                missesScope.params
+            ),
+            this.q(
+                `SELECT discardedBy AS name, COUNT(*) c
+                 FROM ai_discard_feedback WHERE ${discardScope.clauses.join(" AND ")} GROUP BY discardedBy`,
+                discardScope.params
+            ),
+            this.q(
+                `SELECT COUNT(*) c FROM ai_learned_facts
+                 WHERE source = 'nightly_audit' AND createdByUserId IS NULL AND ${autoFactsScope.clauses.join(" AND ")}`,
+                autoFactsScope.params
+            ),
+            this.q(
+                `SELECT sentByUserId AS userId, COALESCE(sentByName, senderName) AS name, COUNT(*) c,
+                        COUNT(DISTINCT threadId) threads,
+                        SUM(sentByUserId IS NOT NULL) actualUserReplies,
+                        SUM(sentByUserId IS NULL) sourceAccountReplies
+                 FROM inbox_messages m
+                 WHERE direction = 'outgoing' AND sentVia <> 'ai_auto' AND ${hostifyScope.clauses.join(" AND ")}
+                   AND TRIM(COALESCE(sentByName, senderName, '')) <> ''
+                 GROUP BY sentByUserId, COALESCE(sentByName, senderName)`,
+                hostifyScope.params
+            ),
+            this.q(
+                `SELECT COUNT(*) c, COUNT(DISTINCT threadId) threads
+                 FROM inbox_messages m
+                 WHERE direction = 'outgoing' AND sentVia = 'ai_auto' AND ${hostifyScope.clauses.join(" AND ")}`,
+                hostifyScope.params
+            ),
+            this.q(
+                `SELECT m.sentByUserId AS userId, m.senderName AS name, COUNT(*) c,
+                        COUNT(DISTINCT m.conversationId) threads,
+                        SUM(m.sentByUserId IS NOT NULL) actualUserReplies,
+                        SUM(m.sentByUserId IS NULL) sourceAccountReplies
+                 FROM quo_messages m
+                 LEFT JOIN quo_conversations c ON c.conversationId = m.conversationId
+                 WHERE m.direction = 'outgoing' AND (m.sentByUserId IS NOT NULL OR m.senderName IS NOT NULL)
+                   AND ${quoScope.clauses.join(" AND ")}
+                 GROUP BY m.sentByUserId, m.senderName`,
+                quoScope.params
+            ),
+            this.q(
+                `SELECT COALESCE(m.sentByName, m.senderName) AS name, m.sentByUserId AS userId,
+                        COUNT(*) compared,
+                        SUM(s.replyRelevance = 'relevant') answers,
+                        SUM(s.replyRelevance = 'off_topic') offTopic,
+                        AVG(NULLIF(s.replyCoverageScore, -1)) avgCoverage
+                 FROM ai_message_suggestions s
+                 JOIN inbox_messages m ON m.externalId = s.actualReplyMessageId AND m.threadId = s.threadId
+                 WHERE s.source = 'hostify' AND s.actualReplyText IS NOT NULL
+                   AND COALESCE(m.sentByName, m.senderName) IS NOT NULL
+                   AND ${qualityScope.clauses.join(" AND ")}
+                 GROUP BY COALESCE(m.sentByName, m.senderName), m.sentByUserId
+                 HAVING compared >= 3`,
+                qualityScope.params
+            ),
+            this.q(
+                `SELECT COUNT(*) compared,
+                        SUM(aiReplyQuality = 'addressed') answers,
+                        SUM(aiReplyQuality = 'missed') offTopic,
+                        AVG(NULLIF(verifierConfidence, -1)) avgCoverage
+                 FROM ai_message_suggestions s
+                 WHERE s.aiReplyQuality IS NOT NULL AND s.aiReplyQuality <> 'unknown'
+                   AND ${aiQualityScope.clauses.join(" AND ")}`,
+                aiQualityScope.params
+            ),
+            this.responseSummary(filters, w),
+            this.responseUsers(filters, w, names),
         ]);
 
-        // ---- fold the AI-training rows into one record per user -------------
         const training = new Map<string, any>();
-        const ensure = (key: string, userId: number | null, name: string | null) => {
+        const ensure = (key: string, userId: number | null, name: string | null, identityType: string = "user") => {
             if (!training.has(key)) {
                 training.set(key, {
                     userId,
                     name: name || (userId != null ? nameOf(userId) : null) || key,
+                    identityType,
                     thumbsUp: 0,
                     thumbsDown: 0,
                     textFeedback: 0,
@@ -138,7 +323,11 @@ export class AdminInsightsService {
             }
             return training.get(key);
         };
-        const byUserId = (id: any) => ensure(`u${id}`, Number(id), nameOf(id));
+        const byUserId = (id: any) => ensure(`u${id}`, Number(id), nameOf(id), "user");
+        const byName = (name: string) => {
+            for (const t of training.values()) if (t.name === name) return t;
+            return ensure(`n${name}`, null, name, "source_account");
+        };
 
         for (const r of feedback) {
             const t = byUserId(r.userId);
@@ -160,11 +349,6 @@ export class AdminInsightsService {
             else if (r.status === "edited") t.suggestionsEdited += Number(r.c);
             else if (r.status === "ignored" || r.status === "rejected") t.suggestionsIgnored += Number(r.c);
         }
-        // Name-keyed sources (no numeric id stored) — merge by display name.
-        const byName = (name: string) => {
-            for (const t of training.values()) if (t.name === name) return t;
-            return ensure(`n${name}`, null, name);
-        };
         for (const r of missesResolved) byName(String(r.name)).missesResolved += Number(r.c);
         for (const r of discards) byName(String(r.name)).itemsDiscarded += Number(r.c);
 
@@ -178,7 +362,9 @@ export class AdminInsightsService {
             .filter((t) => t.total > 0 || t.suggestionsAccepted + t.suggestionsEdited + t.suggestionsIgnored > 0)
             .sort((a, b) => b.total - a.total);
 
-        // ---- replies (merge hostify + quo per user) --------------------------
+        const teamTrainingTotal = trainingRows.reduce((sum, t) => sum + t.total, 0);
+        const aiTrainingTotal = Number(autoFacts[0]?.c || 0);
+
         const replies = new Map<string, any>();
         const repKey = (userId: any, name: any) => (userId != null ? `u${userId}` : `n${name}`);
         for (const src of [
@@ -191,24 +377,31 @@ export class AdminInsightsService {
                     replies.set(k, {
                         userId: r.userId != null ? Number(r.userId) : null,
                         name: (r.userId != null && nameOf(r.userId)) || r.name || "unknown",
+                        identityType: r.userId != null ? "user" : "source_account",
                         hostify: 0,
                         quo: 0,
                         threads: 0,
+                        actualUserReplies: 0,
+                        sourceAccountReplies: 0,
                     });
                 }
                 const rec = replies.get(k);
                 rec[src.field] += Number(r.c);
                 rec.threads += Number(r.threads || 0);
+                rec.actualUserReplies += Number(r.actualUserReplies || 0);
+                rec.sourceAccountReplies += Number(r.sourceAccountReplies || 0);
             }
         }
         const replyRows = [...replies.values()]
             .map((r) => ({ ...r, total: r.hostify + r.quo }))
             .sort((a, b) => b.total - a.total);
+        const teamReplies = replyRows.reduce((sum, r) => sum + r.total, 0);
+        const aiReplyCount = Number(aiReplies[0]?.c || 0);
 
-        // ---- reply quality ("who replied best") ------------------------------
         const qualityRows = replyQuality.map((r) => ({
             userId: r.userId != null ? Number(r.userId) : null,
             name: (r.userId != null && nameOf(r.userId)) || r.name,
+            identityType: r.userId != null ? "user" : "source_account",
             compared: Number(r.compared),
             answers: Number(r.answers || 0),
             offTopic: Number(r.offTopic || 0),
@@ -216,11 +409,9 @@ export class AdminInsightsService {
             avgCoverage: r.avgCoverage != null ? Math.round(Number(r.avgCoverage)) : null,
         }));
         qualityRows.sort((a, b) => (b.answerRate ?? -1) - (a.answerRate ?? -1) || b.compared - a.compared);
+        const aiCompared = Number(aiReplyQuality[0]?.compared || 0);
+        const aiAnswers = Number(aiReplyQuality[0]?.answers || 0);
 
-        // ---- transparent time estimate (deterministic, per user) -------------
-        // 2 min per inbox reply, 1.5 per Quo SMS, 2 per learning answer,
-        // 1.5 per feedback, 3 per taught fact. The AI-graded hours (workload
-        // tab) are the richer number; this is a quick same-page reference.
         const estimate = new Map<string, { name: string; minutes: number }>();
         const addMin = (key: string, name: string, min: number) => {
             if (!estimate.has(key)) estimate.set(key, { name, minutes: 0 });
@@ -237,85 +428,305 @@ export class AdminInsightsService {
             .sort((a, b) => b.estimatedHours - a.estimatedHours);
 
         return {
-            days,
-            since: since.toISOString(),
+            days: w.days,
+            since: w.from.toISOString(),
+            until: w.to.toISOString(),
+            filters,
             training: trainingRows,
+            trainingSummary: {
+                team: teamTrainingTotal,
+                ai: aiTrainingTotal,
+                total: teamTrainingTotal + aiTrainingTotal,
+            },
             replies: replyRows,
+            replySummary: {
+                team: teamReplies,
+                ai: aiReplyCount,
+                total: teamReplies + aiReplyCount,
+            },
             replyQuality: qualityRows,
+            replyQualitySummary: {
+                teamCompared: qualityRows.reduce((s, r) => s + r.compared, 0),
+                teamAnswerRate: qualityRows.length
+                    ? Math.round(qualityRows.reduce((s, r) => s + (r.answers || 0), 0) / Math.max(1, qualityRows.reduce((s, r) => s + r.compared, 0)) * 100)
+                    : null,
+                aiCompared,
+                aiAnswerRate: aiCompared ? Math.round((aiAnswers / aiCompared) * 100) : null,
+            },
+            responseTimes: {
+                summary: responseSummary,
+                users: responseUsers,
+            },
             timeEstimate: timeRows,
         };
     }
 
-    // -------------------------------------------------------------------------
-    // Unified training-activity log: every way a person taught/steered the AI —
-    // thumbs & written feedback, taught facts, answered/dismissed bot questions,
-    // and resolved analytics misses — merged into one time-ordered feed (so the
-    // log matches the per-user counts on the overview tab).
-    // -------------------------------------------------------------------------
-    async feedbackLog(days: number, limit = 50, offset = 0): Promise<any> {
-        const since = this.sinceDate(days);
+    private async responseSummary(filters: AdminInsightFilters, w: DateWindow): Promise<any> {
+        const base = (via: "team" | "ai") => {
+            const outWhere = via === "ai" ? "o.sentVia = 'ai_auto'" : "o.sentVia <> 'ai_auto'";
+            const params: any[] = [];
+            const clauses = [this.range("o.sentAt", w, params), outWhere, "i.sentAt IS NOT NULL"];
+            if (filters.listingId != null) {
+                clauses.push("o.listingId = ?");
+                params.push(filters.listingId);
+            }
+            if (filters.userId != null && via === "team") {
+                clauses.push("o.sentByUserId = ?");
+                params.push(filters.userId);
+            }
+            if (filters.userId != null && via === "ai") {
+                clauses.push("1 = 0");
+            }
+            return this.q(
+                `SELECT COUNT(*) responses,
+                        AVG(TIMESTAMPDIFF(SECOND, i.sentAt, o.sentAt)) avgSec
+                 FROM inbox_messages o
+                 JOIN inbox_messages i ON i.id = (
+                    SELECT i2.id FROM inbox_messages i2
+                    WHERE i2.threadId = o.threadId AND i2.direction = 'incoming' AND i2.sentAt < o.sentAt
+                    ORDER BY i2.sentAt DESC LIMIT 1
+                 )
+                 WHERE o.direction = 'outgoing' AND ${clauses.join(" AND ")}`,
+                params
+            );
+        };
+        const [teamRows, aiRows] = await Promise.all([base("team"), base("ai")]);
+        const fmt = (r: Row | undefined) => ({
+            responses: Number(r?.responses || 0),
+            avgMinutes: r?.avgSec != null ? Math.round(Number(r.avgSec) / 60) : null,
+        });
+        return { team: fmt(teamRows[0]), ai: fmt(aiRows[0]) };
+    }
+
+    private async responseUsers(filters: AdminInsightFilters, w: DateWindow, names: Map<number, string>): Promise<any[]> {
+        const params: any[] = [];
+        const clauses = [this.range("o.sentAt", w, params), "o.sentVia <> 'ai_auto'", "i.sentAt IS NOT NULL"];
+        if (filters.listingId != null) {
+            clauses.push("o.listingId = ?");
+            params.push(filters.listingId);
+        }
+        if (filters.userId != null) {
+            clauses.push("o.sentByUserId = ?");
+            params.push(filters.userId);
+        }
+        const rows = await this.q(
+            `SELECT o.sentByUserId AS userId, COALESCE(o.sentByName, o.senderName) AS name,
+                    COUNT(*) responses,
+                    AVG(TIMESTAMPDIFF(SECOND, i.sentAt, o.sentAt)) avgSec
+             FROM inbox_messages o
+             JOIN inbox_messages i ON i.id = (
+                SELECT i2.id FROM inbox_messages i2
+                WHERE i2.threadId = o.threadId AND i2.direction = 'incoming' AND i2.sentAt < o.sentAt
+                ORDER BY i2.sentAt DESC LIMIT 1
+             )
+             WHERE o.direction = 'outgoing' AND ${clauses.join(" AND ")}
+               AND TRIM(COALESCE(o.sentByName, o.senderName, '')) <> ''
+             GROUP BY o.sentByUserId, COALESCE(o.sentByName, o.senderName)
+             ORDER BY avgSec ASC`,
+            params
+        );
+        return rows.map((r) => ({
+            userId: r.userId != null ? Number(r.userId) : null,
+            name: (r.userId != null && names.get(Number(r.userId))) || r.name || "unknown",
+            identityType: r.userId != null ? "user" : "source_account",
+            responses: Number(r.responses || 0),
+            avgMinutes: r.avgSec != null ? Math.round(Number(r.avgSec) / 60) : null,
+        }));
+    }
+
+    async trainingDetails(filters: AdminInsightFilters, metric: string, userId?: number | null, limit = 50, offset = 0): Promise<any> {
+        const w = this.window(filters);
         const names = await this.userNames();
         const nameOf = (id: any) => (id != null && names.get(Number(id))) || "unknown";
         const lim = Math.min(Math.max(limit, 1), 200);
         const off = Math.max(offset, 0);
-        // Fetch up to offset+limit newest rows from each source, merge, sort, slice.
+        const selectedName = userId != null ? nameOf(userId) : null;
+        const params: any[] = [];
+        let sql = "";
+        const addRange = (column: string) => this.range(column, w, params);
+        const listingClause = (column: string) => {
+            if (filters.listingId == null) return "";
+            params.push(filters.listingId);
+            return ` AND ${column} = ?`;
+        };
+        const userIdClause = (column: string) => {
+            if (userId == null) return "";
+            params.push(userId);
+            return ` AND ${column} = ?`;
+        };
+        const userNameClause = (column: string) => {
+            if (!selectedName) return "";
+            params.push(selectedName);
+            return ` AND ${column} = ?`;
+        };
+        const statusClause = (statuses: string[]) => {
+            params.push(...statuses);
+            return ` AND status IN (${statuses.map(() => "?").join(",")})`;
+        };
+        const page = ` ORDER BY createdAt DESC LIMIT ${lim} OFFSET ${off}`;
+
+        if (["thumbsUp", "thumbsDown", "textFeedback", "corrections"].includes(metric)) {
+            const rating = metric === "thumbsUp" ? " AND f.rating = 'up'" : metric === "thumbsDown" ? " AND f.rating = 'down'" : "";
+            const extra =
+                metric === "textFeedback" ? " AND f.feedbackText IS NOT NULL AND f.feedbackText <> ''" :
+                metric === "corrections" ? " AND f.correctedResponse IS NOT NULL AND f.correctedResponse <> ''" : "";
+            sql = `SELECT CONCAT('fb-', f.id) id, 'feedback' kind, f.userId, f.rating, f.feedbackText, f.correctedResponse,
+                          LEFT(s.suggestedReply, 300) suggestedReply, s.source, f.threadId, s.quoConversationId, f.createdAt
+                   FROM ai_message_feedback f
+                   LEFT JOIN ai_message_suggestions s ON s.id = f.suggestionId
+                   WHERE ${addRange("f.createdAt")}${userIdClause("f.userId")}${listingClause("f.listingId")}${rating}${extra}${page}`;
+        } else if (["promptsAnswered", "promptsDismissed"].includes(metric)) {
+            sql = `SELECT CONCAT('prompt-', id) id, IF(status = 'dismissed', 'prompt_dismissed', 'prompt_answered') kind,
+                          answeredByUserId userId, question, answerText answer, answerScope scope, source, threadId, listingName,
+                          resolvedAt createdAt
+                   FROM ai_learning_prompts
+                   WHERE ${addRange("resolvedAt")}${userIdClause("answeredByUserId")}
+                     ${metric === "promptsDismissed" ? "AND status = 'dismissed'" : "AND status <> 'dismissed'"}${listingClause("listingId")}${page}`;
+        } else if (["factsTaught", "factsReviewed"].includes(metric)) {
+            const userColumn = metric === "factsTaught" ? "createdByUserId" : "reviewedByUserId";
+            const dateColumn = metric === "factsTaught" ? "createdAt" : "updatedAt";
+            sql = `SELECT CONCAT('fact-', id) id, '${metric === "factsTaught" ? "fact_taught" : "fact_reviewed"}' kind,
+                          ${userColumn} userId, question, answer, scope, listingId, source, ${dateColumn} createdAt
+                   FROM ai_learned_facts
+                   WHERE ${addRange(dateColumn)}${userIdClause(userColumn)}${listingClause("listingId")}${page}`;
+        } else if (metric === "missesResolved") {
+            sql = `SELECT CONCAT('miss-', id) id, 'miss_resolved' kind, NULL userId, missResolvedBy userName,
+                          LEFT(suggestedReply, 300) suggestedReply, source, threadId, quoConversationId, missResolvedAt createdAt
+                   FROM ai_message_suggestions
+                   WHERE ${addRange("missResolvedAt")}${userNameClause("missResolvedBy")}${listingClause("listingId")}${page}`;
+        } else if (metric === "itemsDiscarded") {
+            sql = `SELECT CONCAT('discard-', id) id, 'discarded' kind, NULL userId, discardedBy userName,
+                          comment feedbackText, source, threadId, listingName, createdAt
+                   FROM ai_discard_feedback
+                   WHERE ${addRange("createdAt")}${userNameClause("discardedBy")}${listingClause("listingId")}${page}`;
+        } else {
+            const statuses =
+                metric === "suggestionsAccepted" ? ["accepted", "auto_sent"] :
+                metric === "suggestionsEdited" ? ["edited"] :
+                metric === "suggestionsIgnored" ? ["ignored", "rejected"] : [];
+            if (!statuses.length) return { total: 0, items: [] };
+            sql = `SELECT CONCAT('suggestion-', id) id, 'suggestion_action' kind, acceptedByUserId userId, status,
+                          LEFT(suggestedReply, 300) suggestedReply, source, threadId, quoConversationId, generatedAt createdAt
+                   FROM ai_message_suggestions
+                   WHERE ${addRange("generatedAt")}${userIdClause("acceptedByUserId")}${statusClause(statuses)}${listingClause("listingId")}${page}`;
+        }
+
+        const rows = await this.q(sql, params);
+        return {
+            total: rows.length,
+            items: rows.map((r) => ({
+                ...r,
+                userId: r.userId != null ? Number(r.userId) : null,
+                userName: r.userName || nameOf(r.userId),
+            })),
+        };
+    }
+
+    async replyQualityDetails(filters: AdminInsightFilters, userId?: number | null, name?: string | null): Promise<any> {
+        const w = this.window(filters);
+        const params: any[] = [];
+        const clauses = [
+            this.range("s.actualReplyAt", w, params),
+            "s.source = 'hostify'",
+            "s.actualReplyText IS NOT NULL",
+        ];
+        if (filters.listingId != null) {
+            clauses.push("s.listingId = ?");
+            params.push(filters.listingId);
+        }
+        if (userId != null) {
+            clauses.push("m.sentByUserId = ?");
+            params.push(userId);
+        } else if (name) {
+            clauses.push("COALESCE(m.sentByName, m.senderName) = ?");
+            params.push(name);
+        }
+        const rows = await this.q(
+            `SELECT s.id, m.sentByUserId userId, COALESCE(m.sentByName, m.senderName) name,
+                    s.replyRelevance, s.replyRelevanceNote, s.replyCoverageScore,
+                    s.aiReplyQuality, s.aiReplyQualityNote,
+                    LEFT(s.suggestedReply, 400) suggestedReply,
+                    LEFT(s.actualReplyText, 400) actualReplyText,
+                    s.threadId, s.actualReplyAt createdAt
+             FROM ai_message_suggestions s
+             JOIN inbox_messages m ON m.externalId = s.actualReplyMessageId AND m.threadId = s.threadId
+             WHERE ${clauses.join(" AND ")}
+             ORDER BY s.actualReplyAt DESC
+             LIMIT 100`,
+            params
+        );
+        return {
+            items: rows.map((r) => ({
+                ...r,
+                userId: r.userId != null ? Number(r.userId) : null,
+                coverage: r.replyCoverageScore != null ? Math.round(Number(r.replyCoverageScore)) : null,
+            })),
+        };
+    }
+
+    async feedbackLog(filters: AdminInsightFilters, limit = 50, offset = 0): Promise<any> {
+        const w = this.window(filters);
+        const names = await this.userNames();
+        const nameOf = (id: any) => (id != null && names.get(Number(id))) || "unknown";
+        const lim = Math.min(Math.max(limit, 1), 200);
+        const off = Math.max(offset, 0);
         const cap = off + lim;
 
-        const safeParse = (s: any) => {
-            try {
-                return JSON.parse(s || "[]");
-            } catch {
-                return [];
-            }
-        };
         const q = (sql: string, params: any[]): Promise<any[]> => appDatabase.query(sql, params).catch(() => []);
+        const scope = (column: string, params: any[], listingColumn?: string, userColumn?: string) => {
+            const clauses = [this.range(column, w, params)];
+            if (filters.listingId != null && listingColumn) {
+                clauses.push(`${listingColumn} = ?`);
+                params.push(filters.listingId);
+            }
+            if (filters.userId != null && userColumn) {
+                clauses.push(`${userColumn} = ?`);
+                params.push(filters.userId);
+            }
+            return clauses.join(" AND ");
+        };
 
-        const [feedback, facts, prompts, misses, counts] = await Promise.all([
+        const fbParams: any[] = [];
+        const factParams: any[] = [];
+        const promptParams: any[] = [];
+        const missParams: any[] = [];
+        const selectedName = filters.userId != null ? nameOf(filters.userId) : null;
+        const [feedback, facts, prompts, misses] = await Promise.all([
             q(
                 `SELECT f.id, f.userId, f.rating, f.categories, f.feedbackText, f.correctedResponse,
                         f.createdAt, f.threadId, f.suggestionId,
                         LEFT(s.suggestedReply, 300) AS suggestedReply, s.source AS src, s.quoConversationId
                  FROM ai_message_feedback f
                  LEFT JOIN ai_message_suggestions s ON s.id = f.suggestionId
-                 WHERE f.createdAt >= ?
+                 WHERE ${scope("f.createdAt", fbParams, "f.listingId", "f.userId")}
                  ORDER BY f.createdAt DESC LIMIT ${cap}`,
-                [since]
+                fbParams
             ),
-            // Taught facts. source='learning_prompt' rows are excluded — the
-            // prompt-answer entry below already shows that Q&A; 'nightly_audit'
-            // is self-learned (no human).
             q(
                 `SELECT id, createdByUserId AS userId, question, answer, scope, listingId, source, createdAt
                  FROM ai_learned_facts
-                 WHERE createdByUserId IS NOT NULL AND source NOT IN ('learning_prompt', 'nightly_audit') AND createdAt >= ?
+                 WHERE createdByUserId IS NOT NULL AND source NOT IN ('learning_prompt', 'nightly_audit')
+                   AND ${scope("createdAt", factParams, "listingId", "createdByUserId")}
                  ORDER BY createdAt DESC LIMIT ${cap}`,
-                [since]
+                factParams
             ),
             q(
                 `SELECT id, answeredByUserId AS userId, question, answerText, answerScope, status,
                         threadId, source AS src, listingName, resolvedAt
                  FROM ai_learning_prompts
-                 WHERE answeredByUserId IS NOT NULL AND status IN ('answered', 'dismissed') AND resolvedAt >= ?
+                 WHERE answeredByUserId IS NOT NULL AND status IN ('answered', 'dismissed')
+                   AND ${scope("resolvedAt", promptParams, "listingId", "answeredByUserId")}
                  ORDER BY resolvedAt DESC LIMIT ${cap}`,
-                [since]
+                promptParams
             ),
             q(
                 `SELECT id, missResolvedBy, missResolvedAt, threadId, source AS src, quoConversationId,
                         LEFT(suggestedReply, 300) AS suggestedReply
                  FROM ai_message_suggestions
-                 WHERE missResolvedBy IS NOT NULL AND missResolvedAt >= ?
+                 WHERE missResolvedBy IS NOT NULL AND ${scope("missResolvedAt", missParams, "listingId")}
+                   ${selectedName ? "AND missResolvedBy = ?" : ""}
                  ORDER BY missResolvedAt DESC LIMIT ${cap}`,
-                [since]
-            ),
-            q(
-                `SELECT
-                    (SELECT COUNT(*) FROM ai_message_feedback WHERE createdAt >= ?) fb,
-                    (SELECT COUNT(*) FROM ai_learned_facts
-                       WHERE createdByUserId IS NOT NULL AND source NOT IN ('learning_prompt', 'nightly_audit') AND createdAt >= ?) facts,
-                    (SELECT COUNT(*) FROM ai_learning_prompts
-                       WHERE answeredByUserId IS NOT NULL AND status IN ('answered', 'dismissed') AND resolvedAt >= ?) prompts,
-                    (SELECT COUNT(*) FROM ai_message_suggestions WHERE missResolvedBy IS NOT NULL AND missResolvedAt >= ?) misses`,
-                [since, since, since, since]
+                selectedName ? [...missParams, selectedName] : missParams
             ),
         ]);
 
@@ -327,7 +738,7 @@ export class AdminInsightsService {
                 userId: r.userId != null ? Number(r.userId) : null,
                 userName: nameOf(r.userId),
                 rating: r.rating,
-                categories: safeParse(r.categories),
+                categories: (() => { try { return JSON.parse(r.categories || "[]"); } catch { return []; } })(),
                 feedbackText: r.feedbackText,
                 correctedResponse: r.correctedResponse,
                 suggestedReply: r.suggestedReply,
@@ -381,14 +792,13 @@ export class AdminInsightsService {
         }
 
         items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        const c = counts[0] || {};
         return {
-            total: Number(c.fb || 0) + Number(c.facts || 0) + Number(c.prompts || 0) + Number(c.misses || 0),
+            total: items.length,
             byKind: {
-                feedback: Number(c.fb || 0),
-                factsTaught: Number(c.facts || 0),
-                promptsResolved: Number(c.prompts || 0),
-                missesResolved: Number(c.misses || 0),
+                feedback: feedback.length,
+                factsTaught: facts.length,
+                promptsResolved: prompts.length,
+                missesResolved: misses.length,
             },
             items: items.slice(off, off + lim),
         };
