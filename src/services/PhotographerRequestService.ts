@@ -6,6 +6,7 @@ import { slackMessageService } from "./SlackMessageService";
 import { buildPhotographerRequestSlackMessage, buildPhotographerRequestUpdateSlackMessage } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import { getDiff } from "../helpers/helpers";
+import { serviceRequestHistoryService } from "./ServiceRequestHistoryService";
 
 export class PhotographerRequestService {
     private photographerRequestRepo = appDatabase.getRepository(PhotographerRequest);
@@ -73,6 +74,7 @@ export class PhotographerRequestService {
             Object.assign(existingRequest, data);
             existingRequest.updatedBy = createdBy || null;
             result = await this.photographerRequestRepo.save(existingRequest);
+            await serviceRequestHistoryService.recordUpdate("photographer", result.id, oldRequest, result, createdBy);
 
             await this.handleSlackNotification(result, oldRequest, authenticatedUserId);
         } else {
@@ -83,6 +85,7 @@ export class PhotographerRequestService {
                 createdBy: createdBy || null,
             });
             result = await this.photographerRequestRepo.save(request);
+            await serviceRequestHistoryService.recordCreate("photographer", result.id, createdBy);
 
             await this.handleSlackNotification(result, null, authenticatedUserId);
         }
@@ -104,6 +107,7 @@ export class PhotographerRequestService {
         request.updatedBy = updatedBy || null;
 
         const result = await this.photographerRequestRepo.save(request);
+        await serviceRequestHistoryService.recordUpdate("photographer", result.id, oldRequest, result, updatedBy);
         await this.handleSlackNotification(result, oldRequest, authenticatedUserId);
 
         return result;

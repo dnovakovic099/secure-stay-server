@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { AllServiceRequestService } from "../services/AllServiceRequestService";
 import { ServiceRequestThreadService } from "../services/ServiceRequestThreadService";
+import { serviceRequestHistoryService } from "../services/ServiceRequestHistoryService";
 
 const SERVICE_REQUEST_THREAD_TYPES = new Set(["photographer", "cleaner", "maintenance", "itemSupply"]);
 
@@ -83,6 +84,23 @@ export class AllServiceRequestController {
             const result = await service.getThread(requestType as any, requestId);
 
             return res.status(200).json(result);
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async getHistory(req: Request, res: Response, next: NextFunction) {
+        try {
+            const requestType = String(req.params.type || "");
+            const requestId = Number(req.params.id);
+
+            if (!SERVICE_REQUEST_THREAD_TYPES.has(requestType) || !Number.isFinite(requestId)) {
+                return res.status(400).json({ message: "Invalid service request history target" });
+            }
+
+            const history = await serviceRequestHistoryService.getHistory(requestType as any, requestId);
+
+            return res.status(200).json({ data: history });
         } catch (error) {
             next(error);
         }

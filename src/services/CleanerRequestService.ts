@@ -6,6 +6,7 @@ import { slackMessageService } from "./SlackMessageService";
 import { buildCleanerRequestSlackMessage, buildCleanerRequestUpdateSlackMessage } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import { getDiff } from "../helpers/helpers";
+import { serviceRequestHistoryService } from "./ServiceRequestHistoryService";
 
 export class CleanerRequestService {
     private cleanerRequestRepo = appDatabase.getRepository(CleanerRequest);
@@ -86,6 +87,7 @@ export class CleanerRequestService {
             Object.assign(existingRequest, data);
             existingRequest.updatedBy = createdBy || null;
             result = await this.cleanerRequestRepo.save(existingRequest);
+            await serviceRequestHistoryService.recordUpdate("cleaner", result.id, oldRequest, result, createdBy);
 
             await this.handleSlackNotification(result, oldRequest, authenticatedUserId);
         } else {
@@ -96,6 +98,7 @@ export class CleanerRequestService {
                 createdBy: createdBy || null,
             });
             result = await this.cleanerRequestRepo.save(request);
+            await serviceRequestHistoryService.recordCreate("cleaner", result.id, createdBy);
 
             await this.handleSlackNotification(result, null, authenticatedUserId);
         }
@@ -117,6 +120,7 @@ export class CleanerRequestService {
         request.updatedBy = updatedBy || null;
 
         const result = await this.cleanerRequestRepo.save(request);
+        await serviceRequestHistoryService.recordUpdate("cleaner", result.id, oldRequest, result, updatedBy);
         await this.handleSlackNotification(result, oldRequest, authenticatedUserId);
 
         return result;

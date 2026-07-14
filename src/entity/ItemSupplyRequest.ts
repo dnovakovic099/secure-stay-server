@@ -39,6 +39,9 @@ export class ItemSupplyRequest {
     @Column({ nullable: true, default: "new" })
     status: string;
 
+    @Column({ name: "expense_id", type: "int", nullable: true })
+    expenseId: number | null;
+
     @CreateDateColumn({ type: "timestamp" })
     createdAt: Date;
 

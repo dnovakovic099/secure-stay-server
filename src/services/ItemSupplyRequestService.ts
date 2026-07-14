@@ -6,6 +6,7 @@ import { slackMessageService } from "./SlackMessageService";
 import { buildItemSupplyRequestSlackMessage, buildItemSupplyRequestUpdateSlackMessage } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import { getDiff } from "../helpers/helpers";
+import { serviceRequestHistoryService } from "./ServiceRequestHistoryService";
 
 export class ItemSupplyRequestService {
     private itemSupplyRequestRepo = appDatabase.getRepository(ItemSupplyRequest);
@@ -83,6 +84,7 @@ export class ItemSupplyRequestService {
             Object.assign(existingRequest, data);
             existingRequest.updatedBy = createdBy || null;
             result = await this.itemSupplyRequestRepo.save(existingRequest);
+            await serviceRequestHistoryService.recordUpdate("itemSupply", result.id, oldRequest, result, createdBy);
 
             await this.handleSlackNotification(result, oldRequest, authenticatedUserId);
         } else {
@@ -92,6 +94,7 @@ export class ItemSupplyRequestService {
                 createdBy: createdBy || null,
             });
             result = await this.itemSupplyRequestRepo.save(request);
+            await serviceRequestHistoryService.recordCreate("itemSupply", result.id, createdBy);
 
             await this.handleSlackNotification(result, null, authenticatedUserId);
         }
@@ -108,10 +111,32 @@ export class ItemSupplyRequestService {
             throw new Error("Item supply request not found");
         }
 
+        const oldRequest = { ...request };
         Object.assign(request, data);
         request.updatedBy = updatedBy || null;
 
-        return await this.itemSupplyRequestRepo.save(request);
+        const result = await this.itemSupplyRequestRepo.save(request);
+        await serviceRequestHistoryService.recordUpdate("itemSupply", result.id, oldRequest, result, updatedBy);
+
+        return result;
+    }
+
+    async linkExpense(id: number, expenseId: number, updatedBy?: string | null): Promise<ItemSupplyRequest> {
+        const request = await this.itemSupplyRequestRepo.findOne({
+            where: { id },
+        });
+
+        if (!request) {
+            throw new Error("Item supply request not found");
+        }
+
+        request.expenseId = expenseId;
+        request.updatedBy = updatedBy || null;
+
+        const result = await this.itemSupplyRequestRepo.save(request);
+        await serviceRequestHistoryService.recordExpenseLink(result.id, expenseId, updatedBy);
+
+        return result;
     }
 
     private async handleSlackNotification(request: ItemSupplyRequest, oldRequest: ItemSupplyRequest | null, authenticatedUserId: string) {

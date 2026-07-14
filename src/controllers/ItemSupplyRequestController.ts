@@ -81,13 +81,41 @@ export class ItemSupplyRequestController {
         try {
             const { id } = request.params;
             const data = request.body;
-            const userId = request.user?.id;
+            const updatedBy = request.user?.email || null;
 
-            const result = await itemSupplyRequestService.update(Number(id), data, userId);
+            const result = await itemSupplyRequestService.update(Number(id), data, updatedBy);
 
             response.json({
                 success: true,
                 message: "Item/supply request updated successfully",
+                data: result,
+            });
+        } catch (error: any) {
+            response.status(error.message === "Item supply request not found" ? 404 : 500).json({
+                success: false,
+                message: error.message,
+            });
+        }
+    }
+
+    async linkExpense(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const { id } = request.params;
+            const expenseId = Number(request.body?.expenseId);
+            const updatedBy = request.user?.email || null;
+
+            if (!Number.isFinite(expenseId)) {
+                return response.status(400).json({
+                    success: false,
+                    message: "Valid expenseId is required",
+                });
+            }
+
+            const result = await itemSupplyRequestService.linkExpense(Number(id), expenseId, updatedBy);
+
+            response.json({
+                success: true,
+                message: "Expense linked successfully",
                 data: result,
             });
         } catch (error: any) {

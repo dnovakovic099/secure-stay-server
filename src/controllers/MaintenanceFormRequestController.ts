@@ -81,9 +81,9 @@ export class MaintenanceFormRequestController {
         try {
             const { id } = request.params;
             const data = request.body;
-            const userId = request.user?.id;
+            const updatedBy = request.user?.email || null;
 
-            const result = await maintenanceFormRequestService.update(Number(id), data, userId);
+            const result = await maintenanceFormRequestService.update(Number(id), data, updatedBy);
 
             response.json({
                 success: true,

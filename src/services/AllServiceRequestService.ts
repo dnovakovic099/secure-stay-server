@@ -14,6 +14,10 @@ interface UnifiedRequest {
     propertyAddress: string;
     clientName: string;
     createdAt: Date;
+    updatedAt: Date;
+    createdBy?: string | null;
+    updatedBy?: string | null;
+    expenseId?: number | null;
 }
 
 export class AllServiceRequestService {
@@ -102,6 +106,10 @@ export class AllServiceRequestService {
             propertyAddress,
             clientName,
             createdAt: row.createdAt,
+            updatedAt: row.updatedAt,
+            createdBy: row.createdBy || null,
+            updatedBy: row.updatedBy || null,
+            expenseId: row.expenseId || null,
         };
     }
 

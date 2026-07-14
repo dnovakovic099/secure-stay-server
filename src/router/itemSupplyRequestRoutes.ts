@@ -15,6 +15,9 @@ router.get('/property/:propertyId', verifySession, controller.getByProperty.bind
 // Create/submit item/supply request for a property
 router.post('/property/:propertyId', verifySession, validateCreateItemSupplyRequest, controller.create.bind(controller));
 
+// Link an accounting expense to an item/supply request
+router.post('/:id/expense', verifySession, controller.linkExpense.bind(controller));
+
 // Update item/supply request
 router.put('/:id', verifySession, validateUpdateItemSupplyRequest, controller.update.bind(controller));
 

@@ -6,6 +6,7 @@ import { slackMessageService } from "./SlackMessageService";
 import { buildMaintenanceFormRequestSlackMessage, buildMaintenanceFormRequestUpdateSlackMessage } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import { getDiff } from "../helpers/helpers";
+import { serviceRequestHistoryService } from "./ServiceRequestHistoryService";
 
 export class MaintenanceFormRequestService {
     private maintenanceFormRequestRepo = appDatabase.getRepository(MaintenanceFormRequest);
@@ -83,6 +84,7 @@ export class MaintenanceFormRequestService {
             Object.assign(existingRequest, data);
             existingRequest.updatedBy = createdBy || null;
             result = await this.maintenanceFormRequestRepo.save(existingRequest);
+            await serviceRequestHistoryService.recordUpdate("maintenance", result.id, oldRequest, result, createdBy);
 
             await this.handleSlackNotification(result, oldRequest, authenticatedUserId);
         } else {
@@ -92,6 +94,7 @@ export class MaintenanceFormRequestService {
                 createdBy: createdBy || null,
             });
             result = await this.maintenanceFormRequestRepo.save(request);
+            await serviceRequestHistoryService.recordCreate("maintenance", result.id, createdBy);
 
             await this.handleSlackNotification(result, null, authenticatedUserId);
         }
@@ -108,10 +111,14 @@ export class MaintenanceFormRequestService {
             throw new Error("Maintenance form request not found");
         }
 
+        const oldRequest = { ...request };
         Object.assign(request, data);
         request.updatedBy = updatedBy || null;
 
-        return await this.maintenanceFormRequestRepo.save(request);
+        const result = await this.maintenanceFormRequestRepo.save(request);
+        await serviceRequestHistoryService.recordUpdate("maintenance", result.id, oldRequest, result, updatedBy);
+
+        return result;
     }
 
     private async handleSlackNotification(request: MaintenanceFormRequest, oldRequest: MaintenanceFormRequest | null, authenticatedUserId: string) {
