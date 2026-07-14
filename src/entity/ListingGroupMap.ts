@@ -33,6 +33,13 @@ export class ListingGroupMapEntity {
     @Column({ length: 255, nullable: true })
     name: string | null;
 
+    // Hostify's PMS flag for this listing (1 = managed by Hostify's PMS on
+    // this channel listing, 0 = mirror channel listing). Used by the v2 inbox
+    // to hide the duplicate thread Hostify creates for every mirror listing.
+    // NULL = we haven't resolved it yet, treat as visible.
+    @Column({ type: "tinyint", nullable: true })
+    service_pms: number | null;
+
     @CreateDateColumn({ type: "timestamp" })
     createdAt: Date;
 

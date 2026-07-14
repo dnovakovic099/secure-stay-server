@@ -7,6 +7,7 @@ import { InboxMessageEntity } from "../entity/InboxMessage";
 import { UsersEntity } from "../entity/Users";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Listing } from "../entity/Listing";
+import { ListingGroupMapEntity } from "../entity/ListingGroupMap";
 import { ListingService } from "./ListingService";
 import { ListingGroupService } from "./ListingGroupService";
 
@@ -685,6 +686,19 @@ export class InboxService {
         await this.hydrateFromHostifyReservation(conversation);
         await this.conversationRepo.save(conversation);
 
+        // Populate the listing_group_map (incl. service_pms) for this thread's
+        // listing if we haven't seen it yet — this is what lets the inbox list
+        // filter out mirror-channel duplicates without waiting for the next
+        // manual rebuildFromHostify. Best-effort; a failure here just leaves
+        // the row NULL, which the filter treats as visible.
+        if (conversation.listingId) {
+            await this.listingGroupService
+                .ensureListing(conversation.listingId)
+                .catch((err: any) =>
+                    logger.warn(`[InboxService] ensureListing failed for ${conversation.listingId}: ${err.message}`)
+                );
+        }
+
         const rawMessages: any[] = (detail as any)?.messages || [];
         await this.reconcileOutgoing(conversation.threadId, rawMessages);
         const built = rawMessages
@@ -756,7 +770,54 @@ export class InboxService {
             .createQueryBuilder("c")
             .leftJoin(ReservationInfoEntity, "r", "r.id = c.reservationId")
             .leftJoin(Listing, "l", "l.id = c.listingId")
-            .where("c.isArchived = 0");
+            // listing_info only stores a subset of listings (mostly parents);
+            // channel listings that back inbox threads live in
+            // listing_group_map, which is why the service_pms flag has to be
+            // read from the map, not from l.
+            .leftJoin(ListingGroupMapEntity, "lgm", "lgm.listingId = c.listingId")
+            .where("c.isArchived = 0")
+            // Hide threads whose listing is a mirror channel listing — Hostify
+            // creates a separate thread for every mirror listing, which was
+            // surfacing the same guest twice in the inbox. Rules:
+            //  • service_pms = 1 → the PMS-managed listing, always show.
+            //  • c.listingId IS NULL → inquiry with no listing yet, show.
+            //  • service_pms = 0 → mirror listing, always hide.
+            //  • service_pms IS NULL (unknown) → show UNLESS a sibling thread
+            //    exists with a confirmed service_pms = 1 listing that matches
+            //    on ANY of: same guestId, same listing group, same guest
+            //    name+phone, or same reservation. Hostify assigns different
+            //    guestIds per channel listing for the same real guest, so
+            //    matching on guestId alone under-counts duplicates.
+            .andWhere(
+                `(
+                    lgm.service_pms = 1
+                    OR c.listingId IS NULL
+                    OR (
+                        lgm.service_pms IS NULL
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM inbox_conversations c2
+                            LEFT JOIN listing_group_map lgm2 ON lgm2.listingId = c2.listingId
+                            WHERE c2.threadId <> c.threadId
+                              AND c2.isArchived = 0
+                              AND lgm2.service_pms = 1
+                              AND (
+                                  (c.guestId IS NOT NULL AND c2.guestId = c.guestId)
+                                  OR (lgm.groupId IS NOT NULL AND lgm2.groupId IS NOT NULL AND lgm2.groupId = lgm.groupId)
+                                  OR (c.reservationId IS NOT NULL AND c2.reservationId = c.reservationId)
+                                  OR (
+                                      c.guestName IS NOT NULL AND c.guestName <> ''
+                                      AND c2.guestName = c.guestName
+                                      AND (
+                                          (c.guestPhone IS NOT NULL AND c.guestPhone <> '' AND c2.guestPhone = c.guestPhone)
+                                          OR (c.guestEmail IS NOT NULL AND c.guestEmail <> '' AND c2.guestEmail = c.guestEmail)
+                                      )
+                                  )
+                              )
+                        )
+                    )
+                )`
+            );
 
         const channelBuckets = parseListParam(options.channel);
         if (channelBuckets.length) {
@@ -1083,6 +1144,72 @@ export class InboxService {
     async getConversation(threadId: number) {
         const conversation = await this.conversationRepo.findOne({ where: { threadId } });
         if (!conversation) return null;
+
+        // Refuse to open threads that belong to a mirror channel listing —
+        // these are the duplicate threads the inbox list already hides, so
+        // navigating to one via a bookmarked URL should also 404 rather than
+        // rendering a ghost thread we don't want anyone to reply from.
+        // ensureListing lazily fetches service_pms from Hostify if we haven't
+        // cached it yet, so this stays correct even for brand-new listing IDs
+        // that predate the next full listing_group_map rebuild.
+        if (conversation.listingId) {
+            const servicePms = await this.listingGroupService.ensureListing(conversation.listingId);
+            if (servicePms === 0) return null;
+            // service_pms is genuinely unknown (Hostify returned no value) —
+            // treat as a duplicate iff a sibling thread exists on a confirmed
+            // PMS listing. Match keys mirror the listConversations filter
+            // because Hostify hands out different guestIds per channel for
+            // the same real guest.
+            if (servicePms == null) {
+                const groupId = await this.listingGroupService.resolve(conversation.listingId);
+                const pmsSibling = await this.conversationRepo
+                    .createQueryBuilder("c2")
+                    .innerJoin(ListingGroupMapEntity, "lgm2", "lgm2.listingId = c2.listingId")
+                    .where("c2.threadId <> :threadId", { threadId: conversation.threadId })
+                    .andWhere("c2.isArchived = 0")
+                    .andWhere("lgm2.service_pms = 1")
+                    .andWhere(
+                        new Brackets((b) => {
+                            let added = false;
+                            const addOr = (condition: string, params: Record<string, any>) => {
+                                if (added) b.orWhere(condition, params);
+                                else {
+                                    b.where(condition, params);
+                                    added = true;
+                                }
+                            };
+                            if (conversation.guestId) {
+                                addOr("c2.guestId = :guestId", { guestId: conversation.guestId });
+                            }
+                            if (groupId) {
+                                addOr("lgm2.groupId = :groupId", { groupId });
+                            }
+                            if (conversation.reservationId) {
+                                addOr("c2.reservationId = :reservationId", { reservationId: conversation.reservationId });
+                            }
+                            if (conversation.guestName && (conversation.guestPhone || conversation.guestEmail)) {
+                                if (conversation.guestPhone) {
+                                    addOr(
+                                        "c2.guestName = :guestName AND c2.guestPhone = :guestPhone",
+                                        { guestName: conversation.guestName, guestPhone: conversation.guestPhone }
+                                    );
+                                }
+                                if (conversation.guestEmail) {
+                                    addOr(
+                                        "c2.guestName = :guestName AND c2.guestEmail = :guestEmail",
+                                        { guestName: conversation.guestName, guestEmail: conversation.guestEmail }
+                                    );
+                                }
+                            }
+                            if (!added) b.where("1 = 0");
+                        })
+                    )
+                    .select("c2.threadId")
+                    .limit(1)
+                    .getRawOne();
+                if (pmsSibling) return null;
+            }
+        }
 
         // Backfill guest identity on open for older threads created before we
         // resolved guest names from the Hostify guest record (e.g. reservations

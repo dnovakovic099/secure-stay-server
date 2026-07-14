@@ -71,16 +71,78 @@ export class ListingGroupService {
         return Array.from(set);
     }
 
-    private async upsert(listingId: number, groupId: number, name: string | null) {
+    private async upsert(listingId: number, groupId: number, name: string | null, servicePms: number | null = null) {
         const existing = await this.repo.findOne({ where: { listingId: listingId as any } });
         if (existing) {
-            if (existing.groupId === (groupId as any) && (name == null || existing.name === name)) return;
+            const sameName = name == null || existing.name === name;
+            const samePms = servicePms == null || existing.service_pms === servicePms;
+            if (existing.groupId === (groupId as any) && sameName && samePms) return;
             existing.groupId = groupId;
             if (name) existing.name = name.slice(0, 255);
+            if (servicePms != null) existing.service_pms = servicePms;
             await this.repo.save(existing);
             return;
         }
-        await this.repo.save(this.repo.create({ listingId, groupId, name: name ? name.slice(0, 255) : null }));
+        await this.repo.save(
+            this.repo.create({
+                listingId,
+                groupId,
+                name: name ? name.slice(0, 255) : null,
+                service_pms: servicePms,
+            })
+        );
+    }
+
+    /**
+     * Normalize Hostify's `service_pms` value to the tinyint we store. Hostify
+     * returns 1/0 for managed/mirror; anything else (undefined, string) becomes
+     * NULL so downstream filters treat the row as "unknown, keep visible".
+     */
+    private static normalizePms(value: any): number | null {
+        if (value === null || value === undefined) return null;
+        const n = Number(value);
+        if (n === 1) return 1;
+        if (n === 0) return 0;
+        return null;
+    }
+
+    /**
+     * Look up a listing's service_pms flag; fetch from Hostify and cache if
+     * we don't have it yet. Called from InboxService for freshly-arrived
+     * threads whose listing hasn't been seen before, so the filter has data
+     * to work with without waiting for the next full rebuildFromHostify.
+     *
+     * Returns 1 (PMS), 0 (mirror), or null (still unknown after best effort).
+     */
+    async ensureListing(listingId: number | null | undefined): Promise<number | null> {
+        if (!listingId) return null;
+        const id = Number(listingId);
+        if (!Number.isFinite(id) || id <= 0) return null;
+        await this.ensureCache();
+
+        const cached = await this.repo.findOne({
+            where: { listingId: id as any },
+            select: ["listingId", "groupId", "service_pms"],
+        });
+        if (cached && cached.service_pms != null) return cached.service_pms;
+
+        try {
+            const details: any = await this.hostify.getListingDetails(this.apiKey, String(id));
+            const li = details?.listing;
+            if (!li) {
+                // Nothing to persist; leave the row (if any) alone.
+                return cached?.service_pms ?? null;
+            }
+            const parent = Number(li.parent_listing_id);
+            const groupId = Number.isFinite(parent) && parent > 0 ? parent : id;
+            const servicePms = ListingGroupService.normalizePms(li.service_pms);
+            await this.upsert(id, groupId, li.name ?? null, servicePms);
+            ListingGroupService.invalidateCache();
+            return servicePms;
+        } catch (err: any) {
+            logger.warn(`[ListingGroup] ensureListing failed for ${listingId}: ${err.message}`);
+            return cached?.service_pms ?? null;
+        }
     }
 
     /**
@@ -112,7 +174,8 @@ export class ListingGroupService {
                 const li = details?.listing;
                 const parent = Number(li?.parent_listing_id);
                 const groupId = Number.isFinite(parent) && parent > 0 ? parent : id;
-                await this.upsert(id, groupId, li?.name ?? null);
+                const servicePms = ListingGroupService.normalizePms(li?.service_pms);
+                await this.upsert(id, groupId, li?.name ?? null, servicePms);
                 // Make sure the parent maps to itself too, so siblings resolve.
                 if (groupId !== id && !allIds.includes(groupId)) {
                     await this.upsert(groupId, groupId, li?.name ?? null);
