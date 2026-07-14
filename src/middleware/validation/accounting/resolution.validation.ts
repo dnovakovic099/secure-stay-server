@@ -56,6 +56,11 @@ export const validateCreateResolution = (request: Request, response: Response, n
                 'number.base': 'Amount to payout must be a number'
             }),
 
+        llCover: Joi.number().valid(0, 1).optional(),
+        fromPlus50: Joi.number().valid(0, 1).optional(),
+        fromClaimsFee: Joi.number().valid(0, 1).optional(),
+        deductFromRent: Joi.number().valid(0, 1).optional(),
+
         arrivalDate: Joi.string().required().messages({
             'string.empty': 'Arrival date is required',
             'any.required': 'Arrival date is required'
@@ -166,6 +171,11 @@ export const validateUpdateResolution = (request: Request, response: Response, n
                 'any.required': 'Amount is required'
             })
             .allow(null),
+
+        llCover: Joi.number().valid(0, 1).optional(),
+        fromPlus50: Joi.number().valid(0, 1).optional(),
+        fromClaimsFee: Joi.number().valid(0, 1).optional(),
+        deductFromRent: Joi.number().valid(0, 1).optional(),
     });
 
     const { error } = schema.validate(request.body);
@@ -235,6 +245,10 @@ export const validateBulkUpdateResolutions = (request: Request, response: Respon
                     'any.required': 'Amount is required'
                 })
                 .optional(),
+            llCover: Joi.number().valid(0, 1).optional(),
+            fromPlus50: Joi.number().valid(0, 1).optional(),
+            fromClaimsFee: Joi.number().valid(0, 1).optional(),
+            deductFromRent: Joi.number().valid(0, 1).optional(),
         })
         .min(1)
         .required()
