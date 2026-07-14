@@ -59,4 +59,10 @@ export class UpSellController {
     );
     return response.send(upSellListing);
   }
+
+  async getPropertyConfigHistory(request: Request, response: Response) {
+    const getUpSellHistory = new UpSellServices();
+    const data = await getUpSellHistory.getPropertyConfigHistory(request, response);
+    return response.send(data);
+  }
 }

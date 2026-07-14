@@ -5,13 +5,35 @@ import { Request, Response } from "express";
 import { UpSellListing } from "../entity/UpSellListing";
 import { Listing } from "../entity/Listing";
 import { UpSellPropertyConfig } from "../entity/UpSellPropertyConfig";
+import { UpSellPropertyConfigHistory } from "../entity/UpSellPropertyConfigHistory";
 import { QuoteService } from "./QuoteService";
+
+interface NormalizedPropertyConfig {
+  listingId: number;
+  serviceType: string | null;
+  pmFee: number | null;
+  actualFee: number | null;
+  processingFee: number | null;
+  chargeType: string | null;
+  rateConfiguration: string | null;
+  pricingRules: string | null;
+  upsellFee: number | null;
+  taxable: boolean;
+  pairSyncStatus: string | null;
+  pairSyncAction: "sync" | "unsync" | null;
+  source: string | null;
+  sdto: string | null;
+  internalNotes: string | null;
+}
+
+type PropertyConfigHistoryAction = "CREATE" | "UPDATE" | "DELETE" | "SYNC" | "UNSYNC";
 
 export class UpSellServices {
   private upSellRepository = appDatabase.getRepository(UpSellEntity);
   private upSellListings = appDatabase.getRepository(UpSellListing);
   private listingInfoRepository = appDatabase.getRepository(Listing);
   private upSellPropertyConfigRepository = appDatabase.getRepository(UpSellPropertyConfig);
+  private upSellPropertyConfigHistoryRepository = appDatabase.getRepository(UpSellPropertyConfigHistory);
   private quoteService = new QuoteService();
 
   private parseArrayField<T>(value: unknown): T[] {
@@ -52,7 +74,7 @@ export class UpSellServices {
     return false;
   }
 
-  private normalizePropertyConfigs(value: unknown) {
+  private normalizePropertyConfigs(value: unknown): NormalizedPropertyConfig[] {
     const configs = this.parseArrayField<any>(value)
       .map((item) => ({
         listingId: Number(item?.listingId),
@@ -74,7 +96,7 @@ export class UpSellServices {
       .filter((item) => Number.isFinite(item.listingId) && item.listingId > 0);
 
     return Array.from(
-      configs.reduce((deduped, config) => deduped.set(config.listingId, config), new Map<number, typeof configs[number]>()).values()
+      configs.reduce((deduped, config) => deduped.set(config.listingId, config), new Map<number, NormalizedPropertyConfig>()).values()
     );
   }
 
@@ -122,7 +144,197 @@ export class UpSellServices {
     return null;
   }
 
-  private applyPropertyConfigValues(propertyConfig: UpSellPropertyConfig, config: ReturnType<UpSellServices["normalizePropertyConfigs"]>[number]) {
+  private getRequestUserId(request: Request): string {
+    const user = (request as any)?.user;
+    return String(user?.id || user?.email || user?.name || "System");
+  }
+
+  private stringifyHistoryValue(value: unknown): string | null {
+    if (value === null || value === undefined || value === "") return null;
+    if (typeof value === "number") {
+      return Number.isFinite(value) ? String(Number(value.toFixed(4))) : null;
+    }
+    if (typeof value === "boolean") return value ? "true" : "false";
+    if (value instanceof Date) return value.toISOString();
+    if (typeof value === "object") return JSON.stringify(value);
+    return String(value);
+  }
+
+  private normalizeComparableHistoryValue(value: unknown): string {
+    const stringValue = this.stringifyHistoryValue(value);
+    if (stringValue === null) return "";
+    const numericValue = Number(stringValue);
+    if (Number.isFinite(numericValue) && stringValue.trim() !== "") {
+      return String(Number(numericValue.toFixed(4)));
+    }
+    return stringValue.trim();
+  }
+
+  private snapshotPropertyConfig(config: UpSellPropertyConfig | NormalizedPropertyConfig) {
+    return {
+      serviceType: config.serviceType ?? null,
+      pmFee: this.stringifyHistoryValue(config.pmFee),
+      actualFee: this.stringifyHistoryValue(config.actualFee),
+      processingFee: this.stringifyHistoryValue(config.processingFee),
+      chargeType: config.chargeType ?? null,
+      rateConfiguration: config.rateConfiguration ?? null,
+      pricingRules: config.pricingRules ?? null,
+      upsellFee: this.stringifyHistoryValue(config.upsellFee),
+      taxable: Boolean(config.taxable),
+      pairSyncStatus: config.pairSyncStatus ?? null,
+      source: config.source ?? null,
+      sdto: config.sdto ?? null,
+      internalNotes: config.internalNotes ?? null,
+    };
+  }
+
+  private getTrackedPropertyConfigFields(): Array<keyof ReturnType<UpSellServices["snapshotPropertyConfig"]>> {
+    return [
+      "serviceType",
+      "pmFee",
+      "actualFee",
+      "processingFee",
+      "chargeType",
+      "rateConfiguration",
+      "pricingRules",
+      "upsellFee",
+      "taxable",
+      "pairSyncStatus",
+      "source",
+      "sdto",
+      "internalNotes",
+    ];
+  }
+
+  private async createPropertyConfigHistoryEntry(
+    transactionalEntityManager: EntityManager,
+    upSellId: number,
+    listingId: number,
+    changedBy: string,
+    action: PropertyConfigHistoryAction,
+    fieldName: string | null,
+    oldValue: unknown,
+    newValue: unknown
+  ) {
+    const historyEntry = new UpSellPropertyConfigHistory();
+    historyEntry.upSellId = upSellId;
+    historyEntry.listingId = listingId;
+    historyEntry.changedBy = changedBy || "System";
+    historyEntry.action = action;
+    historyEntry.fieldName = fieldName;
+    historyEntry.oldValue = this.stringifyHistoryValue(oldValue);
+    historyEntry.newValue = this.stringifyHistoryValue(newValue);
+    await transactionalEntityManager.save(historyEntry);
+  }
+
+  private async recordPropertyConfigDiffs(
+    transactionalEntityManager: EntityManager,
+    upSellId: number,
+    previousConfigs: UpSellPropertyConfig[],
+    nextConfigs: NormalizedPropertyConfig[],
+    changedBy: string,
+    actionOverride?: PropertyConfigHistoryAction
+  ) {
+    const previousByListingId = new Map(previousConfigs.map((config) => [Number(config.listingId), config]));
+    const nextByListingId = new Map(nextConfigs.map((config) => [Number(config.listingId), config]));
+    const listingIds = Array.from(new Set([...previousByListingId.keys(), ...nextByListingId.keys()]));
+
+    for (const listingId of listingIds) {
+      const previousConfig = previousByListingId.get(listingId);
+      const nextConfig = nextByListingId.get(listingId);
+
+      if (!previousConfig && nextConfig) {
+        await this.createPropertyConfigHistoryEntry(
+          transactionalEntityManager,
+          upSellId,
+          listingId,
+          changedBy,
+          actionOverride || "CREATE",
+          "configuration",
+          null,
+          this.snapshotPropertyConfig(nextConfig)
+        );
+        continue;
+      }
+
+      if (previousConfig && !nextConfig) {
+        await this.createPropertyConfigHistoryEntry(
+          transactionalEntityManager,
+          upSellId,
+          listingId,
+          changedBy,
+          "DELETE",
+          "configuration",
+          this.snapshotPropertyConfig(previousConfig),
+          null
+        );
+        continue;
+      }
+
+      if (!previousConfig || !nextConfig) continue;
+
+      const previousSnapshot = this.snapshotPropertyConfig(previousConfig);
+      const nextSnapshot = this.snapshotPropertyConfig(nextConfig);
+      for (const fieldName of this.getTrackedPropertyConfigFields()) {
+        if (this.normalizeComparableHistoryValue(previousSnapshot[fieldName]) === this.normalizeComparableHistoryValue(nextSnapshot[fieldName])) {
+          continue;
+        }
+
+        const fieldAction =
+          fieldName === "pairSyncStatus" && nextSnapshot[fieldName] === "synced"
+            ? "SYNC"
+            : fieldName === "pairSyncStatus" && nextSnapshot[fieldName] === "unsynced"
+              ? "UNSYNC"
+              : actionOverride || "UPDATE";
+
+        await this.createPropertyConfigHistoryEntry(
+          transactionalEntityManager,
+          upSellId,
+          listingId,
+          changedBy,
+          fieldAction,
+          fieldName,
+          previousSnapshot[fieldName],
+          nextSnapshot[fieldName]
+        );
+      }
+    }
+  }
+
+  private async recordSinglePropertyConfigDiff(
+    transactionalEntityManager: EntityManager,
+    upSellId: number,
+    listingId: number,
+    previousConfig: UpSellPropertyConfig | null,
+    nextConfig: UpSellPropertyConfig | null,
+    changedBy: string,
+    actionOverride?: PropertyConfigHistoryAction
+  ) {
+    const previousConfigs = previousConfig ? [previousConfig] : [];
+    const nextConfigs = nextConfig
+      ? [{
+          listingId,
+          serviceType: nextConfig.serviceType,
+          pmFee: nextConfig.pmFee === null || nextConfig.pmFee === undefined ? null : Number(nextConfig.pmFee),
+          actualFee: nextConfig.actualFee === null || nextConfig.actualFee === undefined ? null : Number(nextConfig.actualFee),
+          processingFee: nextConfig.processingFee === null || nextConfig.processingFee === undefined ? null : Number(nextConfig.processingFee),
+          chargeType: nextConfig.chargeType,
+          rateConfiguration: nextConfig.rateConfiguration,
+          pricingRules: nextConfig.pricingRules,
+          upsellFee: nextConfig.upsellFee === null || nextConfig.upsellFee === undefined ? null : Number(nextConfig.upsellFee),
+          taxable: Boolean(nextConfig.taxable),
+          pairSyncStatus: this.normalizePairSyncStatus(nextConfig.pairSyncStatus),
+          pairSyncAction: null,
+          source: this.normalizeSource(nextConfig.source),
+          sdto: nextConfig.sdto,
+          internalNotes: nextConfig.internalNotes,
+        }]
+      : [];
+
+    await this.recordPropertyConfigDiffs(transactionalEntityManager, upSellId, previousConfigs, nextConfigs, changedBy, actionOverride);
+  }
+
+  private applyPropertyConfigValues(propertyConfig: UpSellPropertyConfig, config: NormalizedPropertyConfig) {
     propertyConfig.serviceType = config.serviceType;
     propertyConfig.pmFee = config.pmFee;
     propertyConfig.actualFee = config.actualFee;
@@ -142,7 +354,8 @@ export class UpSellServices {
     transactionalEntityManager: EntityManager,
     sourceTitle: unknown,
     sourceUpSellId: number,
-    propertyConfigs: ReturnType<UpSellServices["normalizePropertyConfigs"]>
+    propertyConfigs: NormalizedPropertyConfig[],
+    changedBy: string
   ) {
     const pairedTitle = this.getPairedUpsellTitle(sourceTitle);
     if (!pairedTitle || !propertyConfigs.length) return;
@@ -169,20 +382,50 @@ export class UpSellServices {
 
         if (config.pairSyncStatus === "unsynced" || config.pairSyncAction === "unsync") {
           if (sourceConfig && sourceConfig.pairSyncStatus !== "unsynced") {
+            const previousSourceConfig = transactionalEntityManager.create(UpSellPropertyConfig, sourceConfig);
             sourceConfig.pairSyncStatus = "unsynced";
             await transactionalEntityManager.save(sourceConfig);
+            await this.recordSinglePropertyConfigDiff(
+              transactionalEntityManager,
+              sourceUpSellId,
+              listingId,
+              previousSourceConfig,
+              sourceConfig,
+              changedBy,
+              "UNSYNC"
+            );
           }
           if (existingConfig && existingConfig.pairSyncStatus !== "unsynced") {
+            const previousExistingConfig = transactionalEntityManager.create(UpSellPropertyConfig, existingConfig);
             existingConfig.pairSyncStatus = "unsynced";
             await transactionalEntityManager.save(existingConfig);
+            await this.recordSinglePropertyConfigDiff(
+              transactionalEntityManager,
+              pairedUpSellId,
+              listingId,
+              previousExistingConfig,
+              existingConfig,
+              changedBy,
+              "UNSYNC"
+            );
           }
           return;
         }
 
         if (existingConfig?.pairSyncStatus === "unsynced" && config.pairSyncAction !== "sync") {
           if (sourceConfig && sourceConfig.pairSyncStatus !== "unsynced") {
+            const previousSourceConfig = transactionalEntityManager.create(UpSellPropertyConfig, sourceConfig);
             sourceConfig.pairSyncStatus = "unsynced";
             await transactionalEntityManager.save(sourceConfig);
+            await this.recordSinglePropertyConfigDiff(
+              transactionalEntityManager,
+              sourceUpSellId,
+              listingId,
+              previousSourceConfig,
+              sourceConfig,
+              changedBy,
+              "UNSYNC"
+            );
           }
           return;
         }
@@ -202,6 +445,9 @@ export class UpSellServices {
           await transactionalEntityManager.save(upSellListing);
         }
 
+        const previousExistingConfig = existingConfig
+          ? transactionalEntityManager.create(UpSellPropertyConfig, existingConfig)
+          : null;
         const propertyConfig = existingConfig || new UpSellPropertyConfig();
         propertyConfig.upSellId = pairedUpSellId;
         propertyConfig.listingId = listingId;
@@ -210,10 +456,29 @@ export class UpSellServices {
           pairSyncStatus: "synced",
         });
         await transactionalEntityManager.save(propertyConfig);
+        await this.recordSinglePropertyConfigDiff(
+          transactionalEntityManager,
+          pairedUpSellId,
+          listingId,
+          previousExistingConfig,
+          propertyConfig,
+          changedBy,
+          "SYNC"
+        );
 
         if (sourceConfig && sourceConfig.pairSyncStatus !== "synced") {
+          const previousSourceConfig = transactionalEntityManager.create(UpSellPropertyConfig, sourceConfig);
           sourceConfig.pairSyncStatus = "synced";
           await transactionalEntityManager.save(sourceConfig);
+          await this.recordSinglePropertyConfigDiff(
+            transactionalEntityManager,
+            sourceUpSellId,
+            listingId,
+            previousSourceConfig,
+            sourceConfig,
+            changedBy,
+            "SYNC"
+          );
         }
       })
     );
@@ -222,6 +487,7 @@ export class UpSellServices {
   async saveUpSellInfo(request: Request, response: Response) {
     try {
       let { listingIds, propertyConfigs, ...upSellInfo } = request.body;
+      const changedBy = this.getRequestUserId(request);
       if (request.file)
         upSellInfo = {
           ...upSellInfo,
@@ -281,13 +547,22 @@ export class UpSellServices {
               await transactionalEntityManager.save(propertyConfig);
             })
           );
+          await this.recordPropertyConfigDiffs(
+            transactionalEntityManager,
+            Number(savedUpSell.upSellId),
+            [],
+            normalizedPropertyConfigs,
+            changedBy,
+            "CREATE"
+          );
         }
 
         await this.syncPairedPropertyConfigs(
           transactionalEntityManager,
           savedUpSell.title,
           Number(savedUpSell.upSellId),
-          normalizedPropertyConfigs
+          normalizedPropertyConfigs,
+          changedBy
         );
       });
 
@@ -303,6 +578,7 @@ export class UpSellServices {
   async updateUpSellInfo(request: Request, response: Response) {
     try {
       let { listingIds, propertyConfigs, ...upSellInfo } = request.body;
+      const changedBy = this.getRequestUserId(request);
       if (request.file)
         upSellInfo = {
           ...upSellInfo,
@@ -365,6 +641,18 @@ export class UpSellServices {
             );
           }
 
+          const previousPropertyConfigs = await transactionalEntityManager.find(UpSellPropertyConfig, {
+            where: { upSellId: Number(upSellInfo.upSellId) },
+          });
+
+          await this.recordPropertyConfigDiffs(
+            transactionalEntityManager,
+            Number(upSellInfo.upSellId),
+            previousPropertyConfigs,
+            normalizedPropertyConfigs,
+            changedBy
+          );
+
           await transactionalEntityManager.delete(UpSellPropertyConfig, {
             upSellId: Number(upSellInfo.upSellId),
           });
@@ -397,7 +685,8 @@ export class UpSellServices {
             transactionalEntityManager,
             upSellInfo.title || data.title,
             Number(upSellInfo.upSellId),
-            normalizedPropertyConfigs
+            normalizedPropertyConfigs,
+            changedBy
           );
         });
 
@@ -540,6 +829,7 @@ export class UpSellServices {
   async deleteUpSellInfo(request: Request, response: Response) {
     try {
       const upSellId: any = request.query.upSellId;
+      const changedBy = this.getRequestUserId(request);
 
       // check either upsell is present in the table
       const data = await this.upSellRepository.findOne({
@@ -575,6 +865,17 @@ export class UpSellServices {
               { upSellId: upSellId },
               { status: 0 }
             );
+            const previousPropertyConfigs = await transactionalEntityManager.find(UpSellPropertyConfig, {
+              where: { upSellId: Number(upSellId) },
+            });
+            await this.recordPropertyConfigDiffs(
+              transactionalEntityManager,
+              Number(upSellId),
+              previousPropertyConfigs,
+              [],
+              changedBy,
+              "DELETE"
+            );
             // Update status in the retrieved UpSellEntity
             upSellToUpdate.isActive = false;
             await transactionalEntityManager.update(
@@ -597,6 +898,7 @@ export class UpSellServices {
   async deleteMultipleUpSells(request: Request, response: Response) {
     try {
       const { upSellIds } = request.body;
+      const changedBy = this.getRequestUserId(request);
       const invalidUpSellIds: any[] = [];
       const protectedUpSellIds: any[] = [];
 
@@ -623,6 +925,17 @@ export class UpSellServices {
                   UpSellListing,
                   { upSellId: data },
                   { status: 0 }
+                );
+                const previousPropertyConfigs = await transactionalEntityManager.find(UpSellPropertyConfig, {
+                  where: { upSellId: Number(data) },
+                });
+                await this.recordPropertyConfigDiffs(
+                  transactionalEntityManager,
+                  Number(data),
+                  previousPropertyConfigs,
+                  [],
+                  changedBy,
+                  "DELETE"
                 );
 
                 // Update status in the retrieved UpSellEntity
@@ -760,6 +1073,39 @@ export class UpSellServices {
           };
         }
       }
+    } catch (error) {
+      throw new Error(error);
+    }
+  }
+
+  async getPropertyConfigHistory(request: Request, response: Response) {
+    try {
+      const upSellId = Number(request.query.upSellId);
+      const listingId = request.query.listingId === undefined ? null : Number(request.query.listingId);
+
+      if (!Number.isFinite(upSellId) || upSellId <= 0) {
+        return {
+          status: false,
+          message: "Please provide a valid upsell id.",
+          data: [],
+        };
+      }
+
+      const where: any = { upSellId };
+      if (Number.isFinite(listingId) && Number(listingId) > 0) {
+        where.listingId = Number(listingId);
+      }
+
+      const history = await this.upSellPropertyConfigHistoryRepository.find({
+        where,
+        order: { changedAt: "DESC", id: "DESC" },
+        take: Number.isFinite(Number(request.query.limit)) ? Math.min(Number(request.query.limit), 1000) : 1000,
+      });
+
+      return {
+        status: true,
+        data: history,
+      };
     } catch (error) {
       throw new Error(error);
     }

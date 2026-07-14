@@ -166,6 +166,13 @@ export const AppRoutes = () => {
       rawJson: false,
     },
     {
+      path: "/upsell/property-config-history",
+      method: "get",
+      action: upSellController.getPropertyConfigHistory,
+      file: false,
+      rawJson: false,
+    },
+    {
       path: "/upsell/delete-multiple",
       method: "post",
       action: upSellController.deleteMultipleUpSell,
