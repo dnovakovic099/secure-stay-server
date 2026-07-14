@@ -533,6 +533,22 @@ export function scheduleGetReservation() {
     }
   );
 
+  // Admin workload: sync recent Quo calls + AI-grade each employee's day
+  // (active minutes + quality) for the admin insights page.
+  schedule.scheduleJob(
+    { hour: 4, minute: 45, tz: "America/New_York" },
+    async () => {
+      try {
+        logger.info('[AdminWorkload] Nightly call sync + day grading started...');
+        const { AdminWorkloadService } = await import("../services/AdminWorkloadService");
+        await new AdminWorkloadService().refresh({ sinceDays: 3, gradeDays: 30, maxCells: 150 });
+        logger.info('[AdminWorkload] Nightly call sync + day grading completed.');
+      } catch (error) {
+        logger.error("[AdminWorkload] Error in nightly workload task:", error);
+      }
+    }
+  );
+
   // Automated guest messages (rule-based: inquiry winback, pre-arrival /
   // checkout reminders, trash-day notes, one-off follow-ups). Every 10 minutes,
   // offset by 3 min to avoid colliding with the other */5 jobs. Idempotent —
