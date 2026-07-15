@@ -25,6 +25,8 @@ const REVIEW_UI_SETTINGS_PAGE_KEYS: ReviewUiSettingsPageKey[] = [
     'listing-utilities-provider',
     'listing-utilities-providerType',
     'listing-utilities-providerName',
+    'listing-utilities-property-detail',
+    'listing-utilities-provider-detail',
     'accounting-income',
     'accounting-expense',
     'accounting-extras',

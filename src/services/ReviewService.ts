@@ -260,6 +260,8 @@ export type ReviewUiSettingsPageKey =
     | 'listing-utilities-provider'
     | 'listing-utilities-providerType'
     | 'listing-utilities-providerName'
+    | 'listing-utilities-property-detail'
+    | 'listing-utilities-provider-detail'
     | 'accounting-income'
     | 'accounting-expense'
     | 'accounting-extras'
@@ -319,6 +321,8 @@ export class ReviewService {
         'listing-utilities-provider': 'ui-settings:listing-utilities-provider',
         'listing-utilities-providerType': 'ui-settings:listing-utilities-providerType',
         'listing-utilities-providerName': 'ui-settings:listing-utilities-providerName',
+        'listing-utilities-property-detail': 'ui-settings:listing-utilities-property-detail',
+        'listing-utilities-provider-detail': 'ui-settings:listing-utilities-provider-detail',
         'accounting-income': 'ui-settings:accounting-income',
         'accounting-expense': 'ui-settings:accounting-expense',
         'accounting-extras': 'ui-settings:accounting-extras',
@@ -441,6 +445,8 @@ export class ReviewService {
             'listing-utilities-provider': 'Shared Listing Utilities Provider UI Settings',
             'listing-utilities-providerType': 'Shared Listing Utilities Provider Type UI Settings',
             'listing-utilities-providerName': 'Shared Listing Utilities Provider Name UI Settings',
+            'listing-utilities-property-detail': 'Shared Listing Utilities Property Detail UI Settings',
+            'listing-utilities-provider-detail': 'Shared Listing Utilities Provider Detail UI Settings',
             'accounting-income': 'Shared Accounting Income UI Settings',
             'accounting-expense': 'Shared Accounting Expense UI Settings',
             'accounting-extras': 'Shared Accounting Extras UI Settings',
