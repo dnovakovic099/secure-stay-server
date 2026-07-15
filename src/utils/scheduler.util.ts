@@ -724,6 +724,27 @@ export function scheduleGetReservation() {
     }
   );
 
+  // Daily Growth Leads Report — OFF by default: the Atlas app owns this now
+  // (daily scan + Slack group chat + iMessage brief, scheduled by
+  // atlas-line.timer). Running both would double-spend skip-trace credits and
+  // double-text the owners. Re-enable here only with SALES_REPORT_ENABLED=true.
+  schedule.scheduleJob(
+    { hour: 8, minute: 0, tz: "America/New_York" },
+    async () => {
+      if (String(process.env.SALES_REPORT_ENABLED || "false").toLowerCase() !== "true") return;
+      try {
+        logger.info("[DailySalesReport] Scheduled daily growth-leads report started...");
+        const { DailySalesReportService } = await import("../services/DailySalesReportService");
+        const result = await new DailySalesReportService().runDailyReport();
+        logger.info(
+          `[DailySalesReport] Completed — leads=${result.leads}, skipTraces=${result.skipTracesUsed}, markets=${result.markets.join(" | ")}, slackPosted=${result.slackPosted}`
+        );
+      } catch (error) {
+        logger.error("[DailySalesReport] Error in scheduled daily growth-leads report:", error);
+      }
+    }
+  );
+
   // Resolutions Team — daily check-in messages to #resolutions-team at 9:05 AM EST
   // The Slack service also ensures today's review-checkout records before posting.
   schedule.scheduleJob(

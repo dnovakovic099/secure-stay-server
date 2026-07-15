@@ -1,6 +1,7 @@
 import { Router } from "express";
 import verifySession from "../middleware/verifySession";
 import { SalesController } from "../controllers/SalesController";
+import { DailySalesReportController } from "../controllers/DailySalesReportController";
 import {
   validateClientRequest,
   validateParamsWhenFetchingData,
@@ -9,6 +10,7 @@ import fileUpload from "../utils/upload.util";
 
 const router = Router();
 const salesController = new SalesController();
+const dailySalesReportController = new DailySalesReportController();
 
 router.route("/createClient").post(
   // verifySession,
@@ -51,6 +53,20 @@ router.route("/upload-revenue-report").post(
   // verifySession,
   fileUpload('revenue-report').fields([{ name: 'file', maxCount: 1 }]),
   salesController.uploadRevenueReport
+);
+
+// Daily growth-leads report (Atlas) — auth required: run spends paid API credits.
+router.route("/dailyLeadsReport/run").post(
+  verifySession,
+  dailySalesReportController.runReport
+);
+router.route("/dailyLeadsReport/leads").get(
+  verifySession,
+  dailySalesReportController.getLeads
+);
+router.route("/dailyLeadsReport/leads/:lead_id/status").put(
+  verifySession,
+  dailySalesReportController.updateLeadStatus
 );
 
 
