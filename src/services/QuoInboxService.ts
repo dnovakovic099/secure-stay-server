@@ -991,24 +991,60 @@ export class QuoInboxService {
     }
 
     /**
-     * Every Quo conversation attached to a reservation — the auto-linked one
-     * (quo_conversations.reservationId) plus any manually-attached ones in
-     * reservation_quo_conversation. Ordered by lastMessageAt desc so the most
-     * recent conversation surfaces as the first Quo tab in the UI.
+     * Every Quo conversation attached to a reservation:
+     *   1. explicit auto-link on quo_conversations.reservationId (matched at
+     *      sync time by phone),
+     *   2. manual attachments from reservation_quo_conversation,
+     *   3. **phone-match fallback** against the reservation's guest phone — v1
+     *      finds Quo conversations this way (see /messages/inbox behaviour),
+     *      so v2 needs the same fallback for reservations whose auto-link
+     *      never ran (or ran before the phone was known). Matching is done
+     *      on the last 10 digits so different E.164 formats agree.
+     * Ordered newest activity first so the most recent Quo thread surfaces
+     * as the first Quo tab in the UI.
      */
     async listConversationsForReservation(reservationId: number): Promise<QuoConversationEntity[]> {
+        const reservation = await this.reservationRepo.findOne({ where: { id: reservationId } });
         const [primary, links] = await Promise.all([
             this.conversationRepo.find({ where: { reservationId, isArchived: 0 } }),
             this.reservationQuoLinkRepo.find({ where: { reservationId } }),
         ]);
-        const attachedIds = links.map((row) => row.quoConversationId).filter(Boolean);
+        const attachedIds = links
+            .filter((row) => row.isSuppressed !== 1)
+            .map((row) => row.quoConversationId)
+            .filter(Boolean);
+        const suppressedIds = new Set(
+            links
+                .filter((row) => row.isSuppressed === 1)
+                .map((row) => row.quoConversationId)
+                .filter(Boolean)
+        );
         const attached = attachedIds.length
             ? await this.conversationRepo.find({
                   where: { conversationId: In(attachedIds), isArchived: 0 },
               })
             : [];
+
+        // Phone-match fallback — mirrors v1's discovery. Only apply when the
+        // reservation has a phone; last-10-digit match sidesteps E.164 vs
+        // (xxx) xxx-xxxx formatting differences that trip an equality join.
+        let phoneMatches: QuoConversationEntity[] = [];
+        const digits = QuoInboxService.digits(reservation?.phone || null);
+        const last10 = digits.length >= 10 ? digits.slice(-10) : digits;
+        if (last10 && last10.length >= 7) {
+            phoneMatches = await this.conversationRepo
+                .createQueryBuilder("c")
+                .where("c.isArchived = 0")
+                .andWhere(
+                    "RIGHT(REGEXP_REPLACE(COALESCE(c.participantPhone, ''), '[^0-9]', ''), 10) = :last10",
+                    { last10 }
+                )
+                .getMany();
+        }
+
         const dedup = new Map<string, QuoConversationEntity>();
-        for (const conv of [...primary, ...attached]) {
+        for (const conv of [...primary, ...attached, ...phoneMatches]) {
+            if (suppressedIds.has(conv.conversationId)) continue;
             if (!dedup.has(conv.conversationId)) dedup.set(conv.conversationId, conv);
         }
         const conversations = Array.from(dedup.values()).sort((a, b) => {
@@ -1023,7 +1059,7 @@ export class QuoInboxService {
     /**
      * Attach an existing Quo conversation to a reservation as a secondary
      * link — the auto-link on quo_conversations.reservationId isn't touched.
-     * Idempotent: re-attaching the same pair returns the existing row.
+     * Idempotent: re-attaching un-hides a previously-suppressed pair.
      */
     async attachConversation(
         reservationId: number,
@@ -1033,23 +1069,68 @@ export class QuoInboxService {
         const existing = await this.reservationQuoLinkRepo.findOne({
             where: { reservationId, quoConversationId },
         });
-        if (existing) return existing;
+        if (existing) {
+            if (existing.isSuppressed) {
+                existing.isSuppressed = 0;
+                await this.reservationQuoLinkRepo.save(existing);
+            }
+            return existing;
+        }
         return this.reservationQuoLinkRepo.save(
             this.reservationQuoLinkRepo.create({
                 reservationId,
                 quoConversationId,
+                isSuppressed: 0,
                 createdBy: createdBy || null,
             })
         );
     }
 
-    /** Remove a Quo conversation attachment from a reservation. */
-    async detachConversation(reservationId: number, quoConversationId: string): Promise<boolean> {
-        const result = await this.reservationQuoLinkRepo.delete({
-            reservationId,
-            quoConversationId,
+    /**
+     * Hide a Quo conversation from a reservation. Because the inbox v2 tab
+     * strip resolves conversations from three sources (auto-link, manual
+     * attachment, phone-match fallback), a naive delete on the join table
+     * would leave the auto-linked or phone-matched conversation reappearing
+     * on the next reload. This upserts an isSuppressed=1 marker AND clears
+     * the auto-link on quo_conversations.reservationId when it points at
+     * this reservation, so the tab actually stays closed.
+     */
+    async detachConversation(
+        reservationId: number,
+        quoConversationId: string,
+        createdBy?: string | null
+    ): Promise<boolean> {
+        const existing = await this.reservationQuoLinkRepo.findOne({
+            where: { reservationId, quoConversationId },
         });
-        return (result.affected || 0) > 0;
+        if (existing) {
+            if (existing.isSuppressed !== 1) {
+                existing.isSuppressed = 1;
+                await this.reservationQuoLinkRepo.save(existing);
+            }
+        } else {
+            await this.reservationQuoLinkRepo.save(
+                this.reservationQuoLinkRepo.create({
+                    reservationId,
+                    quoConversationId,
+                    isSuppressed: 1,
+                    createdBy: createdBy || null,
+                })
+            );
+        }
+        // Clear the auto-link if it points at this reservation — otherwise a
+        // full re-list would still return this conversation via the primary
+        // fetch. Only touches the row when the reservationId matches.
+        const conv = await this.conversationRepo.findOne({ where: { conversationId: quoConversationId } });
+        if (conv && conv.reservationId === reservationId) {
+            conv.reservationId = null;
+            conv.listingId = null;
+            conv.listingName = null;
+            conv.guestName = null;
+            conv.linkMethod = null;
+            await this.conversationRepo.save(conv);
+        }
+        return true;
     }
 
     /**

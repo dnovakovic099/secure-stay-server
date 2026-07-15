@@ -269,7 +269,7 @@ export class QuoInboxController {
         }
     };
 
-    /** Remove a Quo conversation attachment from a reservation. */
+    /** Hide a Quo conversation from a reservation (see service comments). */
     detach = async (req: Request, res: Response, next: NextFunction) => {
         try {
             const reservationId = Number(req.params.reservationId);
@@ -280,7 +280,14 @@ export class QuoInboxController {
                     message: "reservationId and quoConversationId are required",
                 });
             }
-            const removed = await this.service.detachConversation(reservationId, quoConversationId);
+            const user: any = (req as any).user;
+            const { resolveRequestUser } = await import("../utils/requestUser.util");
+            const sender = await resolveRequestUser(user);
+            const removed = await this.service.detachConversation(
+                reservationId,
+                quoConversationId,
+                sender.userName || null
+            );
             res.status(200).json({ status: true, data: { removed } });
         } catch (error) {
             next(error);
