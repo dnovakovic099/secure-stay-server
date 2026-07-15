@@ -9,6 +9,8 @@ import { ListingKnowledgeSeeder } from "../services/ListingKnowledgeSeeder";
 import { ListingGroupService } from "../services/ListingGroupService";
 import { ExemplarService } from "../services/ExemplarService";
 import { RetrievalService } from "../services/RetrievalService";
+import { QuoInboxService } from "../services/QuoInboxService";
+import logger from "../utils/logger.utils";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -30,10 +32,17 @@ const userId = (user: any): number | null => toNum(user?.secureStayUserId ?? use
  */
 export class AICopilotController {
     /** Combined config: env enablement + editable global settings. */
-    async getSettings(_request: Request, response: Response, next: NextFunction) {
+    async getSettings(request: Request, response: Response, next: NextFunction) {
         try {
             const settingsService = new AIMessagingSettingsService();
             const settings = await settingsService.getGlobal();
+            if (request.query.refreshQuoLines === "true") {
+                try {
+                    await new QuoInboxService().syncPhoneLines();
+                } catch (err: any) {
+                    logger.warn(`[AICopilot] Quo line refresh failed: ${err?.message}`);
+                }
+            }
             const quoLines = await settingsService.listQuoAutoRespondLines();
             return response.status(200).json({
                 status: true,
