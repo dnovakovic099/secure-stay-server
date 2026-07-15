@@ -229,4 +229,104 @@ export class QuoInboxController {
             next(error);
         }
     };
+
+    /** Every Quo conversation attached to a reservation (auto + manual). */
+    listForReservation = async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const reservationId = Number(req.params.reservationId);
+            if (!Number.isFinite(reservationId)) {
+                return res.status(400).json({ status: false, message: "Invalid reservationId" });
+            }
+            const conversations = await this.service.listConversationsForReservation(reservationId);
+            res.status(200).json({ status: true, data: conversations });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    /** Attach an existing Quo conversation to a reservation as a secondary link. */
+    attach = async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const reservationId = Number(req.params.reservationId);
+            const quoConversationId = String(req.body?.quoConversationId || "").trim();
+            if (!Number.isFinite(reservationId) || !quoConversationId) {
+                return res.status(400).json({
+                    status: false,
+                    message: "reservationId and quoConversationId are required",
+                });
+            }
+            const user: any = (req as any).user;
+            const { resolveRequestUser } = await import("../utils/requestUser.util");
+            const sender = await resolveRequestUser(user);
+            const link = await this.service.attachConversation(
+                reservationId,
+                quoConversationId,
+                sender.userName || null
+            );
+            res.status(201).json({ status: true, data: link });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    /** Remove a Quo conversation attachment from a reservation. */
+    detach = async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const reservationId = Number(req.params.reservationId);
+            const quoConversationId = String(req.params.quoConversationId || "").trim();
+            if (!Number.isFinite(reservationId) || !quoConversationId) {
+                return res.status(400).json({
+                    status: false,
+                    message: "reservationId and quoConversationId are required",
+                });
+            }
+            const removed = await this.service.detachConversation(reservationId, quoConversationId);
+            res.status(200).json({ status: true, data: { removed } });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    /** Search Quo conversations for the attach modal. */
+    searchConversations = async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const phone = (req.query.phone as string) || null;
+            const keyword = (req.query.keyword as string) || null;
+            const limit = req.query.limit ? Number(req.query.limit) : undefined;
+            const results = await this.service.searchConversations({ phone, keyword, limit });
+            res.status(200).json({ status: true, data: results });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    /** Enabled Quo lines matching the requested category + portfolio. */
+    linesForPortfolio = async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const category = String(req.query.category || "GR");
+            const portfolio = req.query.portfolio ? String(req.query.portfolio) : null;
+            const lines = await this.service.linesForPortfolio(category, portfolio);
+            res.status(200).json({ status: true, data: lines });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    /** Place an outbound call from a Quo line. */
+    initiateCall = async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const phoneNumberId = String(req.body?.phoneNumberId || "").trim();
+            const to = String(req.body?.to || "").trim();
+            if (!phoneNumberId || !to) {
+                return res.status(400).json({
+                    status: false,
+                    message: "phoneNumberId and to are required",
+                });
+            }
+            const result = await this.service.initiateCall(phoneNumberId, to);
+            res.status(200).json({ status: true, data: result });
+        } catch (error) {
+            next(error);
+        }
+    };
 }

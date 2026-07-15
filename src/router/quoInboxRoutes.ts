@@ -16,6 +16,21 @@ router.get("/conversations/:conversationId/learning-prompt", verifySession, cont
 router.post("/conversations/:conversationId/read", verifySession, controller.markRead);
 router.post("/conversations/:conversationId/link", verifySession, controller.link);
 router.post("/conversations/:conversationId/link-client", verifySession, controller.linkClient);
+
+// Inbox v2 tab integration — list/attach/detach Quo conversations for a
+// reservation, search for an attach target, discover portfolio-scoped lines,
+// and initiate outbound calls from a Quo line.
+router.get("/search", verifySession, controller.searchConversations);
+router.get("/lines-for-portfolio", verifySession, controller.linesForPortfolio);
+router.get("/reservation/:reservationId/conversations", verifySession, controller.listForReservation);
+router.post("/reservation/:reservationId/conversations", verifySession, controller.attach);
+router.delete(
+    "/reservation/:reservationId/conversations/:quoConversationId",
+    verifySession,
+    controller.detach
+);
+router.post("/calls", verifySession, controller.initiateCall);
+
 router.post("/sync", verifySession, controller.sync);
 
 // Inbound webhook from Quo — no session; authenticated by URL token.

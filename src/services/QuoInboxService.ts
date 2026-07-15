@@ -7,6 +7,8 @@ import { QuoConversationEntity } from "../entity/QuoConversation";
 import { QuoMessageEntity } from "../entity/QuoMessage";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { ClientEntity } from "../entity/Client";
+import { ReservationQuoConversationEntity } from "../entity/ReservationQuoConversation";
+import { In } from "typeorm";
 
 /**
  * QuoInboxService — separate SMS inbox for our Quo (OpenPhone) PM/GR lines.
@@ -24,6 +26,7 @@ export class QuoInboxService {
     private conversationRepo = appDatabase.getRepository(QuoConversationEntity);
     private messageRepo = appDatabase.getRepository(QuoMessageEntity);
     private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
+    private reservationQuoLinkRepo = appDatabase.getRepository(ReservationQuoConversationEntity);
 
     private client: AxiosInstance;
 
@@ -951,5 +954,174 @@ export class QuoInboxService {
         conv.unread = 0;
         await this.conversationRepo.save(conv);
         return msg;
+    }
+
+    // -------------------------------------------------------------------------
+    // Inbox v2 integration: portfolio line lookup, per-reservation Quo threads,
+    // multi-attach, search-for-attach, and outbound call initiation.
+    // -------------------------------------------------------------------------
+
+    /**
+     * Detect the "G1" / "G2" portfolio marker on a Quo line — the operator's
+     * convention is to encode it in the line's symbol/name (e.g. "GR G1",
+     * "G2 GR"). Returns "G1" | "G2" | null.
+     */
+    private static detectPortfolio(line: QuoPhoneLineEntity): "G1" | "G2" | null {
+        const haystack = `${line.symbol || ""} ${line.name || ""}`;
+        if (/\bG1\b|\bGroup ?1\b/i.test(haystack)) return "G1";
+        if (/\bG2\b|\bGroup ?2\b/i.test(haystack)) return "G2";
+        return null;
+    }
+
+    /**
+     * Enabled Quo lines matching a category (e.g. "GR") and portfolio ("G1" /
+     * "G2"). Used by the inbox v2 Quo tab to pick the correct outbound line
+     * when the guest has no Quo thread yet.
+     */
+    async linesForPortfolio(
+        category: string,
+        portfolio: "G1" | "G2" | string | null
+    ): Promise<QuoPhoneLineEntity[]> {
+        const lines = await this.lineRepo.find({
+            where: { category, enabled: 1 as any },
+        });
+        const normalized = String(portfolio || "").toUpperCase();
+        if (normalized !== "G1" && normalized !== "G2") return lines;
+        return lines.filter((line) => QuoInboxService.detectPortfolio(line) === normalized);
+    }
+
+    /**
+     * Every Quo conversation attached to a reservation — the auto-linked one
+     * (quo_conversations.reservationId) plus any manually-attached ones in
+     * reservation_quo_conversation. Ordered by lastMessageAt desc so the most
+     * recent conversation surfaces as the first Quo tab in the UI.
+     */
+    async listConversationsForReservation(reservationId: number): Promise<QuoConversationEntity[]> {
+        const [primary, links] = await Promise.all([
+            this.conversationRepo.find({ where: { reservationId, isArchived: 0 } }),
+            this.reservationQuoLinkRepo.find({ where: { reservationId } }),
+        ]);
+        const attachedIds = links.map((row) => row.quoConversationId).filter(Boolean);
+        const attached = attachedIds.length
+            ? await this.conversationRepo.find({
+                  where: { conversationId: In(attachedIds), isArchived: 0 },
+              })
+            : [];
+        const dedup = new Map<string, QuoConversationEntity>();
+        for (const conv of [...primary, ...attached]) {
+            if (!dedup.has(conv.conversationId)) dedup.set(conv.conversationId, conv);
+        }
+        const conversations = Array.from(dedup.values()).sort((a, b) => {
+            const aTime = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+            const bTime = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+            return bTime - aTime;
+        });
+        await this.attachPmServicePackages(conversations);
+        return conversations;
+    }
+
+    /**
+     * Attach an existing Quo conversation to a reservation as a secondary
+     * link — the auto-link on quo_conversations.reservationId isn't touched.
+     * Idempotent: re-attaching the same pair returns the existing row.
+     */
+    async attachConversation(
+        reservationId: number,
+        quoConversationId: string,
+        createdBy?: string | null
+    ): Promise<ReservationQuoConversationEntity> {
+        const existing = await this.reservationQuoLinkRepo.findOne({
+            where: { reservationId, quoConversationId },
+        });
+        if (existing) return existing;
+        return this.reservationQuoLinkRepo.save(
+            this.reservationQuoLinkRepo.create({
+                reservationId,
+                quoConversationId,
+                createdBy: createdBy || null,
+            })
+        );
+    }
+
+    /** Remove a Quo conversation attachment from a reservation. */
+    async detachConversation(reservationId: number, quoConversationId: string): Promise<boolean> {
+        const result = await this.reservationQuoLinkRepo.delete({
+            reservationId,
+            quoConversationId,
+        });
+        return (result.affected || 0) > 0;
+    }
+
+    /**
+     * Search Quo conversations for the attach modal. Matches on participant
+     * phone (last-4 or full E.164), contact/guest name, or line name.
+     */
+    async searchConversations(opts: {
+        phone?: string | null;
+        keyword?: string | null;
+        limit?: number;
+    }): Promise<QuoConversationEntity[]> {
+        const limit = Math.min(Math.max(opts.limit ?? 20, 1), 50);
+        const qb = this.conversationRepo
+            .createQueryBuilder("c")
+            .where("c.isArchived = 0")
+            .orderBy("c.lastMessageAt", "DESC")
+            .take(limit);
+
+        const phone = String(opts.phone || "").trim();
+        const digits = phone.replace(/\D+/g, "");
+        const keyword = String(opts.keyword || "").trim();
+
+        if (!phone && !keyword) return [];
+
+        if (phone) {
+            const digitsLike = digits.length >= 4 ? `%${digits.slice(-10)}%` : `%${digits}%`;
+            qb.andWhere(
+                "(c.participantPhone LIKE :phone OR REPLACE(REPLACE(REPLACE(REPLACE(c.participantPhone, '+', ''), '-', ''), ' ', ''), '(', '') LIKE :digitsLike)",
+                { phone: `%${phone}%`, digitsLike }
+            );
+        }
+        if (keyword) {
+            const kw = `%${keyword}%`;
+            qb.andWhere(
+                "(c.contactName LIKE :kw OR c.guestName LIKE :kw OR c.lineName LIKE :kw OR c.participants LIKE :kw)",
+                { kw }
+            );
+        }
+
+        return qb.getMany();
+    }
+
+    /**
+     * Initiate an outbound call from a Quo line. Returns Quo's response
+     * envelope on success, or a `{ fallback: "tel:…" }` object when Quo's
+     * calls endpoint isn't available on this account (older API tiers) so the
+     * frontend can degrade gracefully to a `tel:` link.
+     */
+    async initiateCall(
+        phoneNumberId: string,
+        to: string
+    ): Promise<{ status: "started" | "fallback"; data: any; fallbackHref?: string }> {
+        try {
+            const res = await this.client.post("/calls", {
+                from: phoneNumberId,
+                to: [to],
+            });
+            return { status: "started", data: res.data?.data ?? res.data ?? null };
+        } catch (err: any) {
+            const code = err?.response?.status;
+            // Quo's REST call-create is gated on paid plans. Any 4xx that
+            // isn't auth (401/403) means "not available" — surface a tel:
+            // fallback rather than a hard error.
+            if (code && code >= 400 && code < 500 && code !== 401 && code !== 403) {
+                logger.warn(`[QuoInbox] initiateCall not supported (${code}); falling back to tel: for ${to}`);
+                return {
+                    status: "fallback",
+                    data: null,
+                    fallbackHref: `tel:${to.replace(/[^+\d]/g, "")}`,
+                };
+            }
+            throw err;
+        }
     }
 }
