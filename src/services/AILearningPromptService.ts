@@ -68,6 +68,23 @@ export class AILearningPromptService {
         }
     }
 
+    /**
+     * The full pending queue (both inboxes) for the Analytics page — the July
+     * audit found 400+ prompts silently piling up because they were only
+     * visible one-at-a-time inside their own conversations.
+     */
+    async listPending(opts: { source?: string; limit?: number } = {}): Promise<AILearningPromptEntity[]> {
+        const qb = this.repo
+            .createQueryBuilder("p")
+            .where("p.status = 'pending'")
+            .orderBy("p.createdAt", "DESC")
+            .take(Math.min(Math.max(Number(opts.limit) || 200, 1), 500));
+        if (opts.source === "quo" || opts.source === "hostify") {
+            qb.andWhere("p.source = :source", { source: opts.source });
+        }
+        return qb.getMany();
+    }
+
     async getPendingForThread(threadId: number, source: string = "hostify"): Promise<AILearningPromptEntity | null> {
         return this.repo.findOne({
             where: { threadId: threadId as any, source, status: "pending" },

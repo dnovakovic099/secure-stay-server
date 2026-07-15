@@ -46,7 +46,7 @@ import { Hostify } from "../client/Hostify";
  * human via the escalation keyword safety net.
  */
 
-export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v3";
+export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v4"; // v4: anti-action-claim rules (July audit)
 const INBOX_AI_MODEL = process.env.AI_MESSAGING_MODEL || "gpt-4.1";
 
 /** Topics that must always route to a human, regardless of model confidence. */
@@ -221,9 +221,11 @@ export class InboxAIService {
 
     /**
      * Generate (or return a cached) suggestion for the latest unanswered guest
-     * message in a thread. Always persists. Returns the suggestion entity.
+     * message in a thread. Persists what it generates. Returns null (no
+     * generation) for auto-triggered calls when there is no pending inbound
+     * message to answer.
      */
-    async generateSuggestion(threadId: number, options: GenerateOptions = {}) {
+    async generateSuggestion(threadId: number, options: GenerateOptions = {}): Promise<AIMessageSuggestionEntity | null> {
         const conversation = await this.conversationRepo.findOne({ where: { threadId } });
         if (!conversation) throw new Error(`Conversation ${threadId} not found`);
 
@@ -252,6 +254,18 @@ export class InboxAIService {
         if (!options.force && !instructions) {
             const existing = await this.getLatestSuggestion(threadId, targetMessageId);
             if (existing) return existing;
+        }
+
+        // Auto-triggered generations (thread open, no cached draft) skip threads
+        // with nothing to answer: the latest message is ours, so a fresh draft is
+        // wasted spend and analytics noise (928 such drafts in 14 days — July
+        // audit). Deliberate asks still generate: force=true (the "Suggest a
+        // reply" button), an explicit messageId (compare view / auto-respond
+        // pipeline), or staff instructions (Generate/Refine).
+        const lastThreadMessage = messages.length ? messages[messages.length - 1] : null;
+        const autoTriggered = !options.force && !instructions && options.messageId == null;
+        if (autoTriggered && (!targetMessage || (lastThreadMessage && lastThreadMessage.direction !== "incoming"))) {
+            return null;
         }
 
         // Self-heal listing knowledge: if this conversation is on a listing we've
@@ -348,6 +362,17 @@ export class InboxAIService {
                 `Reply may contain unverified value(s) not found in context: ${leaks.join(", ")}. Verify before sending.`
             );
         }
+
+        // (b2) Completion-claim net: the reply asserts an action already happened
+        //      ("I've blocked…", "you're all set") with no confirmation in context.
+        const actionClaims = this.detectActionClaims(reply, contextHaystack);
+        if (actionClaims.length) {
+            warnings.push(
+                `Reply claims action(s) already completed with no confirmation in context: ${actionClaims
+                    .map((c) => `"${c}"`)
+                    .join("; ")}. Confirm it actually happened or rephrase as a commitment.`
+            );
+        }
         output.warnings = warnings;
 
         // (c) Calibrate confidence down when the reply is risky or under-informed.
@@ -357,6 +382,7 @@ export class InboxAIService {
                 : null;
         if (confidencePct != null) {
             if (leaks.length) confidencePct = Math.min(confidencePct, 30);
+            if (actionClaims.length) confidencePct = Math.min(confidencePct, 35);
             if (output.escalation_required) confidencePct = Math.min(confidencePct, 45);
             else if (warnings.length) confidencePct = Math.min(confidencePct, 60);
             if (noPendingQuestion && !instructions) confidencePct = Math.min(confidencePct, 30);
@@ -419,6 +445,48 @@ export class InboxAIService {
         return saved;
     }
 
+    /**
+     * Completion-claim detector (July audit: #1 miss pattern in BOTH inboxes).
+     * The model asserts operational actions are already done — "I've blocked
+     * off 7/19", "You're all set for a 2 PM checkout", "your refund has been
+     * processed" — when nothing in the context confirms anyone did anything.
+     * The verifier misses these because they aren't contradicted by context,
+     * just unsupported by it. Returns the offending phrases; empty = clean.
+     */
+    private detectActionClaims(reply: string, contextHaystack: string): string[] {
+        const text = String(reply || "");
+        if (!text.trim()) return [];
+        const hay = contextHaystack.toLowerCase();
+        const claims: string[] = [];
+        const verbGroup =
+            "(blocked|booked|approved|confirmed|scheduled|arranged|processed|refunded|extended|updated|adjusted|added|removed|cancelled|canceled|waived|applied|activated|deactivated|reserved|set up|taken care of)";
+        const patterns: RegExp[] = [
+            // "I've blocked…", "we've already approved…", "we have gone ahead and scheduled…"
+            new RegExp(
+                `\\b(?:i|we)(?:['’]ve|\\s+have)\\s+(?:already\\s+|just\\s+|gone\\s+ahead\\s+and\\s+)?${verbGroup}\\b[^.!?\\n]{0,80}`,
+                "gi"
+            ),
+            // "…has been approved", "it's been refunded"
+            new RegExp(`\\b(?:has|have)\\s+(?:already\\s+)?been\\s+${verbGroup}\\b[^.!?\\n]{0,80}`, "gi"),
+            new RegExp(`\\b(?:it|that)['’]s\\s+(?:already\\s+)?been\\s+${verbGroup}\\b[^.!?\\n]{0,80}`, "gi"),
+            // "you're all set", "everything is set for…"
+            /\byou(?:['’]re| are)\s+all\s+set\b[^.!?\n]{0,60}/gi,
+        ];
+        for (const re of patterns) {
+            for (const match of text.match(re) || []) {
+                // Evidence check: only the completed form counts ("blocked" in a
+                // team message grounds "I've blocked"; the guest ASKING "can you
+                // block" does not). Exact-form match keeps this tight.
+                const m = match.toLowerCase();
+                const verb = (m.match(new RegExp(verbGroup, "i")) || [])[0]?.toLowerCase() || null;
+                if (verb && hay.includes(verb)) continue;
+                if (!verb && /all\s+set/.test(m) && hay.includes("all set")) continue;
+                claims.push(match.trim());
+            }
+        }
+        return [...new Set(claims)].slice(0, 5);
+    }
+
     private get verifierModel(): string {
         // Full model: mini scored 82% of replies at 95+ confidence while 16.5%
         // of that band were judged mistakes — too lenient to gate auto-send.
@@ -436,6 +504,7 @@ export class InboxAIService {
             "2. COMPLETENESS — every explicit question or request in the guest's latest message must be addressed, including each part of a multi-part message. A skipped ask caps the score at 55.",
             "3. DEFERRAL — if the reply defers ('I'll check', 'the team will confirm') while the context already contains the answer, cap at 50. If the context genuinely lacks the answer, deferring is CORRECT and should score well (85+ if polite and safe).",
             "4. COMMITMENTS — promises, discounts, exceptions, or guarantees not documented in the context cap the score at 30.",
+            "5. COMPLETION CLAIMS — if the reply states an operational action is already done, approved, or arranged ('I've blocked those dates', 'you're all set for late checkout', 'your refund has been processed') and the context does NOT explicitly confirm that action occurred, cap at 25. A request being made is not the same as it being done. Committing to do something ('I'll have the team block that') is fine; claiming it is DONE without evidence is the most damaging failure mode.",
             "",
             "Calibration anchors:",
             "- 95-100: every claim grounded, every ask addressed, no needless deferral. Safe to auto-send.",
@@ -1102,6 +1171,21 @@ export class InboxAIService {
             reservationStatus,
         }) as InboxConversationEntity;
 
+        // Group threads: several external people text into the same thread. Label
+        // every inbound message with WHO sent it, or the model answers the wrong
+        // person (July audit: replied to "David" about a message Veronica sent).
+        const participantList = String(conv.participants || conv.participantPhone || "")
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+        const isGroupThread = participantList.length > 1;
+        const inboundLabel = (m: QuoMessageEntity): string => {
+            if (!isGroupThread) return m.senderName || conversation.guestName || "Guest";
+            const from = String(m.fromNumber || "").trim();
+            const isPrimary = from && participantList[0] && from === participantList[0];
+            const known = isPrimary ? conversation.guestName || conv.contactName : null;
+            return known ? `${known} · ${from}` : from || "unknown participant";
+        };
         const messages = quoMessages
             .filter((m) => String(m.body || "").trim())
             .map(
@@ -1111,7 +1195,7 @@ export class InboxAIService {
                         externalId: m.id,
                         direction: m.direction === "outgoing" ? "outgoing" : "incoming",
                         body: String(m.body || "").trim(),
-                        senderName: m.senderName || (m.direction === "outgoing" ? "Host" : conversation.guestName),
+                        senderName: m.direction === "outgoing" ? m.senderName || "Host" : inboundLabel(m),
                         sentAt: m.sentAt,
                     }) as InboxMessageEntity
             );
@@ -1128,6 +1212,11 @@ export class InboxAIService {
         });
         context +=
             "\n\n## Delivery channel note\nThis reply is sent as a plain SMS text message. Keep it tight (1-3 sentences unless the question needs more), no links unless they were already shared in this thread, no markdown or formatting.";
+        if (isGroupThread) {
+            context +=
+                `\nGROUP THREAD: ${participantList.length} external participants share this conversation (each inbound message is labeled with its sender). ` +
+                `The latest message is from ${inboundLabel(targetQuo)} — address YOUR reply to that person and answer THEIR message, not an earlier participant's.`;
+        }
         if (isPmClientThread) {
             // Owner context: profile + portfolio + live booking picture.
             const clientBlock = await this.buildPmClientBlock(conv.pmClientId!).catch((err) => {
@@ -1190,12 +1279,25 @@ export class InboxAIService {
             warnings.push(`Reply may contain unverified value(s) not found in context: ${leaks.join(", ")}.`);
         }
 
+        // Completion-claim net — critical on PM threads, where "I've blocked off
+        // 7/19" to an owner (self-score AND verifier 100 in the July audit) would
+        // otherwise go out as fact when nobody has touched the calendar.
+        const actionClaims = this.detectActionClaims(reply, haystack);
+        if (actionClaims.length) {
+            warnings.push(
+                `Reply claims action(s) already completed with no confirmation in context: ${actionClaims
+                    .map((c) => `"${c}"`)
+                    .join("; ")}. Confirm it actually happened or rephrase as a commitment.`
+            );
+        }
+
         let confidencePct =
             typeof output.confidence === "number" && Number.isFinite(output.confidence)
                 ? Math.max(0, Math.min(100, Math.round(output.confidence * 100)))
                 : null;
         if (confidencePct != null) {
             if (leaks.length) confidencePct = Math.min(confidencePct, 30);
+            if (actionClaims.length) confidencePct = Math.min(confidencePct, 35);
             if (output.escalation_required) confidencePct = Math.min(confidencePct, 45);
             else if (warnings.length) confidencePct = Math.min(confidencePct, 60);
         }
@@ -1398,8 +1500,13 @@ export class InboxAIService {
             if (l.personCapacity != null) bits.push(`sleeps ${l.personCapacity}`);
             const svc = svcByListing.get(id);
             if (svc) bits.push(`${svc} package`);
+            if (l.deletedAt) bits.push("INACTIVE in our records");
             lines.push(`- ${l.internalListingName || l.name || `Listing ${id}`}${bits.length ? ` — ${bits.join(", ")}` : ""}`);
         }
+        lines.push(
+            "NOTE: this list can lag reality (a property being onboarded right now may not appear yet). " +
+                "If the client mentions a property NOT shown above, do not guess or deny it — say the team will check and follow up."
+        );
 
         // Who does what: FULL-service owners pay us to run cleanings/maintenance;
         // LAUNCH/PRO owners run their own. The AI promising "we'll send the
@@ -1493,7 +1600,9 @@ export class InboxAIService {
             }
             lines.push(
                 "INSTRUCTIONS: answer questions about their bookings, occupancy and dates from this data. " +
-                    "If they ask about a period beyond it, or about statements/money transfers, say the team will pull the details and follow up (escalate)."
+                    "If they ask about a period beyond it, or about statements/money transfers, say the team will pull the details and follow up (escalate). " +
+                    "IMPORTANT: an empty booking list means NO BOOKINGS ON FILE — it says NOTHING about whether a listing is live, published, or bookable. " +
+                    "If they ask whether a listing is live/published/visible, that is a listing-status question this data cannot answer: say the team will confirm."
             );
         }
         return lines.join("\n");
@@ -1578,13 +1687,16 @@ export class InboxAIService {
             // suggestion (messageId) so the team's actual reply can be matched to it
             // when it arrives. Deduped per (thread, message), so webhook retries and
             // repeat opens are cheap no-ops.
-            let suggestion: AIMessageSuggestionEntity;
+            let suggestion: AIMessageSuggestionEntity | null;
             try {
                 suggestion = await this.generateSuggestion(threadId, { messageId: messageId ?? null });
             } catch (err: any) {
                 logger.error(`[InboxAIService] suggestion generation failed (thread ${threadId}): ${err.message}`);
                 return { sent: false, reason: "generation_failed" };
             }
+            // No pending inbound question (team already replied by the time this
+            // ran) — nothing to answer, nothing to auto-send.
+            if (!suggestion) return { sent: false, reason: "no_pending_question" };
 
             // ---- Unpaid-arrival emergency (non-Airbnb only) ----
             // If the guest is arriving/staying on a non-Airbnb channel with an
@@ -1892,6 +2004,7 @@ export class InboxAIService {
                     "- CLEANING & MAINTENANCE: check the SERVICE PACKAGE block in the context. On FULL-service properties our team coordinates cleaners/maintenance and you may promise that. On LAUNCH or PRO package properties the client handles their own cleaning and maintenance — never offer to send a cleaner, schedule maintenance, or coordinate vendors there.",
                     "- If they ask about money we owe them, statements, contract terms, management fees, offboarding, or anything legal/financial beyond the figures in context: acknowledge, say the team will follow up with specifics, and set escalation_required=true.",
                     "- If the answer isn't in the provided context, say the team will check and get back to them — never guess about their business.",
+                    "- When they REQUEST a change (block dates, adjust pricing, schedule maintenance, update the listing): acknowledge it, commit to it ('I'll have the team block that and confirm'), and include it in suggested_action_items — but NEVER say it's already done. You cannot change calendars, prices, or listings yourself.",
                     "- Tone: professional, warm, concise. Use their first name naturally. SMS style — short.",
                 ].join("\n")
             );
@@ -1947,6 +2060,9 @@ export class InboxAIService {
             "PRINCIPLES:",
             `- Be concise, professional, and helpful with a ${toneLabel} hospitality brand voice.`,
             "- NEVER invent facts (codes, prices, policies, amenities, addresses). Only use provided context.",
+            "- NEVER claim an action has already been completed, approved, scheduled, blocked, or refunded unless the provided context or an earlier TEAM message explicitly confirms it happened. When someone asks you to change something, acknowledge and COMMIT ('I'll have the team get that blocked and confirm shortly') — never pretend it's done. 'I've blocked those dates' or 'you're all set' with no confirmation is the most damaging mistake you can make.",
+            "- NEVER quote a specific fee or price that does not appear in the provided context — not even a plausible-sounding one. If the amount isn't in context, say the team will confirm the exact cost.",
+            "- NEVER promise to send a phone number, email address, or any personal contact info — you don't have one. Keep the conversation in this thread.",
             "- Do NOT invent physical features or capacities. In particular, never name a parking type (garage, driveway, carport, lot) or a specific number of cars/vehicles unless that detail appears in the provided context. If parking specifics are not in context, describe only what IS known and offer to confirm the rest — do not guess.",
             "- Earlier TEAM messages in this same thread are authoritative: prefer them, reuse their facts, and NEVER contradict something the team already told this guest.",
             "- The 'proven replies' section shows how our team answered similar questions for THIS property before. Strongly prefer their facts, specifics, and tone; adapt to the current guest. If they conflict with listing context, trust listing context and the current thread.",
