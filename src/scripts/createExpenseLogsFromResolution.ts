@@ -49,6 +49,10 @@ export const createExpenseLogsFromResolution = async () => {
                 newExpense.reservationId = String(resolution.reservationId);
                 newExpense.guestName = resolution.guestName;
                 newExpense.resolutionId = resolution.id;
+                newExpense.llCover = resolution.llCover ? 1 : 0;
+                newExpense.fromPlus50 = resolution.fromPlus50 ? 1 : 0;
+                newExpense.fromClaimsFee = resolution.fromClaimsFee ? 1 : 0;
+                newExpense.deductFromRent = resolution.deductFromRent ? 1 : 0;
 
                 await expenseRepository.save(newExpense);
 

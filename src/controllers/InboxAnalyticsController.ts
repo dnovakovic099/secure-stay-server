@@ -71,6 +71,20 @@ export class InboxAnalyticsController {
         }
     }
 
+    /** Pending "questions from the AI" queue (learning prompts), both inboxes. */
+    async learningPrompts(request: Request, response: Response, next: NextFunction) {
+        try {
+            const source =
+                request.query.source === "quo" || request.query.source === "hostify"
+                    ? (request.query.source as "quo" | "hostify")
+                    : undefined; // no filter = both inboxes
+            const data = await new InboxAnalyticsService().learningPrompts(source);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async backfill(request: Request, response: Response, next: NextFunction) {
         try {
             const limit = request.query.limit ? Number(request.query.limit) : 500;

@@ -26,6 +26,10 @@ interface ResolutionData {
     claimDate: string;
     amount: number;
     amountToPayout?: number | null;
+    llCover?: number;
+    fromPlus50?: number;
+    fromClaimsFee?: number;
+    deductFromRent?: number;
     arrivalDate: string;
     departureDate: string;
     creationSource?: string;
@@ -351,6 +355,10 @@ export class ResolutionService {
         resolution.claimDate = data.claimDate;
         resolution.amount = data.amount;
         resolution.amountToPayout = data.amountToPayout !== undefined ? data.amountToPayout : null;
+        resolution.llCover = data.llCover ? 1 : 0;
+        resolution.fromPlus50 = data.fromPlus50 ? 1 : 0;
+        resolution.fromClaimsFee = data.fromClaimsFee ? 1 : 0;
+        resolution.deductFromRent = data.deductFromRent ? 1 : 0;
         resolution.createdBy = userId ? userId : "system";
         resolution.arrivalDate = data.arrivalDate;
         resolution.departureDate = data.departureDate;
@@ -385,6 +393,18 @@ export class ResolutionService {
         resolution.arrivalDate = updatedData.arrivalDate;
         resolution.departureDate = updatedData.departureDate;
         resolution.amountToPayout = updatedData.amountToPayout;
+        if (updatedData.llCover !== undefined) {
+            resolution.llCover = updatedData.llCover ? 1 : 0;
+        }
+        if (updatedData.fromPlus50 !== undefined) {
+            resolution.fromPlus50 = updatedData.fromPlus50 ? 1 : 0;
+        }
+        if (updatedData.fromClaimsFee !== undefined) {
+            resolution.fromClaimsFee = updatedData.fromClaimsFee ? 1 : 0;
+        }
+        if (updatedData.deductFromRent !== undefined) {
+            resolution.deductFromRent = updatedData.deductFromRent ? 1 : 0;
+        }
         await this.resolutionRepo.save(resolution);
 
         //add to queue to update resolution in HA
@@ -570,6 +590,18 @@ export class ResolutionService {
                 }
                 if (updateData.amountToPayout !== undefined) {
                     resolution.amountToPayout = updateData.amountToPayout;
+                }
+                if (updateData.llCover !== undefined) {
+                    resolution.llCover = updateData.llCover ? 1 : 0;
+                }
+                if (updateData.fromPlus50 !== undefined) {
+                    resolution.fromPlus50 = updateData.fromPlus50 ? 1 : 0;
+                }
+                if (updateData.fromClaimsFee !== undefined) {
+                    resolution.fromClaimsFee = updateData.fromClaimsFee ? 1 : 0;
+                }
+                if (updateData.deductFromRent !== undefined) {
+                    resolution.deductFromRent = updateData.deductFromRent ? 1 : 0;
                 }
                 
                 resolution.updatedBy = userId;

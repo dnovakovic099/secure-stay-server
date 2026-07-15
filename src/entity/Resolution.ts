@@ -29,6 +29,18 @@ export class Resolution {
     @Column({ type: "decimal", precision: 10, scale: 2, nullable: true })
     amountToPayout: number;
 
+    @Column({ type: "tinyint", default: 0 })
+    llCover: number;
+
+    @Column({ type: "tinyint", default: 0 })
+    fromClaimsFee: number;
+
+    @Column({ type: "tinyint", default: 0 })
+    fromPlus50: number;
+
+    @Column({ type: "tinyint", default: 0 })
+    deductFromRent: number;
+
     @Column({ nullable: true })
     arrivalDate: string;
 
@@ -61,4 +73,4 @@ export class Resolution {
 
     @Column({ nullable: true })
     deletedBy: string;
-} 
+}

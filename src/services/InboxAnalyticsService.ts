@@ -653,6 +653,57 @@ export class InboxAnalyticsService {
     }
 
     /**
+     * "Questions from the AI" queue: every pending learning prompt across both
+     * inboxes, enriched with enough context to answer it from the Analytics
+     * page. The July audit found 400+ prompts piling up unanswered because
+     * they were only surfaced one-at-a-time inside their own conversations.
+     */
+    async learningPrompts(source?: AnalyticsSource): Promise<any> {
+        const { AILearningPromptService } = await import("./AILearningPromptService");
+        const pending = await new AILearningPromptService().listPending({ source, limit: 300 });
+
+        // Deep-link + display context per source.
+        const quoIds = pending.filter((p) => p.source === "quo").map((p) => Number(p.threadId));
+        const hostifyIds = pending.filter((p) => p.source !== "quo").map((p) => Number(p.threadId));
+        const quoRows: any[] = quoIds.length
+            ? await appDatabase.query(
+                  `SELECT id, conversationId, COALESCE(NULLIF(guestName,''), NULLIF(contactName,''), participantPhone) AS who
+                   FROM quo_conversations WHERE id IN (${quoIds.map(() => "?").join(",")})`,
+                  quoIds
+              )
+            : [];
+        const hostifyRows: any[] = hostifyIds.length
+            ? await appDatabase.query(
+                  `SELECT threadId, guestName AS who FROM inbox_conversations
+                   WHERE threadId IN (${hostifyIds.map(() => "?").join(",")})`,
+                  hostifyIds
+              )
+            : [];
+        const quoByThread = new Map<number, any>(quoRows.map((r) => [Number(r.id), r]));
+        const hostifyByThread = new Map<number, any>(hostifyRows.map((r) => [Number(r.threadId), r]));
+
+        const counts = { hostify: 0, quo: 0 };
+        const prompts = pending.map((p) => {
+            const isQuo = p.source === "quo";
+            counts[isQuo ? "quo" : "hostify"]++;
+            const ctx = isQuo ? quoByThread.get(Number(p.threadId)) : hostifyByThread.get(Number(p.threadId));
+            return {
+                id: p.id,
+                source: isQuo ? "quo" : "hostify",
+                threadId: Number(p.threadId),
+                threadKey: isQuo ? ctx?.conversationId || null : null,
+                guestName: ctx?.who || null,
+                listingId: p.listingId != null ? Number(p.listingId) : null,
+                listingName: p.listingName || null,
+                question: p.question,
+                topic: p.topic || null,
+                createdAt: p.createdAt,
+            };
+        });
+        return { total: prompts.length, counts, prompts };
+    }
+
+    /**
      * "Replies to fix" queue: every pair the LLM judged as a true AI miss
      * (guest asked for something specific, AI failed while the team delivered,
      * or the AI was wrong). Grouped counts by root cause so fixes can be routed
