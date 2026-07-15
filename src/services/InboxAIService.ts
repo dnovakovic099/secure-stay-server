@@ -22,6 +22,7 @@ import { ListingGroupService } from "./ListingGroupService";
 import { ExemplarService } from "./ExemplarService";
 import { RetrievalService } from "./RetrievalService";
 import { Hostify } from "../client/Hostify";
+import sendSlackMessage from "../utils/sendSlackMsg";
 
 /**
  * InboxAIService
@@ -2262,6 +2263,210 @@ export class InboxAIService {
     }
 
     /**
+     * Heuristic: is the guest telling us they TRIED to book and failed?
+     * ("I tried to book... told it's not available though the dates don't
+     * appear booked"). These are the highest-intent messages in the inbox —
+     * they must never get a bare "try refreshing" reply.
+     */
+    private detectBookingTrouble(text: string): boolean {
+        const t = (text || "").toLowerCase();
+        if (!t) return false;
+        const patterns = [
+            "tried to book", "trying to book", "can't book", "cant book", "cannot book",
+            "unable to book", "won't let me", "wont let me", "not letting me",
+            "says it's not available", "says its not available", "says not available",
+            "told it's not available", "told its not available", "shows unavailable",
+            "not available though", "not available but", "dates don't appear", "dates dont appear",
+            "different device", "error when i", "booking error", "won't go through", "wont go through",
+        ];
+        return patterns.some((p) => t.includes(p));
+    }
+
+    /** Base name of a listing minus channel/owner suffixes ("Columbia (#02) - Airbnb" → "columbia (#02)"). */
+    private listingBaseName(l: Listing): string {
+        const raw = (l.internalListingName || l.name || "").toString();
+        return raw.split(" - ")[0].trim().toLowerCase();
+    }
+
+    /** threadId → last alert time, so repeated suggestion runs don't re-page the team. */
+    private static bookingTroubleAlerts = new Map<number, number>();
+
+    /** Fire-and-forget Slack alert: a guest is trying to book and failing. */
+    private alertBookingTrouble(
+        conversation: InboxConversationEntity,
+        guestText: string,
+        calendarOpen: boolean | null,
+    ): void {
+        const threadId = Number(conversation.threadId);
+        const last = InboxAIService.bookingTroubleAlerts.get(threadId) || 0;
+        if (Date.now() - last < 6 * 60 * 60 * 1000) return;
+        InboxAIService.bookingTroubleAlerts.set(threadId, Date.now());
+
+        const channel = process.env.BOOKING_TROUBLE_SLACK_CHANNEL || "#guest-relations";
+        const calNote =
+            calendarOpen === true
+                ? "Calendar shows these dates OPEN — likely a channel-sync or min-stay settings bug."
+                : calendarOpen === false
+                ? "Calendar shows these dates NOT fully open."
+                : "Calendar state could not be verified.";
+        const text =
+            `:rotating_light: Guest can't complete a booking (live sale at risk)\n` +
+            `Listing: ${conversation.listingName || conversation.listingId} | Guest: ${conversation.guestName || "unknown"} | ` +
+            `Dates: ${conversation.checkin || "?"} → ${conversation.checkout || "?"}${conversation.price ? ` | ~$${conversation.price}` : ""}\n` +
+            `${calNote}\n` +
+            `Guest said: "${(guestText || "").replace(/\s+/g, " ").trim().slice(0, 220)}"\n` +
+            `Check the multicalendar/min-stay settings and send the guest a pre-approval or booking link. Thread ${threadId}.`;
+        void sendSlackMessage({ channel, text }).catch((err: unknown) =>
+            logger.warn(`[InboxAI] booking-trouble Slack alert failed: ${err instanceof Error ? err.message : err}`),
+        );
+    }
+
+    /**
+     * Same-city alternatives for an inquiry's exact dates. Runs when the thread
+     * carries concrete stay dates, the guest hasn't booked yet, and either
+     * (a) the guest reports they can't complete the booking, or (b) the live
+     * calendar says the requested dates are NOT fully open on this listing.
+     * Injects a concrete, calendar-verified list of other listings in the same
+     * city the guest could book instead — so a dead inquiry converts to a
+     * sibling property instead of expiring. (Born from a real $3.4K loss:
+     * guest "James" couldn't book Columbia (#02), was told to refresh his
+     * browser, and walked.)
+     */
+    private async buildAlternativesBlock(
+        conversation: InboxConversationEntity,
+        guestText: string,
+    ): Promise<string | null> {
+        if (!this.hostifyApiKey || !conversation.listingId) return null;
+
+        // Pre-booking threads only — never pitch other homes to a booked guest.
+        const status = (conversation.reservationStatus || "").toLowerCase();
+        const preBooking = ["", "inquiry", "preapproved", "offer", "pending", "expired", "not_possible", "timedout", "denied", "incomplete"];
+        if (!preBooking.includes(status)) return null;
+
+        const toKey = (v: unknown): string | null => {
+            const s = String(v ?? "");
+            if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+            const d = new Date(v as any);
+            return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+        };
+        const ciKey = toKey(conversation.checkin);
+        const coKey = toKey(conversation.checkout);
+        if (!ciKey || !coKey || coKey <= ciKey) return null;
+        if (ciKey < toKey(new Date())!) return null; // stay already started/past
+        const nights = Math.round((new Date(coKey).getTime() - new Date(ciKey).getTime()) / 86400000);
+        const lastNight = toKey(new Date(new Date(coKey).getTime() - 86400000))!;
+
+        // Is this exact range fully open on the CURRENT listing?
+        const rangeOpen = async (listingId: number): Promise<boolean | null> => {
+            try {
+                const days: any[] = await this.hostify.getCalendar(this.hostifyApiKey, listingId, ciKey, lastNight);
+                const wanted = (days || []).filter((d) => {
+                    const k = String(d.date).slice(0, 10);
+                    return k >= ciKey && k <= lastNight;
+                });
+                if (!wanted.length) return null;
+                return wanted.every((d) => String(d?.status || "").toLowerCase() === "available");
+            } catch {
+                return null;
+            }
+        };
+        const currentOpen = await rangeOpen(Number(conversation.listingId));
+        const trouble = this.detectBookingTrouble(guestText);
+        // Quiet path: dates open, guest reports no problem — nothing to add.
+        if (currentOpen !== false && !trouble) return null;
+
+        // A guest saying "I can't book" while the calendar shows OPEN is a
+        // channel-sync/min-stay bug losing a live sale — page the team so the
+        // "we've notified the team" line in the reply is actually true.
+        if (trouble) this.alertBookingTrouble(conversation, guestText, currentOpen);
+
+        const current = await this.listingRepo.findOne({
+            where: { id: Number(conversation.listingId) } as any,
+            withDeleted: true,
+        });
+        const city = (current?.city || "").trim();
+        if (!city) return null;
+        const currentBase = current ? this.listingBaseName(current) : "";
+
+        // Candidates: same city, big enough for the party, not this unit (or a
+        // channel-twin of it), deduped by base name so parent/child/channel
+        // copies of one home count once.
+        const all = await this.listingRepo.find({ take: 3000 });
+        const wantedGuests = Number(conversation.guests) || null;
+        const seenBases = new Set<string>([currentBase]);
+        const candidates: Listing[] = [];
+        for (const l of all) {
+            if (Number(l.id) === Number(conversation.listingId)) continue;
+            if ((l.city || "").trim().toLowerCase() !== city.toLowerCase()) continue;
+            const cap = Number(l.personCapacity || l.guests || 0);
+            if (wantedGuests && cap && cap < wantedGuests) continue;
+            const base = this.listingBaseName(l);
+            if (seenBases.has(base)) continue;
+            seenBases.add(base);
+            candidates.push(l);
+            if (candidates.length >= 12) break;
+        }
+        if (candidates.length === 0) return null;
+
+        const checks = await Promise.all(
+            candidates.map(async (l) => {
+                if (l.minNights && nights < Number(l.minNights)) return { l, ok: false, avg: 0 };
+                try {
+                    const days: any[] = await this.hostify.getCalendar(this.hostifyApiKey, Number(l.id), ciKey, lastNight);
+                    const wanted = (days || []).filter((d) => {
+                        const k = String(d.date).slice(0, 10);
+                        return k >= ciKey && k <= lastNight;
+                    });
+                    if (!wanted.length) return { l, ok: false, avg: 0 };
+                    const open = wanted.every((d) => String(d?.status || "").toLowerCase() === "available");
+                    const prices = wanted.map((d) => Number(d.price) || 0).filter((p) => p > 0);
+                    const avg = prices.length ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) : 0;
+                    return { l, ok: open, avg };
+                } catch {
+                    return { l, ok: false, avg: 0 };
+                }
+            })
+        );
+        const bookable = checks.filter((c) => c.ok);
+
+        const reason = trouble
+            ? "The guest reports they are UNABLE to complete the booking on the platform"
+            : "The requested dates are NOT fully open on this listing's calendar";
+        const out: string[] = [
+            `## Alternative listings for the guest's dates (${ciKey} → ${coKey}, ${nights} night${nights === 1 ? "" : "s"}${wantedGuests ? `, ${wantedGuests} guests` : ""}) — live calendar results, same city (${city})`,
+            `WHY THIS IS HERE: ${reason}.`,
+        ];
+        if (trouble) {
+            out.push(
+                `IMPORTANT: The guest is actively trying to give us money and hitting a platform/calendar error. ` +
+                `Do NOT tell them to refresh or try another device and leave it there. Tell them the team has been notified to fix the calendar, and offer the alternatives below so they can book NOW.`
+            );
+        }
+        if (bookable.length) {
+            out.push(`BOOKABLE for those exact dates:`);
+            for (const c of bookable.slice(0, 5)) {
+                const bits = [
+                    c.l.address || c.l.city || "",
+                    c.l.personCapacity || c.l.guests ? `sleeps ${c.l.personCapacity || c.l.guests}` : "",
+                    c.l.bedroomsNumber != null ? `${c.l.bedroomsNumber} BR` : "",
+                    c.avg ? `~$${c.avg}/night (≈$${c.avg * nights} for ${nights} nights, before fees)` : "",
+                ].filter(Boolean);
+                out.push(`- ${c.l.name || c.l.internalListingName}: ${bits.join("; ")}`);
+            }
+            out.push(
+                `INSTRUCTIONS: Offer these alternatives concretely (name, sleeps, approximate rate) as ready-to-book options for the guest's exact dates. ` +
+                `These are live, verified results — do NOT say "let me check" or invent other listings. Suggest they search our host profile for the listing name, and tell them we can send a booking link.`
+            );
+        } else {
+            out.push(
+                `RESULT: no other ${city} listings are open for those exact dates.`,
+                `INSTRUCTIONS: Be honest that nothing else is open in ${city} for those dates; offer nearby dates on this home if any are open (see availability block), and invite flexible dates. Do NOT invent alternatives.`
+            );
+        }
+        return out.join("\n");
+    }
+
+    /**
      * Cross-portfolio listing search. When a guest is SHOPPING for a place
      * ("looking for an apartment in Wicker Park, July 16-19, 4 people"), extract
      * the criteria, match our listings by area/capacity, check each candidate's
@@ -3035,6 +3240,20 @@ export class InboxAIService {
             }
         } catch (err: any) {
             logger.warn(`[InboxAI] Availability block failed for thread ${conversation.threadId}: ${err?.message}`);
+        }
+
+        // Same-city alternatives: inquiry dates that this listing can't take
+        // (calendar closed, or the guest literally can't get the booking
+        // through) → offer sibling homes that ARE open for those exact nights.
+        if (includeKnowledge) try {
+            const guestText = (targetMessage?.body || conversation.lastMessageText || "").toString();
+            const altBlock = await this.buildAlternativesBlock(conversation, guestText);
+            if (altBlock) {
+                lines.push("");
+                lines.push(altBlock);
+            }
+        } catch (err: any) {
+            logger.warn(`[InboxAI] Alternatives block failed for thread ${conversation.threadId}: ${err?.message}`);
         }
 
         // Cross-portfolio search: guest shopping for a place (typical on unlinked
