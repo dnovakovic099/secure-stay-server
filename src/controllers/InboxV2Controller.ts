@@ -229,7 +229,7 @@ export class InboxV2Controller {
             status: true,
             data: {
                 enabled: InboxAIService.isEnabled(),
-                autosend: InboxAIService.autosendConfig(),
+                autosend: await InboxAIService.autosendConfigAsync(),
             },
         });
     }

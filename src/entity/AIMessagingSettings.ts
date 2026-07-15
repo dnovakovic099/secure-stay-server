@@ -43,6 +43,9 @@ export class AIMessagingSettingsEntity {
     @Column({ type: "tinyint", default: 0 })
     autoRespondEnabled: number;
 
+    @Column({ type: "tinyint", default: 0 })
+    quoAutoRespondEnabled: number;
+
     @Column({ type: "int", default: 85 })
     autosendMinConfidence: number;
 

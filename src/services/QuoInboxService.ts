@@ -94,6 +94,7 @@ export class QuoInboxService {
                         symbol: p.symbol || null,
                         category: cls.category,
                         enabled: cls.enabled ? 1 : 0,
+                        aiAutoRespondEnabled: 0,
                     })
                 );
                 added++;
@@ -119,10 +120,11 @@ export class QuoInboxService {
         return lines.map((l) => Object.assign(l, { awaitingReply: countMap.get(l.phoneNumberId) || 0 }));
     }
 
-    async updateLine(id: number, patch: { enabled?: boolean; category?: string; name?: string }): Promise<QuoPhoneLineEntity | null> {
+    async updateLine(id: number, patch: { enabled?: boolean; category?: string; name?: string; aiAutoRespondEnabled?: boolean }): Promise<QuoPhoneLineEntity | null> {
         const line = await this.lineRepo.findOne({ where: { id } });
         if (!line) return null;
         if (patch.enabled !== undefined) line.enabled = patch.enabled ? 1 : 0;
+        if (patch.aiAutoRespondEnabled !== undefined) line.aiAutoRespondEnabled = patch.aiAutoRespondEnabled ? 1 : 0;
         if (patch.category !== undefined) {
             line.category = patch.category;
             QuoInboxService.lineCategoryCache = null; // AI persona routing reads this

@@ -1,6 +1,7 @@
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { AIMessagingSettingsEntity } from "../entity/AIMessagingSettings";
+import { QuoPhoneLineEntity } from "../entity/QuoPhoneLine";
 
 export interface AIMessagingSettingsPatch {
     tone?: string | null;
@@ -8,6 +9,8 @@ export interface AIMessagingSettingsPatch {
     topicsToAvoid?: string | null;
     airbnbSupportRules?: string | null;
     autoRespondEnabled?: boolean;
+    quoAutoRespondEnabled?: boolean;
+    quoLineAutoRespond?: { phoneNumberId: string; enabled: boolean }[];
     autosendMinConfidence?: number;
     autosendChannels?: string | null;
     paymentAlertEmails?: string | null;
@@ -26,6 +29,7 @@ export interface AIMessagingSettingsPatch {
  */
 export class AIMessagingSettingsService {
     private repo = appDatabase.getRepository(AIMessagingSettingsEntity);
+    private quoLineRepo = appDatabase.getRepository(QuoPhoneLineEntity);
 
     private static cache: AIMessagingSettingsEntity | null = null;
     private static cacheAt = 0;
@@ -41,6 +45,7 @@ export class AIMessagingSettingsService {
                 communicationRules: null,
                 topicsToAvoid: null,
                 autoRespondEnabled: 0,
+                quoAutoRespondEnabled: 0,
                 autosendMinConfidence: 85,
                 autosendChannels: null,
             });
@@ -68,6 +73,7 @@ export class AIMessagingSettingsService {
         if (patch.topicsToAvoid !== undefined) row.topicsToAvoid = patch.topicsToAvoid ?? null;
         if (patch.airbnbSupportRules !== undefined) row.airbnbSupportRules = patch.airbnbSupportRules ?? null;
         if (patch.autoRespondEnabled !== undefined) row.autoRespondEnabled = patch.autoRespondEnabled ? 1 : 0;
+        if (patch.quoAutoRespondEnabled !== undefined) row.quoAutoRespondEnabled = patch.quoAutoRespondEnabled ? 1 : 0;
         if (patch.autosendMinConfidence !== undefined && Number.isFinite(patch.autosendMinConfidence)) {
             row.autosendMinConfidence = Math.max(0, Math.min(100, Math.round(patch.autosendMinConfidence)));
         }
@@ -80,10 +86,37 @@ export class AIMessagingSettingsService {
         if (patch.userId != null) row.updatedByUserId = patch.userId;
         if (patch.userName != null) row.updatedByName = patch.userName;
         const saved = await this.repo.save(row);
+        if (Array.isArray(patch.quoLineAutoRespond)) {
+            const updates = patch.quoLineAutoRespond
+                .map((item) => ({
+                    phoneNumberId: String(item?.phoneNumberId || "").trim(),
+                    enabled: Boolean(item?.enabled),
+                }))
+                .filter((item) => item.phoneNumberId);
+            for (const item of updates) {
+                await this.quoLineRepo.update(
+                    { phoneNumberId: item.phoneNumberId },
+                    { aiAutoRespondEnabled: item.enabled ? 1 : 0 }
+                );
+            }
+        }
         AIMessagingSettingsService.cache = saved;
         AIMessagingSettingsService.cacheAt = Date.now();
-        logger.info(`[AIMessagingSettings] updated (autoRespond=${saved.autoRespondEnabled}, tone=${saved.tone})`);
+        logger.info(`[AIMessagingSettings] updated (hostifyAutoRespond=${saved.autoRespondEnabled}, quoAutoRespond=${saved.quoAutoRespondEnabled}, tone=${saved.tone})`);
         return saved;
+    }
+
+    async listQuoAutoRespondLines(): Promise<QuoPhoneLineEntity[]> {
+        return this.quoLineRepo.find({
+            order: { enabled: "DESC", category: "ASC", name: "ASC" },
+        });
+    }
+
+    async isQuoLineAutoRespondEnabled(phoneNumberId: string): Promise<boolean> {
+        const id = String(phoneNumberId || "").trim();
+        if (!id) return false;
+        const line = await this.quoLineRepo.findOne({ where: { phoneNumberId: id } });
+        return Boolean(line?.aiAutoRespondEnabled);
     }
 
     /** Invalidate the cache (used after external writes). */

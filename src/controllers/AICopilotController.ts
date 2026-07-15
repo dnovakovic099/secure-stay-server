@@ -32,12 +32,18 @@ export class AICopilotController {
     /** Combined config: env enablement + editable global settings. */
     async getSettings(_request: Request, response: Response, next: NextFunction) {
         try {
-            const settings = await new AIMessagingSettingsService().getGlobal();
+            const settingsService = new AIMessagingSettingsService();
+            const settings = await settingsService.getGlobal();
+            const quoLines = await settingsService.listQuoAutoRespondLines();
             return response.status(200).json({
                 status: true,
                 data: {
                     enabled: InboxAIService.isEnabled(),
                     autosend: await InboxAIService.autosendConfigAsync(),
+                    quoAutosend: {
+                        enabled: Boolean(settings.quoAutoRespondEnabled),
+                        lines: quoLines,
+                    },
                     settings,
                 },
             });
@@ -55,6 +61,8 @@ export class AICopilotController {
                 topicsToAvoid: b.topicsToAvoid,
                 airbnbSupportRules: b.airbnbSupportRules,
                 autoRespondEnabled: typeof b.autoRespondEnabled === "boolean" ? b.autoRespondEnabled : undefined,
+                quoAutoRespondEnabled: typeof b.quoAutoRespondEnabled === "boolean" ? b.quoAutoRespondEnabled : undefined,
+                quoLineAutoRespond: Array.isArray(b.quoLineAutoRespond) ? b.quoLineAutoRespond : undefined,
                 autosendMinConfidence: toNum(b.autosendMinConfidence) ?? undefined,
                 autosendChannels: b.autosendChannels,
                 paymentAlertEmails: b.paymentAlertEmails,

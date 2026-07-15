@@ -112,9 +112,8 @@ export class InboxAIService {
     }
 
     /**
-     * Auto-send (response bot) flag. Requires BOTH the base assistant and the
-     * auto-send flag to be on. Defaults OFF — no message is ever auto-sent
-     * unless this is explicitly enabled.
+     * Legacy env-only snapshot. The real auto-send decision is DB-backed via
+     * resolveAutosendEnabled() / resolveQuoAutosendEnabled().
      */
     static isAutosendEnabled(): boolean {
         return (
@@ -136,7 +135,7 @@ export class InboxAIService {
         return raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
     }
 
-    /** Public config snapshot for the UI / settings surface (env-only, sync). */
+    /** Public config snapshot for older sync callers. */
     static autosendConfig() {
         return {
             enabled: InboxAIService.isAutosendEnabled(),
@@ -146,10 +145,8 @@ export class InboxAIService {
     }
 
     /**
-     * DB-aware auto-send resolution. The AI Copilot Settings page controls the
-     * auto-respond toggle / min-confidence / channel allowlist. Env remains a
-     * hard override: the base assistant must be enabled, and an explicit
-     * AI_MESSAGING_AUTOSEND_ENABLED=false keeps auto-send OFF regardless.
+     * Hostify auto-send resolution. The AI Assistant Settings page is the source
+     * of truth for enabling auto-response. Env may only force it OFF.
      */
     static async resolveAutosendEnabled(): Promise<boolean> {
         if (!InboxAIService.isEnabled()) return false;
@@ -159,7 +156,25 @@ export class InboxAIService {
             const s = await new AIMessagingSettingsService().getGlobalCached();
             return Boolean(s.autoRespondEnabled);
         } catch {
-            return envRaw === "true";
+            return false;
+        }
+    }
+
+    /**
+     * Quo PM auto-send resolution. Requires the global Quo toggle plus the
+     * specific Quo phone line toggle from the AI Assistant Settings page.
+     */
+    static async resolveQuoAutosendEnabled(phoneNumberId: string): Promise<boolean> {
+        if (!InboxAIService.quoSuggestionsEnabled()) return false;
+        const envRaw = String(process.env.AI_MESSAGING_AUTOSEND_ENABLED || "").toLowerCase();
+        if (envRaw === "false") return false; // emergency kill-switch only
+        try {
+            const settingsService = new AIMessagingSettingsService();
+            const s = await settingsService.getGlobalCached();
+            if (!s.quoAutoRespondEnabled) return false;
+            return settingsService.isQuoLineAutoRespondEnabled(phoneNumberId);
+        } catch {
+            return false;
         }
     }
 
@@ -814,14 +829,11 @@ export class InboxAIService {
     static readonly QUO_AI_SENDER = "SecureStay AI";
 
     /**
-     * PM-client auto-respond gate. ON by default when AI messaging is on;
-     * QUO_PM_AUTORESPOND_ENABLED=false turns it off, and the global
-     * AI_MESSAGING_AUTOSEND_ENABLED=false hard kill also applies.
+     * Legacy env-only PM-client auto-respond gate retained for compatibility
+     * with older callers. New delivery checks must use resolveQuoAutosendEnabled().
      */
     static quoPmAutoRespondEnabled(): boolean {
-        if (!InboxAIService.quoSuggestionsEnabled()) return false;
-        if (String(process.env.AI_MESSAGING_AUTOSEND_ENABLED || "").toLowerCase() === "false") return false;
-        return String(process.env.QUO_PM_AUTORESPOND_ENABLED || "true").toLowerCase() !== "false";
+        return false;
     }
 
     // SMS arrives in bursts; wait for the thread to settle and generate one
@@ -954,7 +966,7 @@ export class InboxAIService {
     /**
      * Auto-respond to PM CLIENT (owner) SMS threads. Runs after the shadow
      * suggestion is persisted; delivers it only when ALL guardrails pass:
-     *   - feature enabled (quoPmAutoRespondEnabled)
+     *   - AI Assistant Settings page allows Quo auto-respond for this line
      *   - PM line AND a linked client (never auto-text unknown numbers)
      *   - the thread is still awaiting a reply (no human beat us to it)
      *   - the inbound message is fresh (default < 6h — no 2-day-late texts)
@@ -967,13 +979,15 @@ export class InboxAIService {
         conversationId: string
     ): Promise<{ sent: boolean; reason: string; suggestionId?: number }> {
         try {
-            if (!InboxAIService.quoPmAutoRespondEnabled()) return { sent: false, reason: "disabled" };
             const { QuoInboxService } = await import("./QuoInboxService");
             const quoService = new QuoInboxService();
             const conv = await appDatabase
                 .getRepository(QuoConversationEntity)
                 .findOne({ where: { conversationId } });
             if (!conv) return { sent: false, reason: "conversation_not_found" };
+            if (!(await InboxAIService.resolveQuoAutosendEnabled(conv.phoneNumberId))) {
+                return { sent: false, reason: "disabled" };
+            }
             const category = await quoService.lineCategory(conv.phoneNumberId).catch(() => null);
             if (category !== "PM") return { sent: false, reason: "not_pm_line" };
             if (!conv.pmClientId) return { sent: false, reason: "no_client_link" };

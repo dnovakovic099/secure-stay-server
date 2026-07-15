@@ -36,6 +36,9 @@ export class QuoPhoneLineEntity {
     @Column({ type: "tinyint", default: 0 })
     enabled: number;
 
+    @Column({ type: "tinyint", default: 0 })
+    aiAutoRespondEnabled: number;
+
     @Column({ type: "datetime", nullable: true })
     lastSyncedAt: Date | null;
 
