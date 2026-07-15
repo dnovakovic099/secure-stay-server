@@ -23,6 +23,8 @@ interface Pair {
     /** Quo only: OpenPhone conversation key for deep-links to /messages/quo. */
     threadKey?: string | null;
     channel: string | null;
+    listingId: number | null;
+    listingName: string | null;
     guestMsg: string | null;
     ai: string;
     other: string;
@@ -42,7 +44,65 @@ interface Pair {
     confidence?: number | null;
 }
 
+/** Shared filter set for the Analytics endpoints (property / date range / user). */
+export interface AnalyticsFilters {
+    startDate?: string | null;
+    endDate?: string | null;
+    listingIds?: number[] | null;
+    taughtByUserId?: number | null;
+    taughtByName?: string | null;
+}
+
 const words = (s: string) => String(s || "").trim().split(/\s+/).filter(Boolean).length;
+
+/** Split an array into fixed-size batches; used for bulk auto-resolve UPDATEs. */
+function chunked<T>(arr: T[], size: number): T[][] {
+    const out: T[][] = [];
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+    return out;
+}
+
+/**
+ * Reservation phases a taught fact applies to. Kept in sync with the phase
+ * vocabulary the reply drafter already understands (see InboxAIService). "any"
+ * is the default: the fact applies regardless of the guest's booking status.
+ */
+const KNOWN_PHASES = new Set(["inquiry", "accepted", "cancelled", "in_house", "post_stay"]);
+
+function normalizePhases(input?: string[] | null): string[] | null {
+    if (!input || !input.length) return null;
+    const cleaned = input
+        .map((p) => String(p || "").trim().toLowerCase())
+        .filter((p) => KNOWN_PHASES.has(p));
+    if (!cleaned.length) return null;
+    // "all phases" is the same as no filter — collapse it back to null so the
+    // column stays sparse and the render pipeline doesn't have to special-case it.
+    if (cleaned.length === KNOWN_PHASES.size) return null;
+    return [...new Set(cleaned)];
+}
+
+/**
+ * Persist the applicablePhases JSON list on a learned fact row. The column
+ * is added lazily on first use so environments without a run-time schema
+ * migration still work (silent no-op on failure).
+ */
+async function setFactApplicablePhases(factId: number, phases: string[]): Promise<void> {
+    try {
+        // MySQL 8 supports IF NOT EXISTS on ADD COLUMN; older MySQL will error
+        // once and then the second attempt hits the existing column silently.
+        await appDatabase
+            .query(`ALTER TABLE ai_learned_facts ADD COLUMN applicablePhases JSON NULL`)
+            .catch(() => {
+                /* column already exists */
+            });
+        await appDatabase.query(`UPDATE ai_learned_facts SET applicablePhases = ? WHERE id = ?`, [
+            JSON.stringify(phases),
+            factId,
+        ]);
+    } catch {
+        /* Non-fatal: phase targeting degrades to "applies to all phases". */
+    }
+}
 const deferRe =
     /(i['’]?ll (check|confirm|look into|find out|get back|follow up)|let me (check|confirm|find out)|get back to you|reach out to|our team will|will forward|check with (the|our)|i will (check|confirm|get back)|property manager will|team will (get|reach|be in touch))/i;
 const specificsRe = /(\d{1,2}:\d{2}|\d{1,2}\s?(am|pm)|\$\d|\d{3,}|https?:\/\/|\bcode\b|\bwifi\b|\bpassword\b)/i;
@@ -229,6 +289,8 @@ export class InboxAnalyticsService {
                         threadId: p.threadId,
                         threadKey: p.threadKey ?? null,
                         channel: p.channel,
+                        listingId: p.listingId,
+                        listingName: p.listingName,
                         guestMessage: (p.guestMsg || "").replace(/\s+/g, " ").slice(0, 240),
                         aiReply: p.ai.replace(/\s+/g, " ").slice(0, 320),
                         theirReply: p.other.replace(/\s+/g, " ").slice(0, 320),
@@ -298,8 +360,29 @@ export class InboxAnalyticsService {
             });
     }
 
-    /** Load AI-vs-team pairs (audit-captured replies) for the last N days. */
-    private async loadTeamPairs(days: number, source: AnalyticsSource = "hostify"): Promise<Pair[]> {
+    /**
+     * Build a `s.generatedAt` window clause based on either an explicit
+     * start/end range (inclusive of end-day) or a fallback "last N days" window.
+     * Returns the SQL fragment + parameter array to splice into a query.
+     */
+    private windowClause(days: number, filters?: AnalyticsFilters): { sql: string; params: any[] } {
+        const start = (filters?.startDate || "").trim();
+        const end = (filters?.endDate || "").trim();
+        if (start && end) {
+            return { sql: "AND s.generatedAt >= ? AND s.generatedAt < DATE_ADD(?, INTERVAL 1 DAY)", params: [start, end] };
+        }
+        if (start) return { sql: "AND s.generatedAt >= ?", params: [start] };
+        if (end) return { sql: "AND s.generatedAt < DATE_ADD(?, INTERVAL 1 DAY)", params: [end] };
+        return { sql: "AND s.generatedAt >= (NOW() - INTERVAL ? DAY)", params: [days] };
+    }
+
+    /** Load AI-vs-team pairs (audit-captured replies) for the window. */
+    private async loadTeamPairs(
+        days: number,
+        source: AnalyticsSource = "hostify",
+        filters?: AnalyticsFilters
+    ): Promise<Pair[]> {
+        const win = this.windowClause(days, filters);
         const teamRows: any[] =
             source === "quo"
                 ? await appDatabase.query(
@@ -309,6 +392,7 @@ export class InboxAnalyticsService {
                               s.replyRelevance, s.replyRelevanceNote, s.aiReplyQuality, s.aiReplyQualityNote,
                               s.aiReplyQualityCategory, s.missResolvedAt, s.missResolvedBy, s.generatedAt,
                               COALESCE(c.lineName, 'SMS') AS channel,
+                              c.listingId AS listingId, c.listingName AS listingName,
                               COALESCE(
                                   NULLIF(gm.body, ''),
                                   (SELECT m2.body FROM quo_messages m2
@@ -327,9 +411,9 @@ export class InboxAnalyticsService {
                          AND s.reservationId IS NOT NULL
                          AND s.actualReplyText IS NOT NULL AND s.actualReplyText <> ''
                          AND s.suggestedReply IS NOT NULL AND s.suggestedReply <> ''
-                         AND s.generatedAt >= (NOW() - INTERVAL ? DAY)
+                         ${win.sql}
                        ORDER BY s.generatedAt DESC`,
-                      [days]
+                      win.params
                   )
                 : await appDatabase.query(
                       `SELECT s.id, s.threadId, NULL AS threadKey, s.escalationRequired, s.suggestedReply, s.actualReplyText, s.confidence, s.verifierConfidence,
@@ -337,6 +421,7 @@ export class InboxAnalyticsService {
                               s.replyRelevance, s.replyRelevanceNote, s.aiReplyQuality, s.aiReplyQualityNote,
                               s.aiReplyQualityCategory, s.missResolvedAt, s.missResolvedBy, s.generatedAt,
                               c.channel,
+                              c.listingId AS listingId, c.listingName AS listingName,
                               COALESCE(
                                   NULLIF(gm.body, ''),
                                   (SELECT m2.body FROM inbox_messages m2
@@ -351,15 +436,27 @@ export class InboxAnalyticsService {
                        WHERE s.source = 'hostify'
                          AND s.actualReplyText IS NOT NULL AND s.actualReplyText <> ''
                          AND s.suggestedReply IS NOT NULL AND s.suggestedReply <> ''
-                         AND s.generatedAt >= (NOW() - INTERVAL ? DAY)
+                         ${win.sql}
                        ORDER BY s.generatedAt DESC`,
-                      [days]
+                      win.params
                   );
-        const teamPairs: Pair[] = teamRows.map((r) => ({
+        const listingIdFilter =
+            filters?.listingIds && filters.listingIds.length
+                ? new Set(filters.listingIds.map(Number))
+                : null;
+        const taughtByName = (filters?.taughtByName || "").trim().toLowerCase() || null;
+        const teamPairs: Pair[] = teamRows
+            .filter((r) => (listingIdFilter ? r.listingId != null && listingIdFilter.has(Number(r.listingId)) : true))
+            .filter((r) =>
+                taughtByName ? String(r.missResolvedBy || "").trim().toLowerCase() === taughtByName : true
+            )
+            .map((r) => ({
             id: Number(r.id),
             threadId: Number(r.threadId),
             threadKey: r.threadKey ?? null,
             channel: r.channel ?? null,
+            listingId: r.listingId != null ? Number(r.listingId) : null,
+            listingName: r.listingName || null,
             guestMsg: r.guestMsg ?? null,
             ai: r.suggestedReply,
             other: r.actualReplyText,
@@ -499,12 +596,13 @@ export class InboxAnalyticsService {
     async report(
         sinceDays = 60,
         granularity: "day" | "week" | "month" = "day",
-        source: AnalyticsSource = "hostify"
+        source: AnalyticsSource = "hostify",
+        filters?: AnalyticsFilters
     ): Promise<any> {
         const days = Math.min(Math.max(sinceDays, 7), 180);
         const gran = granularity === "week" || granularity === "month" ? granularity : "day";
 
-        const teamPairs = await this.loadTeamPairs(days, source);
+        const teamPairs = await this.loadTeamPairs(days, source, filters);
         const {
             teamComparable,
             notValid,
@@ -518,9 +616,10 @@ export class InboxAnalyticsService {
 
         // (b) vs USER edits/rejects sent from SecureStay. Hostify only — the Quo
         // composer doesn't track accept/edit outcomes yet.
+        const win = this.windowClause(days, filters);
         const userRows: any[] = source === "quo" ? [] : await appDatabase.query(
             `SELECT s.id, s.threadId, s.status, s.escalationRequired, s.suggestedReply, s.generatedAt,
-                    c.channel,
+                    c.channel, c.listingId, c.listingName,
                     COALESCE(
                         NULLIF(gm.body, ''),
                         (SELECT m2.body FROM inbox_messages m2
@@ -537,16 +636,23 @@ export class InboxAnalyticsService {
                AND s.status IN ('accepted','edited','rejected')
                AND s.finalSentMessageId IS NOT NULL
                AND s.suggestedReply IS NOT NULL AND s.suggestedReply <> ''
-               AND s.generatedAt >= (NOW() - INTERVAL ? DAY)
+               ${win.sql}
              ORDER BY s.generatedAt DESC`,
-            [days]
+            win.params
         );
+        const listingIdFilter =
+            filters?.listingIds && filters.listingIds.length
+                ? new Set(filters.listingIds.map(Number))
+                : null;
         const userPairs: Pair[] = userRows
             .filter((r) => r.sentBody && String(r.sentBody).trim())
+            .filter((r) => (listingIdFilter ? r.listingId != null && listingIdFilter.has(Number(r.listingId)) : true))
             .map((r) => ({
                 id: Number(r.id),
                 threadId: Number(r.threadId),
                 channel: r.channel ?? null,
+                listingId: r.listingId != null ? Number(r.listingId) : null,
+                listingName: r.listingName || null,
                 guestMsg: r.guestMsg ?? null,
                 ai: r.suggestedReply,
                 other: r.sentBody,
@@ -592,6 +698,8 @@ export class InboxAnalyticsService {
                     threadId: p.threadId,
                     threadKey: p.threadKey ?? null,
                     channel: p.channel,
+                    listingId: p.listingId,
+                    listingName: p.listingName,
                     guestMessage: (p.guestMsg || "").replace(/\s+/g, " ").slice(0, 240),
                     aiReply: p.ai.replace(/\s+/g, " ").slice(0, 320),
                     theirReply: p.other.replace(/\s+/g, " ").slice(0, 320),
@@ -611,13 +719,14 @@ export class InboxAnalyticsService {
         metric: "coverage" | "semantic" | "jaccard" = "coverage",
         sinceDays = 60,
         limit = 50,
-        source: AnalyticsSource = "hostify"
+        source: AnalyticsSource = "hostify",
+        filters?: AnalyticsFilters
     ): Promise<any> {
         const days = Math.min(Math.max(sinceDays, 7), 180);
         const cap = Math.min(Math.max(limit, 1), 100);
         const m = metric === "semantic" || metric === "jaccard" ? metric : "coverage";
 
-        const teamPairs = await this.loadTeamPairs(days, source);
+        const teamPairs = await this.loadTeamPairs(days, source, filters);
         const { teamComparable } = this.filterComparable(teamPairs);
 
         const score = (p: Pair): number | null =>
@@ -638,6 +747,8 @@ export class InboxAnalyticsService {
                 threadId: p.threadId,
                 threadKey: p.threadKey ?? null,
                 channel: p.channel,
+                listingId: p.listingId,
+                listingName: p.listingName,
                 guestMessage: (p.guestMsg || "").replace(/\s+/g, " ").slice(0, 240),
                 aiReply: p.ai.replace(/\s+/g, " ").slice(0, 320),
                 theirReply: p.other.replace(/\s+/g, " ").slice(0, 320),
@@ -658,9 +769,21 @@ export class InboxAnalyticsService {
      * page. The July audit found 400+ prompts piling up unanswered because
      * they were only surfaced one-at-a-time inside their own conversations.
      */
-    async learningPrompts(source?: AnalyticsSource): Promise<any> {
+    async learningPrompts(source?: AnalyticsSource, filters?: AnalyticsFilters): Promise<any> {
         const { AILearningPromptService } = await import("./AILearningPromptService");
-        const pending = await new AILearningPromptService().listPending({ source, limit: 300 });
+        let pending = await new AILearningPromptService().listPending({ source, limit: 300 });
+
+        const listingIdFilter =
+            filters?.listingIds && filters.listingIds.length
+                ? new Set(filters.listingIds.map(Number))
+                : null;
+        if (listingIdFilter) {
+            pending = pending.filter((p) => p.listingId != null && listingIdFilter.has(Number(p.listingId)));
+        }
+        const startMs = filters?.startDate ? Date.parse(filters.startDate) : NaN;
+        const endMs = filters?.endDate ? Date.parse(filters.endDate) + 86_400_000 : NaN;
+        if (!isNaN(startMs)) pending = pending.filter((p) => new Date(p.createdAt).getTime() >= startMs);
+        if (!isNaN(endMs)) pending = pending.filter((p) => new Date(p.createdAt).getTime() < endMs);
 
         // Deep-link + display context per source.
         const quoIds = pending.filter((p) => p.source === "quo").map((p) => Number(p.threadId));
@@ -712,34 +835,25 @@ export class InboxAnalyticsService {
     async misses(
         sinceDays = 60,
         includeResolved = false,
-        source: AnalyticsSource = "hostify"
+        source: AnalyticsSource = "hostify",
+        filters?: AnalyticsFilters
     ): Promise<any> {
         const days = Math.min(Math.max(sinceDays, 7), 180);
-        const teamPairs = await this.loadTeamPairs(days, source);
+        const teamPairs = await this.loadTeamPairs(days, source, filters);
         // Same fairness filters as the scores: a "miss" judged against a
         // follow-up or off-topic team reply isn't actionable.
         const { teamComparable } = this.filterComparable(teamPairs);
 
         const all = teamComparable.filter((p) => p.aiQuality === "missed");
-        const unresolved = all.filter((p) => !p.missResolvedAt);
-        const shown = includeResolved ? all : unresolved;
 
-        const byCategory: Record<string, number> = {};
-        for (const p of unresolved) {
-            const c = p.aiQualityCategory || "other";
-            byCategory[c] = (byCategory[c] || 0) + 1;
-        }
-
-        const list = shown
-            .sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime())
-            .slice(0, 200);
-
-        // Has the AI already taken steps on each miss? Two self-healing paths:
-        //  - a learned fact for the same listing whose content matches the miss
-        //    (nightly extraction or a staff answer already covered it), or
-        //  - a learning prompt raised on the same thread (the bot asked the team).
-        const threadIds = [...new Set(list.map((p) => p.threadId))];
-        const listingRows: any[] = threadIds.length
+        // Preload remediation state so we can auto-resolve misses whose fix has
+        // already been taught (learned fact matched by sampleSuggestionId, or
+        // learning prompt on the SAME suggestion that has now been answered).
+        // Historically we only used the checkbox — the analytics kept showing a
+        // fixed miss as "open" until a manager ticked it, which was noise.
+        const suggestionIds = all.map((p) => p.id);
+        const threadIds = [...new Set(all.map((p) => p.threadId))];
+        const listingRowsAll: any[] = threadIds.length
             ? source === "quo"
                 ? await appDatabase.query(
                       `SELECT id AS threadId, listingId FROM quo_conversations WHERE id IN (${threadIds.map(() => "?").join(",")})`,
@@ -751,28 +865,29 @@ export class InboxAnalyticsService {
                   )
             : [];
         const listingByThread = new Map<number, number | null>(
-            listingRows.map((r) => [Number(r.threadId), r.listingId != null ? Number(r.listingId) : null])
+            listingRowsAll.map((r) => [Number(r.threadId), r.listingId != null ? Number(r.listingId) : null])
         );
-        const listingIds = [...new Set(listingRows.map((r) => Number(r.listingId)).filter(Boolean))];
+        const listingIds = [...new Set(listingRowsAll.map((r) => Number(r.listingId)).filter(Boolean))];
         const facts: any[] = listingIds.length
             ? await appDatabase.query(
-                  `SELECT listingId, scope, topic, question, answer, status, createdAt, createdByUserId FROM ai_learned_facts
+                  `SELECT id, listingId, scope, topic, question, answer, status, createdAt, createdByUserId, sampleThreadId FROM ai_learned_facts
                    WHERE status IN ('approved','pending') AND (scope = 'portfolio' OR listingId IN (${listingIds.map(() => "?").join(",")}))`,
                   listingIds
               )
             : [];
-        // Learning prompts are scoped per inbox (threadId means a Hostify thread
-        // for 'hostify' rows and a quo_conversations.id for 'quo' rows).
+        // Learning prompts: use sampleSuggestionId (per-message match — the audit
+        // note said the AI's "asked the team" question was getting mismatched to
+        // unrelated topics because we were falling back to thread-scope) plus a
+        // per-thread map as fallback for older prompts without that link.
         const prompts: any[] = threadIds.length
             ? await appDatabase.query(
-                  `SELECT threadId, question, status, answerText, answeredByUserId FROM ai_learning_prompts
+                  `SELECT id, threadId, question, status, answerText, answeredByUserId, answerScope, sampleSuggestionId, topic, resolvedAt, createdAt
+                   FROM ai_learning_prompts
                    WHERE source = ? AND threadId IN (${threadIds.map(() => "?").join(",")})
                    ORDER BY createdAt DESC`,
                   [source === "quo" ? "quo" : "hostify", ...threadIds]
               )
             : [];
-        // Attribution: resolve the user ids behind facts/prompt answers to names,
-        // so each remediation can say WHO taught the AI the fix.
         const { AILearnedFactsService } = await import("./AILearnedFactsService");
         const attributionIds = [
             ...facts.map((f) => f.createdByUserId),
@@ -781,12 +896,35 @@ export class InboxAnalyticsService {
             .filter((v) => v != null)
             .map(Number);
         const attributionNames = await AILearnedFactsService.userNames([...new Set(attributionIds)]);
+        const promptBySuggestion = new Map<number, any>();
         const promptByThread = new Map<number, any>();
         for (const pr of prompts) {
-            if (!promptByThread.has(Number(pr.threadId))) promptByThread.set(Number(pr.threadId), pr);
+            if (pr.sampleSuggestionId != null) {
+                promptBySuggestion.set(Number(pr.sampleSuggestionId), pr);
+            }
+            // Prefer answered prompts as the thread-level fallback; else keep the
+            // most recent (regardless of status).
+            const existing = promptByThread.get(Number(pr.threadId));
+            if (!existing || (pr.status === "answered" && existing.status !== "answered")) {
+                promptByThread.set(Number(pr.threadId), pr);
+            }
         }
 
-        // Generic phrasing that matches everything and means nothing.
+        // Learned-fact match by sampleThreadId (much stronger than fuzzy topic
+        // overlap — it means "this fact was extracted FROM the miss's own
+        // conversation," so it definitively addresses the miss).
+        const factByThread = new Map<number, any>();
+        for (const f of facts) {
+            if (f.sampleThreadId == null) continue;
+            const tid = Number(f.sampleThreadId);
+            const existing = factByThread.get(tid);
+            if (!existing || (f.status === "approved" && existing.status !== "approved")) {
+                factByThread.set(tid, f);
+            }
+        }
+
+        // Fuzzy topic overlap kept only as a last-resort backstop with a
+        // higher gate (was 0.45 → 0.6) after the "unrelated topic" reports.
         const MATCH_STOPWORDS = new Set([
             "guest", "guests", "team", "property", "answer", "answered", "question", "provided", "clear",
             "reply", "replied", "reported", "requested", "request", "asked", "asking", "needs", "needed",
@@ -809,15 +947,52 @@ export class InboxAnalyticsService {
             if (A.size < 2 || B.size < 2) return 0;
             let inter = 0;
             for (const w of A) if (B.has(w)) inter++;
-            // One shared word (e.g. just "check") is coincidence, not a match.
             if (inter < 2) return 0;
             return inter / Math.min(A.size, B.size);
         };
 
-        const remediationOf = (p: Pair) => {
+        const remediationOf = (p: Pair): {
+            status: string;
+            detail: string | null;
+            by: string | null;
+        } => {
+            // 1) Learning prompt anchored to THIS suggestion — highest confidence,
+            //    the AI asked/was answered about exactly this message.
+            const promptDirect = promptBySuggestion.get(p.id);
+            if (promptDirect) {
+                return {
+                    status: promptDirect.status === "pending" ? "asked" : "answered",
+                    detail: String(
+                        promptDirect.status === "pending"
+                            ? promptDirect.question
+                            : promptDirect.answerText || promptDirect.question
+                    )
+                        .replace(/\s+/g, " ")
+                        .slice(0, 220),
+                    by:
+                        promptDirect.status !== "pending" && promptDirect.answeredByUserId != null
+                            ? attributionNames.get(Number(promptDirect.answeredByUserId)) ?? null
+                            : null,
+                };
+            }
+            // 2) Learned fact extracted from the exact same conversation.
+            const factDirect = factByThread.get(p.threadId);
+            if (factDirect) {
+                return {
+                    status: factDirect.status === "approved" ? "learned" : "learned_pending_review",
+                    detail: String(factDirect.answer || factDirect.question || factDirect.topic)
+                        .replace(/\s+/g, " ")
+                        .slice(0, 220),
+                    by:
+                        factDirect.createdByUserId != null
+                            ? attributionNames.get(Number(factDirect.createdByUserId)) ?? null
+                            : null,
+                };
+            }
+            // 3) Fuzzy topical match against learned facts for the same property
+            //    or portfolio-wide — stricter gate to avoid the mis-labelling
+            //    where an unrelated fact was surfaced next to the miss.
             const lid = listingByThread.get(p.threadId) ?? null;
-            // Match on the judge's note (short, topical). The raw guest message is
-            // full of generic conversational words that create false matches.
             const missText = p.aiQualityNote || p.guestMsg || "";
             const candidates = facts.filter(
                 (f) => f.scope === "portfolio" || (lid != null && Number(f.listingId) === lid)
@@ -831,29 +1006,80 @@ export class InboxAnalyticsService {
                     best = f;
                 }
             }
-            if (best && bestScore >= 0.45) {
+            if (best && bestScore >= 0.6) {
                 return {
                     status: best.status === "approved" ? "learned" : "learned_pending_review",
                     detail: String(best.answer || best.question || best.topic).replace(/\s+/g, " ").slice(0, 220),
-                    // Who taught the fact (null for facts the nightly audit extracted itself).
                     by: best.createdByUserId != null ? attributionNames.get(Number(best.createdByUserId)) ?? null : null,
                 };
             }
-            const prompt = promptByThread.get(p.threadId);
-            if (prompt) {
-                return {
-                    status: prompt.status === "pending" ? "asked" : "answered",
-                    detail: String(prompt.status === "pending" ? prompt.question : prompt.answerText || prompt.question)
-                        .replace(/\s+/g, " ")
-                        .slice(0, 220),
-                    by:
-                        prompt.status !== "pending" && prompt.answeredByUserId != null
-                            ? attributionNames.get(Number(prompt.answeredByUserId)) ?? null
-                            : null,
-                };
+            // 4) Thread-level prompt fallback (older prompts without sampleSuggestionId).
+            //    Only surface as "asked/answered" when the prompt's own topic looks
+            //    close to the miss note — otherwise the "AI asked the team" line
+            //    ends up unrelated to the guest/AI/sent triple shown in the card.
+            const threadPrompt = promptByThread.get(p.threadId);
+            if (threadPrompt) {
+                const promptText = `${threadPrompt.topic || ""} ${threadPrompt.question || ""} ${threadPrompt.answerText || ""}`;
+                if (tokOverlap(missText, promptText) >= 0.4) {
+                    return {
+                        status: threadPrompt.status === "pending" ? "asked" : "answered",
+                        detail: String(
+                            threadPrompt.status === "pending"
+                                ? threadPrompt.question
+                                : threadPrompt.answerText || threadPrompt.question
+                        )
+                            .replace(/\s+/g, " ")
+                            .slice(0, 220),
+                        by:
+                            threadPrompt.status !== "pending" && threadPrompt.answeredByUserId != null
+                                ? attributionNames.get(Number(threadPrompt.answeredByUserId)) ?? null
+                                : null,
+                    };
+                }
             }
-            return { status: "none", detail: null as string | null, by: null as string | null };
+            return { status: "none", detail: null, by: null };
         };
+
+        // Auto-resolve on read: if the AI has actually learned/been-answered on
+        // this specific miss, treat it as resolved (no manual tick required).
+        // Persist so future report loads and counts stay in sync.
+        const autoResolves: Array<{ id: number; by: string | null }> = [];
+        const remediationById = new Map<number, ReturnType<typeof remediationOf>>();
+        for (const p of all) {
+            const rem = remediationOf(p);
+            remediationById.set(p.id, rem);
+            const alreadyResolved = !!p.missResolvedAt;
+            const shouldAutoResolve = rem.status === "learned" || rem.status === "answered";
+            if (!alreadyResolved && shouldAutoResolve) {
+                p.missResolvedAt = new Date();
+                p.missResolvedBy = rem.by || "AI Copilot";
+                autoResolves.push({ id: p.id, by: p.missResolvedBy });
+            }
+        }
+        if (autoResolves.length) {
+            const now = new Date();
+            for (const chunk of chunked(autoResolves, 200)) {
+                await appDatabase.query(
+                    `UPDATE ai_message_suggestions
+                     SET missResolvedAt = ?, missResolvedBy = COALESCE(missResolvedBy, ?)
+                     WHERE id IN (${chunk.map(() => "?").join(",")}) AND missResolvedAt IS NULL`,
+                    [now, autoResolves[0].by, ...chunk.map((c) => c.id)]
+                );
+            }
+        }
+
+        const unresolved = all.filter((p) => !p.missResolvedAt);
+        const shown = includeResolved ? all : unresolved;
+
+        const byCategory: Record<string, number> = {};
+        for (const p of unresolved) {
+            const c = p.aiQualityCategory || "other";
+            byCategory[c] = (byCategory[c] || 0) + 1;
+        }
+
+        const list = shown
+            .sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime())
+            .slice(0, 200);
 
         return {
             sinceDays: days,
@@ -866,6 +1092,8 @@ export class InboxAnalyticsService {
                 threadId: p.threadId,
                 threadKey: p.threadKey ?? null,
                 channel: p.channel,
+                listingId: p.listingId,
+                listingName: p.listingName,
                 guestMessage: (p.guestMsg || "").replace(/\s+/g, " ").slice(0, 240),
                 aiReply: p.ai.replace(/\s+/g, " ").slice(0, 320),
                 theirReply: p.other.replace(/\s+/g, " ").slice(0, 320),
@@ -876,7 +1104,7 @@ export class InboxAnalyticsService {
                 resolvedAt: p.missResolvedAt || null,
                 resolvedBy: p.missResolvedBy || null,
                 generatedAt: p.generatedAt,
-                remediation: remediationOf(p),
+                remediation: remediationById.get(p.id) || { status: "none", detail: null, by: null },
             })),
         };
     }
@@ -889,9 +1117,10 @@ export class InboxAnalyticsService {
     async teachMiss(
         suggestionId: number,
         answer: string,
-        scope: "property" | "portfolio" = "property",
-        userId?: string | null
-    ): Promise<{ saved: boolean; resolvedBy?: string | null }> {
+        scope: "property" | "portfolio" | "selected" = "property",
+        userId?: string | null,
+        opts?: { listingIds?: number[] | null; phases?: string[] | null }
+    ): Promise<{ saved: boolean; resolvedBy?: string | null; listingsTaught?: number }> {
         const text = (answer || "").trim();
         if (!text) return { saved: false };
         const rows: any[] = await appDatabase.query(
@@ -919,21 +1148,54 @@ export class InboxAnalyticsService {
         const { AILearnedFactsService } = await import("./AILearnedFactsService");
         const { InboxAIAuditService } = await import("./InboxAIAuditService");
         const learned = new AILearnedFactsService();
-        const listingId = r.listingId != null ? Number(r.listingId) : null;
+        const missListingId = r.listingId != null ? Number(r.listingId) : null;
         const byUser = await this.resolveUser(userId);
-        await learned.upsert(
-            {
-                scope: scope === "portfolio" ? "portfolio" : "property",
-                listingId,
-                topic: question.slice(0, 120),
-                question,
-                answer: text,
-                sampleThreadId: Number(r.threadId),
-                source: "manual",
-                createdByUserId: byUser.id,
-            },
-            { autoApprove: InboxAIAuditService.autoApproveFacts(), trustedSource: true }
-        );
+
+        // Normalize scope + resolve which listing ids receive this fact.
+        //   portfolio → account-wide (listingId=null)
+        //   selected  → each id in opts.listingIds gets its own property-scoped fact
+        //   property  → the miss's own listing
+        const desiredListingIds: (number | null)[] = (() => {
+            if (scope === "portfolio") return [null];
+            if (scope === "selected") {
+                const ids = (opts?.listingIds || [])
+                    .map((n) => Number(n))
+                    .filter((n) => Number.isFinite(n) && n > 0);
+                if (ids.length) return [...new Set(ids)];
+                // Fall back to the miss's own listing if the caller forgot to include ids.
+                return missListingId != null ? [missListingId] : [null];
+            }
+            return [missListingId];
+        })();
+        const phases = normalizePhases(opts?.phases);
+
+        let taughtCount = 0;
+        for (const lid of desiredListingIds) {
+            const rowScope = lid == null ? "portfolio" : "property";
+            try {
+                const saved = await learned.upsert(
+                    {
+                        scope: rowScope,
+                        listingId: lid,
+                        topic: question.slice(0, 120),
+                        question,
+                        answer: text,
+                        sampleThreadId: Number(r.threadId),
+                        source: "manual",
+                        createdByUserId: byUser.id,
+                    },
+                    { autoApprove: InboxAIAuditService.autoApproveFacts(), trustedSource: true }
+                );
+                if (phases && saved?.id) {
+                    await setFactApplicablePhases(saved.id, phases);
+                }
+                taughtCount++;
+            } catch {
+                // Property-specific content that can't go portfolio-wide is dropped
+                // by the learned-facts service; keep going with the rest.
+            }
+        }
+
         await appDatabase.query(
             `UPDATE ai_message_suggestions SET missResolvedAt = NOW(), missResolvedBy = ? WHERE id = ?`,
             [byUser.name, suggestionId]
@@ -946,9 +1208,68 @@ export class InboxAnalyticsService {
              SET status = 'answered', answerText = ?, answerScope = ?, answeredByUserId = COALESCE(?, answeredByUserId),
                  resolvedAt = NOW(), resolvedVia = 'staff'
              WHERE source = ? AND threadId = ? AND status = 'pending'`,
-            [text, scope === "portfolio" ? "portfolio" : "property", byUser.id, isQuo ? "quo" : "hostify", r.threadId]
+            [
+                text,
+                scope === "portfolio" ? "portfolio" : "property",
+                byUser.id,
+                isQuo ? "quo" : "hostify",
+                r.threadId,
+            ]
         );
-        return { saved: true, resolvedBy: byUser.name };
+        return { saved: taughtCount > 0, resolvedBy: byUser.name, listingsTaught: taughtCount };
+    }
+
+    /** Distinct listings encountered in the report window — powers the property filter. */
+    async listListings(source: AnalyticsSource = "hostify", sinceDays = 60): Promise<any> {
+        const days = Math.min(Math.max(sinceDays, 7), 365);
+        const rows: any[] =
+            source === "quo"
+                ? await appDatabase.query(
+                      `SELECT DISTINCT q.listingId AS listingId, q.listingName AS listingName
+                       FROM quo_conversations q
+                       JOIN ai_message_suggestions s ON s.threadId = q.id AND s.source = 'quo'
+                       WHERE q.listingId IS NOT NULL
+                         AND s.generatedAt >= (NOW() - INTERVAL ? DAY)
+                       ORDER BY q.listingName`,
+                      [days]
+                  )
+                : await appDatabase.query(
+                      `SELECT DISTINCT c.listingId AS listingId, c.listingName AS listingName
+                       FROM inbox_conversations c
+                       JOIN ai_message_suggestions s ON s.threadId = c.threadId AND s.source = 'hostify'
+                       WHERE c.listingId IS NOT NULL
+                         AND s.generatedAt >= (NOW() - INTERVAL ? DAY)
+                       ORDER BY c.listingName`,
+                      [days]
+                  );
+        return {
+            listings: rows
+                .filter((r) => r.listingId != null)
+                .map((r) => ({
+                    id: Number(r.listingId),
+                    name: r.listingName || `Listing ${r.listingId}`,
+                })),
+        };
+    }
+
+    /** Distinct staff who have taught / resolved a miss in the window — powers the "user" filter. */
+    async listTaughtByUsers(source: AnalyticsSource = "hostify", sinceDays = 60): Promise<any> {
+        const days = Math.min(Math.max(sinceDays, 7), 365);
+        const rows: any[] = await appDatabase.query(
+            `SELECT DISTINCT s.missResolvedBy AS name
+             FROM ai_message_suggestions s
+             WHERE s.source = ?
+               AND s.missResolvedBy IS NOT NULL AND s.missResolvedBy <> ''
+               AND s.generatedAt >= (NOW() - INTERVAL ? DAY)
+             ORDER BY s.missResolvedBy`,
+            [source, days]
+        );
+        return {
+            users: rows
+                .map((r) => (r.name || "").trim())
+                .filter((v) => v.length > 0)
+                .filter((v, i, a) => a.indexOf(v) === i),
+        };
     }
 
     /** Mark / unmark a miss as handled so the fix queue shrinks as it's worked. */

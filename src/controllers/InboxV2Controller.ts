@@ -172,17 +172,29 @@ export class InboxV2Controller {
     async answerLearningPrompt(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const id = Number(request.params.id);
-            const { answer, scope } = request.body || {};
+            const { answer, scope, listingIds, phases } = request.body || {};
             if (!Number.isFinite(id)) {
                 return response.status(400).json({ status: false, message: "Invalid id" });
             }
             if (!answer || !String(answer).trim()) {
                 return response.status(400).json({ status: false, message: "Answer is required" });
             }
+            const normalizedScope: "property" | "portfolio" | "selected" =
+                scope === "portfolio" ? "portfolio" : scope === "selected" ? "selected" : "property";
+            const normalizedListingIds: number[] = Array.isArray(listingIds)
+                ? listingIds
+                      .map((v: any) => Number(v))
+                      .filter((n: number) => Number.isFinite(n) && n > 0)
+                : [];
+            const normalizedPhases: string[] = Array.isArray(phases)
+                ? phases.map((v: any) => String(v).trim().toLowerCase()).filter(Boolean)
+                : [];
             const saved = await new AILearningPromptService().answer(id, {
                 answer: String(answer),
-                scope: scope === "portfolio" ? "portfolio" : "property",
+                scope: normalizedScope,
                 userId: toNum(request.user?.secureStayUserId ?? request.user?.id),
+                listingIds: normalizedListingIds,
+                phases: normalizedPhases,
             });
             if (!saved) return response.status(404).json({ status: false, message: "Prompt not found" });
             return response.status(200).json({ status: true, data: saved });

@@ -11,6 +11,34 @@ const slug = (s: string) =>
         .replace(/^-+|-+$/g, "")
         .slice(0, 120) || "general";
 
+const ANSWER_PHASE_VOCAB = new Set(["inquiry", "accepted", "cancelled", "in_house", "post_stay"]);
+
+function normalizeAnswerPhases(input?: string[] | null): string[] | null {
+    if (!input || !input.length) return null;
+    const clean = input
+        .map((p) => String(p || "").trim().toLowerCase())
+        .filter((p) => ANSWER_PHASE_VOCAB.has(p));
+    if (!clean.length) return null;
+    if (clean.length === ANSWER_PHASE_VOCAB.size) return null; // "all" == no filter
+    return [...new Set(clean)];
+}
+
+async function setLearnedFactPhases(factId: number, phases: string[]): Promise<void> {
+    try {
+        await appDatabase
+            .query(`ALTER TABLE ai_learned_facts ADD COLUMN applicablePhases JSON NULL`)
+            .catch(() => {
+                /* column already exists */
+            });
+        await appDatabase.query(`UPDATE ai_learned_facts SET applicablePhases = ? WHERE id = ?`, [
+            JSON.stringify(phases),
+            factId,
+        ]);
+    } catch {
+        /* Non-fatal: phase targeting degrades to "applies to all phases". */
+    }
+}
+
 /**
  * Manages the "flag conversation for learning" prompts: the bot raises a question
  * when it lacks a reusable property fact; staff answer it (stored as a learned
@@ -92,56 +120,91 @@ export class AILearningPromptService {
         });
     }
 
-    /** Staff answers the prompt → store as a learned fact + mark answered. */
+    /**
+     * Staff answers the prompt → store as one-or-more learned facts + mark answered.
+     * `scope` selects targeting:
+     *   - "portfolio" → account-wide (listingId=null)
+     *   - "selected"  → each id in opts.listingIds gets its own property-scoped fact
+     *   - "property"  → the prompt's own listing (default)
+     * `phases` optionally restricts the fact to certain reservation phases; falls
+     * back silently to "all phases" when the deployment hasn't provisioned the
+     * ai_learned_facts.applicablePhases column yet.
+     */
     async answer(
         id: number,
-        opts: { answer: string; scope?: "property" | "portfolio"; userId?: number | null }
+        opts: {
+            answer: string;
+            scope?: "property" | "portfolio" | "selected";
+            userId?: number | null;
+            listingIds?: number[] | null;
+            phases?: string[] | null;
+        }
     ): Promise<AILearningPromptEntity | null> {
         const prompt = await this.repo.findOne({ where: { id } });
         if (!prompt) return null;
         const answer = (opts.answer || "").trim();
         if (!answer) return null;
 
-        try {
-            await this.learned.upsert(
-                {
-                    scope: opts.scope === "portfolio" ? "portfolio" : "property",
-                    listingId: prompt.listingId ?? null,
-                    topic: prompt.topic || slug(prompt.question),
-                    question: prompt.question,
-                    answer,
-                    sampleThreadId: prompt.threadId,
-                    source: "learning_prompt",
-                    createdByUserId: opts.userId ?? null,
-                },
-                // Staff typed this answer themselves — trusted, no frequency gate.
-                { autoApprove: InboxAIAuditService.autoApproveFacts(), trustedSource: true }
-            );
-        } catch (e: any) {
-            // If a property-specific fact couldn't be stored portfolio-wide, retry as property.
-            logger.warn(`[LearningPrompt] fact upsert failed (${e.message}); retrying property scope`);
-            if (prompt.listingId) {
-                await this.learned
-                    .upsert(
-                        {
-                            scope: "property",
-                            listingId: prompt.listingId,
-                            topic: prompt.topic || slug(prompt.question),
-                            question: prompt.question,
-                            answer,
-                            sampleThreadId: prompt.threadId,
-                            source: "learning_prompt",
-                            createdByUserId: opts.userId ?? null,
-                        },
-                        { autoApprove: InboxAIAuditService.autoApproveFacts(), trustedSource: true }
-                    )
-                    .catch((e2: any) => logger.warn(`[LearningPrompt] retry failed: ${e2.message}`));
+        const desired: (number | null)[] = (() => {
+            if (opts.scope === "portfolio") return [null];
+            if (opts.scope === "selected") {
+                const ids = (opts.listingIds || [])
+                    .map((n) => Number(n))
+                    .filter((n) => Number.isFinite(n) && n > 0);
+                if (ids.length) return [...new Set(ids)];
+                return prompt.listingId != null ? [Number(prompt.listingId)] : [null];
+            }
+            return [prompt.listingId ?? null];
+        })();
+        const phases = normalizeAnswerPhases(opts.phases);
+
+        for (const lid of desired) {
+            const rowScope = lid == null ? "portfolio" : "property";
+            try {
+                const saved = await this.learned.upsert(
+                    {
+                        scope: rowScope,
+                        listingId: lid,
+                        topic: prompt.topic || slug(prompt.question),
+                        question: prompt.question,
+                        answer,
+                        sampleThreadId: prompt.threadId,
+                        source: "learning_prompt",
+                        createdByUserId: opts.userId ?? null,
+                    },
+                    // Staff typed this answer themselves — trusted, no frequency gate.
+                    { autoApprove: InboxAIAuditService.autoApproveFacts(), trustedSource: true }
+                );
+                if (phases && saved?.id) {
+                    await setLearnedFactPhases(saved.id, phases);
+                }
+            } catch (e: any) {
+                // If a property-specific fact couldn't be stored portfolio-wide, retry as property.
+                logger.warn(`[LearningPrompt] fact upsert failed (${e.message}); retrying property scope`);
+                if (prompt.listingId) {
+                    await this.learned
+                        .upsert(
+                            {
+                                scope: "property",
+                                listingId: prompt.listingId,
+                                topic: prompt.topic || slug(prompt.question),
+                                question: prompt.question,
+                                answer,
+                                sampleThreadId: prompt.threadId,
+                                source: "learning_prompt",
+                                createdByUserId: opts.userId ?? null,
+                            },
+                            { autoApprove: InboxAIAuditService.autoApproveFacts(), trustedSource: true }
+                        )
+                        .catch((e2: any) => logger.warn(`[LearningPrompt] retry failed: ${e2.message}`));
+                }
             }
         }
 
         prompt.status = "answered";
         prompt.answerText = answer.slice(0, 4000);
-        prompt.answerScope = opts.scope === "portfolio" ? "portfolio" : "property";
+        prompt.answerScope =
+            opts.scope === "portfolio" ? "portfolio" : opts.scope === "selected" ? "selected" : "property";
         prompt.answeredByUserId = opts.userId ?? null;
         prompt.resolvedAt = new Date();
         prompt.resolvedVia = "staff";

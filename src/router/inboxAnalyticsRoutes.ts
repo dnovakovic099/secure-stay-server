@@ -16,6 +16,8 @@ router.get("/", verifySession, controller.report);
 router.get("/worst", verifySession, controller.worst);
 router.get("/misses", verifySession, controller.misses);
 router.get("/learning-prompts", verifySession, controller.learningPrompts);
+router.get("/listings", verifySession, controller.listings);
+router.get("/taught-by-users", verifySession, controller.taughtByUsers);
 router.post("/misses/:id/resolve", verifySession, controller.resolveMiss);
 router.post("/misses/:id/teach", verifySession, controller.teachMiss);
 router.post("/backfill", verifySession, controller.backfill);
