@@ -1219,37 +1219,50 @@ export class InboxAnalyticsService {
         return { saved: taughtCount > 0, resolvedBy: byUser.name, listingsTaught: taughtCount };
     }
 
-    /** Distinct listings encountered in the report window — powers the property filter. */
+    /**
+     * Distinct listings that appear in the analytics window — powers the property
+     * filter dropdown. Deduplicated by listingId (the raw conversation tables can
+     * carry stale / inconsistent `listingName` values across threads for the same
+     * property) and prefer `listing_info.internalListingName` (the canonical name
+     * used everywhere else in the app) with the conversation name as a fallback
+     * for listings that don't have a `listing_info` row.
+     */
     async listListings(source: AnalyticsSource = "hostify", sinceDays = 60): Promise<any> {
         const days = Math.min(Math.max(sinceDays, 7), 365);
         const rows: any[] =
             source === "quo"
                 ? await appDatabase.query(
-                      `SELECT DISTINCT q.listingId AS listingId, q.listingName AS listingName
+                      `SELECT q.listingId AS listingId,
+                              MAX(li.internalListingName) AS internalName,
+                              MAX(NULLIF(TRIM(q.listingName), '')) AS convoName
                        FROM quo_conversations q
                        JOIN ai_message_suggestions s ON s.threadId = q.id AND s.source = 'quo'
+                       LEFT JOIN listing_info li ON li.id = q.listingId
                        WHERE q.listingId IS NOT NULL
                          AND s.generatedAt >= (NOW() - INTERVAL ? DAY)
-                       ORDER BY q.listingName`,
+                       GROUP BY q.listingId`,
                       [days]
                   )
                 : await appDatabase.query(
-                      `SELECT DISTINCT c.listingId AS listingId, c.listingName AS listingName
+                      `SELECT c.listingId AS listingId,
+                              MAX(li.internalListingName) AS internalName,
+                              MAX(NULLIF(TRIM(c.listingName), '')) AS convoName
                        FROM inbox_conversations c
                        JOIN ai_message_suggestions s ON s.threadId = c.threadId AND s.source = 'hostify'
+                       LEFT JOIN listing_info li ON li.id = c.listingId
                        WHERE c.listingId IS NOT NULL
                          AND s.generatedAt >= (NOW() - INTERVAL ? DAY)
-                       ORDER BY c.listingName`,
+                       GROUP BY c.listingId`,
                       [days]
                   );
-        return {
-            listings: rows
-                .filter((r) => r.listingId != null)
-                .map((r) => ({
-                    id: Number(r.listingId),
-                    name: r.listingName || `Listing ${r.listingId}`,
-                })),
-        };
+        const listings = rows
+            .filter((r) => r.listingId != null)
+            .map((r) => ({
+                id: Number(r.listingId),
+                name: String(r.internalName || r.convoName || `Listing ${r.listingId}`).trim(),
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+        return { listings };
     }
 
     /** Distinct staff who have taught / resolved a miss in the window — powers the "user" filter. */
