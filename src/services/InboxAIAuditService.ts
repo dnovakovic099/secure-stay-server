@@ -360,7 +360,119 @@ export class InboxAIAuditService {
                 logger.warn(`[InboxAIAudit] relevance judge batch failed: ${err.message}`);
             }
         }
+
+        // Freshness loop: every wrong_info miss is evidence a stored fact may be
+        // stale — check and demote contradicted facts. Best-effort, never blocks.
+        await this.flagContradictedFacts(
+            items.filter(
+                (it) => it.row.aiReplyQuality === "missed" && it.row.aiReplyQualityCategory === "wrong_info"
+            )
+        ).catch((e) => logger.warn(`[InboxAIAudit] fact freshness check failed: ${e.message}`));
+
         return judged;
+    }
+
+    /**
+     * Fact freshness: a wrong_info miss means the team's reply (ground truth)
+     * contradicted something the AI said — the $150-vs-$250 pet fee class of
+     * failure, where the knowledge layer is stale and the AI keeps faithfully
+     * repeating it. For each such miss, compare the team's reply against the
+     * listing's APPROVED property-scoped learned facts and demote any fact the
+     * reply clearly contradicts back to 'pending': it immediately stops feeding
+     * guest replies and reappears in the AI Copilot review tab for a human to
+     * correct or re-approve. Portfolio-wide facts are only logged, never
+     * auto-demoted — one listing's exception shouldn't disable a global truth.
+     */
+    async flagContradictedFacts(
+        misses: { row: AIMessageSuggestionEntity; guestMsg: string }[]
+    ): Promise<number> {
+        const apiKey = process.env.OPENAI_API_KEY;
+        if (!misses.length || !apiKey) return 0;
+        if (String(process.env.AI_FACT_FRESHNESS_ENABLED || "true").toLowerCase() === "false") return 0;
+        const openai = new OpenAI({ apiKey });
+        const { AILearnedFactEntity } = await import("../entity/AILearnedFact");
+        const { In } = await import("typeorm");
+        const { ListingGroupService } = await import("./ListingGroupService");
+        const factRepo = appDatabase.getRepository(AILearnedFactEntity);
+
+        let demoted = 0;
+        for (const it of misses.slice(0, 25)) {
+            const listingId = it.row.listingId != null ? Number(it.row.listingId) : null;
+            if (!listingId) continue;
+            // Facts are stored on the canonical listing; the suggestion may carry
+            // a per-channel child id — search the whole property group.
+            let groupIds: number[] = [listingId];
+            try {
+                const ids = await new ListingGroupService().groupIds(listingId);
+                if (ids.length) groupIds = ids;
+            } catch {
+                /* fall back to the raw id */
+            }
+            const facts = await factRepo.find({
+                where: { status: "approved", scope: "property", listingId: In(groupIds) as any },
+                take: 40,
+            });
+            const portfolioFacts = await factRepo.find({ where: { status: "approved", scope: "portfolio" }, take: 40 });
+            if (!facts.length && !portfolioFacts.length) continue;
+
+            const factLine = (f: { id: number; question: string | null; answer: string | null }) =>
+                `[${f.id}] Q: ${(f.question || "").replace(/\s+/g, " ").slice(0, 150)} → A: ${(f.answer || "")
+                    .replace(/\s+/g, " ")
+                    .slice(0, 250)}`;
+            try {
+                const resp = await openai.chat.completions.create({
+                    model: this.judgeModel,
+                    temperature: 0,
+                    response_format: { type: "json_object" },
+                    messages: [
+                        {
+                            role: "system",
+                            content: [
+                                "You maintain a short-term-rental knowledge base. The TEAM REPLY below is ground truth from a human staff member; the AI's reply was judged factually wrong against it.",
+                                "Identify which STORED FACTS (if any) the team reply CLEARLY AND DIRECTLY contradicts — i.e. the stored answer states a specific fact (a fee amount, an amenity's existence, a rule, a code, a time) and the team reply states a different value for the SAME fact about the SAME property.",
+                                "Be conservative: a fact is NOT contradicted by a one-off exception ('we'll waive it this time'), a discretionary decision (late checkout granted today), a different topic, or missing information. Only flag facts a guest would now be told incorrectly.",
+                                'Respond with STRICT JSON only: {"contradicted": [{"id": <fact id>, "why": "<max 20 words>"}]}',
+                            ].join("\n"),
+                        },
+                        {
+                            role: "user",
+                            content:
+                                `GUEST MESSAGE: ${it.guestMsg.slice(0, 300)}\n` +
+                                `AI REPLY (judged wrong): ${(it.row.suggestedReply || "").replace(/\s+/g, " ").slice(0, 350)}\n` +
+                                `TEAM REPLY (ground truth): ${(it.row.actualReplyText || "").replace(/\s+/g, " ").slice(0, 350)}\n` +
+                                `WHAT THE AI GOT WRONG: ${it.row.aiReplyQualityNote || "(no note)"}\n\n` +
+                                `STORED FACTS — property-scoped (demotable):\n${facts.map(factLine).join("\n") || "(none)"}\n\n` +
+                                `STORED FACTS — portfolio-wide (log only):\n${portfolioFacts.map(factLine).join("\n") || "(none)"}`,
+                        },
+                    ],
+                });
+                const parsed = JSON.parse(resp.choices?.[0]?.message?.content || "{}");
+                const flagged: any[] = Array.isArray(parsed?.contradicted) ? parsed.contradicted : [];
+                for (const f of flagged) {
+                    const id = Number(f?.id);
+                    const why = String(f?.why || "").slice(0, 200);
+                    const prop = facts.find((x) => x.id === id);
+                    if (prop) {
+                        prop.status = "pending";
+                        prop.reviewedByUserId = null;
+                        await factRepo.save(prop);
+                        demoted++;
+                        logger.info(
+                            `[InboxAIAudit] fact ${id} (listing ${listingId}, topic ${prop.topic}) demoted to pending — ` +
+                                `contradicted by team reply on suggestion ${it.row.id}: ${why}`
+                        );
+                    } else if (portfolioFacts.some((x) => x.id === id)) {
+                        logger.warn(
+                            `[InboxAIAudit] portfolio fact ${id} may be stale (suggestion ${it.row.id}, listing ${listingId}): ${why} — review manually`
+                        );
+                    }
+                }
+            } catch (err: any) {
+                logger.warn(`[InboxAIAudit] contradiction check failed (suggestion ${it.row.id}): ${err.message}`);
+            }
+        }
+        if (demoted) logger.info(`[InboxAIAudit] fact freshness: ${demoted} stale fact(s) demoted to review`);
+        return demoted;
     }
 
     /**

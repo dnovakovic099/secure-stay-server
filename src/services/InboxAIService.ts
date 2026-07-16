@@ -47,7 +47,7 @@ import sendSlackMessage from "../utils/sendSlackMsg";
  * human via the escalation keyword safety net.
  */
 
-export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v4"; // v4: anti-action-claim rules (July audit)
+export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v5"; // v5: discretionary-topic deferral, wifi/door-code/check-in-link context, "you're all set" ban
 const INBOX_AI_MODEL = process.env.AI_MESSAGING_MODEL || "gpt-4.1";
 
 /** Topics that must always route to a human, regardless of model confidence. */
@@ -62,6 +62,15 @@ const ESCALATION_KEYWORDS: { pattern: RegExp; reason: string }[] = [
     { pattern: /\b(deposit|security deposit)\b/i, reason: "Security deposit" },
     { pattern: /\b(cancel|cancellation|cancelling)\b/i, reason: "Cancellation / penalty" },
     { pattern: /\b(chargeback|dispute|bad review|1 star|one star|report you)\b/i, reason: "Angry guest / review risk" },
+    // Discretionary calls the team makes per-situation (cleaning schedule,
+    // same-day occupancy). July 16 audit: the AI approved/denied these itself —
+    // approved an unverified early check-in, denied a complimentary late
+    // checkout the team then granted, OK'd a group-size change. It must
+    // acknowledge + hand off, never decide.
+    { pattern: /\b(late|extended?)[\s-]*check[\s-]*out\b|\bcheck[\s-]*out\s+(late|later|extension)\b/i, reason: "Late checkout request (team decides)" },
+    { pattern: /\bearly[\s-]*check[\s-]*in\b|\bcheck[\s-]*in\s+(early|earlier)\b/i, reason: "Early check-in request (team decides)" },
+    { pattern: /\b(extra|additional|more)\s+(guest|people|person|visitor)s?\b|\bguest\s+count\b|\badd\s+(a\s+)?guests?\b/i, reason: "Group-size change (team decides)" },
+    { pattern: /\bwaiv(e|er|ed|ing)\b|\bskip\s+the\s+fee\b|\bfee\s+(waiver|removed|dropped)\b/i, reason: "Fee waiver request (team decides)" },
 ];
 
 interface GenerateOptions {
@@ -521,6 +530,7 @@ export class InboxAIService {
             "3. DEFERRAL — if the reply defers ('I'll check', 'the team will confirm') while the context already contains the answer, cap at 50. If the context genuinely lacks the answer, deferring is CORRECT and should score well (85+ if polite and safe).",
             "4. COMMITMENTS — promises, discounts, exceptions, or guarantees not documented in the context cap the score at 30.",
             "5. COMPLETION CLAIMS — if the reply states an operational action is already done, approved, or arranged ('I've blocked those dates', 'you're all set for late checkout', 'your refund has been processed') and the context does NOT explicitly confirm that action occurred, cap at 25. A request being made is not the same as it being done. Committing to do something ('I'll have the team block that') is fine; claiming it is DONE without evidence is the most damaging failure mode.",
+            "6. DISCRETIONARY DECISIONS — late checkout, early check-in, extra guests, fee waivers are decided by the team per-situation. If the reply approves or declines one of these itself ('that should be fine', 'unfortunately we can't') without an explicit team decision for THIS request in the context, cap at 35. Stating a documented fee/policy while deferring the final yes/no to the team is fine.",
             "",
             "Calibration anchors:",
             "- 95-100: every claim grounded, every ask addressed, no needless deferral. Safe to auto-send.",
@@ -1135,6 +1145,12 @@ export class InboxAIService {
             if (opts.persistOnly) return null;
             throw new Error("No inbound guest message to reply to");
         }
+        // Shadow pipeline only: don't generate (or auto-respond) for a bare
+        // "thanks!" / "got it" — the auto-responder answering every ack made PM
+        // threads feel like a bot loop. Staff-triggered drafts still generate.
+        if (opts.persistOnly && !opts.force && InboxAIService.isPureAcknowledgment(targetQuo.body || "")) {
+            return null;
+        }
 
         // Draft "as of" the guest message: drop anything sent after it (e.g. the
         // team's reply when they beat the debounce timer). Keeps shadow drafts
@@ -1696,6 +1712,24 @@ export class InboxAIService {
             const conversation = await this.conversationRepo.findOne({ where: { threadId } });
             if (!conversation) return { sent: false, reason: "no_conversation" };
 
+            // Pure acknowledgment ("thanks!", "sounds good") — nothing to answer,
+            // don't spend a generation + verification on it.
+            try {
+                const msgs = await this.messageRepo.find({ where: { threadId }, order: { sentAt: "ASC", id: "ASC" } });
+                const inbound = msgs.filter((m) => m.direction === "incoming");
+                const ackTarget =
+                    messageId != null
+                        ? msgs.find((m) => Number(m.externalId) === Number(messageId)) || null
+                        : inbound.length
+                        ? inbound[inbound.length - 1]
+                        : null;
+                if (ackTarget && InboxAIService.isPureAcknowledgment(ackTarget.body || "")) {
+                    return { sent: false, reason: "ack_only" };
+                }
+            } catch {
+                /* non-fatal — fall through to normal generation */
+            }
+
             // ALWAYS generate + persist a "shadow" suggestion for this inbound guest
             // message, regardless of auto-send. This builds the suggestion-vs-team
             // learning dataset: the guest message externalId is stored on the
@@ -1895,6 +1929,32 @@ export class InboxAIService {
         );
     }
 
+    /**
+     * Pure acknowledgment detector — "thanks!", "ok great", "sounds good", a
+     * thumbs-up emoji. These need no reply, but the July 16 audit found 128
+     * drafts (13.5% of Hostify volume) generated for them in 2 days, and the
+     * Quo auto-responder answering every "got it" made PM threads feel spammy.
+     * Conservative: any digits, a question mark, or a non-ack word disqualifies.
+     */
+    static isPureAcknowledgment(text: string): boolean {
+        const t = String(text || "").trim().toLowerCase();
+        if (!t || t.length > 80) return false;
+        if (t.includes("?") || /\d/.test(t)) return false;
+        const words = t.replace(/[^a-z' ]+/g, " ").replace(/'/g, "").split(/\s+/).filter(Boolean);
+        // No alphabetic content at all (emoji / punctuation only) = an ack.
+        if (!words.length) return true;
+        if (words.length > 10) return false;
+        const ACK = new Set([
+            "ok", "okay", "k", "kk", "thanks", "thank", "thankyou", "you", "u", "so", "very", "much", "ty", "tysm",
+            "thx", "great", "perfect", "awesome", "amazing", "wonderful", "excellent", "fantastic", "sounds", "good",
+            "got", "it", "will", "do", "no", "problem", "worries", "too", "night", "goodnight", "morning", "evening",
+            "weekend", "noted", "understood", "yes", "yep", "yup", "sure", "all", "love", "appreciate", "appreciated",
+            "that", "this", "was", "bye", "goodbye", "see", "then", "soon", "have", "a", "nice", "day", "one", "cool",
+            "gotcha", "welcome", "my", "pleasure", "anytime", "of", "course", "sweet", "well", "same", "likewise",
+        ]);
+        return words.every((w) => ACK.has(w));
+    }
+
     private scanForEscalation(text: string): string | null {
         for (const { pattern, reason } of ESCALATION_KEYWORDS) {
             if (pattern.test(text)) return reason;
@@ -2071,6 +2131,7 @@ export class InboxAIService {
             "- Sound personal, not corporate. NO filler like 'Your comfort and safety are very important to us', 'We strive to ensure', 'Thank you for your understanding and patience', 'Please don't hesitate to reach out'. One short warm touch is enough.",
             "- Don't restate the guest's question back to them, don't re-introduce the property, and don't stack multiple closers. Answer, add at most ONE helpful extra, stop.",
             "- Use the guest's first name naturally (not in every message), and match their energy — brief message gets a brief reply.",
+            "- BANNED PHRASE: never write \"you're all set\" (or \"you are all set\" / \"all set for\"). It asserts completion you usually can't verify and it reads canned. Say what IS true instead ('your reservation is confirmed', 'the code will arrive the morning of check-in') or just close warmly.",
             "",
             "PRINCIPLES:",
             `- Be concise, professional, and helpful with a ${toneLabel} hospitality brand voice.`,
@@ -2078,6 +2139,7 @@ export class InboxAIService {
             "- NEVER claim an action has already been completed, approved, scheduled, blocked, or refunded unless the provided context or an earlier TEAM message explicitly confirms it happened. When someone asks you to change something, acknowledge and COMMIT ('I'll have the team get that blocked and confirm shortly') — never pretend it's done. 'I've blocked those dates' or 'you're all set' with no confirmation is the most damaging mistake you can make.",
             "- NEVER quote a specific fee or price that does not appear in the provided context — not even a plausible-sounding one. If the amount isn't in context, say the team will confirm the exact cost.",
             "- NEVER promise to send a phone number, email address, or any personal contact info — you don't have one. Keep the conversation in this thread.",
+            "- DISCRETIONARY REQUESTS — late checkout, early check-in, group-size changes, fee waivers: these are decided per-situation by the team based on same-day cleaning and occupancy YOU CANNOT SEE. Never approve, decline, or say 'that should be fine' yourself. If the context shows a documented fee/policy you may state it ('early check-in is available for $X when the schedule allows'), but the final yes/no always comes from the team: acknowledge warmly, say you'll check with the team and confirm, and set escalation_required=true. Only skip escalation when a TEAM message in THIS thread already decided this exact request.",
             "- Do NOT invent physical features or capacities. In particular, never name a parking type (garage, driveway, carport, lot) or a specific number of cars/vehicles unless that detail appears in the provided context. If parking specifics are not in context, describe only what IS known and offer to confirm the rest — do not guess.",
             "- Earlier TEAM messages in this same thread are authoritative: prefer them, reuse their facts, and NEVER contradict something the team already told this guest.",
             "- The 'proven replies' section shows how our team answered similar questions for THIS property before. Strongly prefer their facts, specifics, and tone; adapt to the current guest. If they conflict with listing context, trust listing context and the current thread.",
@@ -2653,6 +2715,15 @@ export class InboxAIService {
                 const cancelPolicyName =
                     r.cancellation_policy || l.cancellation_policy || l.cancel_policy || null;
                 if (cancelPolicyName) shareable.push(`- Cancellation policy: ${cancelPolicyName}`);
+                // Pre-check-in form: a real, reservation-specific link the team
+                // otherwise has to dig up by hand ("ignored ask" miss class).
+                if (r.hostify_checkin_form_link && String(r.hostify_checkin_form_link).startsWith("http")) {
+                    shareable.push(
+                        Number(r.pre_check_in_completed) === 1 || Number(r.hostify_checkin_form_completed) === 1
+                            ? "- Pre-check-in form: already completed by the guest."
+                            : `- Pre-check-in form link (you MAY send it if the guest needs to complete check-in steps): ${r.hostify_checkin_form_link}`
+                    );
+                }
 
                 const staff: string[] = [];
                 const nonRefundable = Number(l.non_refundable_factor) >= 1;
@@ -2669,6 +2740,10 @@ export class InboxAIService {
                 const paidLabel: Record<string, string> = { none: "not yet paid", part: "partially paid", full: "paid in full", all: "paid in full" };
                 const pl = paidLabel[String(r.paid_part || "").toLowerCase()];
                 if (pl) staff.push(`- Payment status: ${pl}${r.paid_sum != null && Number(r.paid_sum) > 0 ? ` (${r.paid_sum} collected so far)` : ""}.`);
+                if (r.due != null && Number(r.due) > 0)
+                    staff.push(
+                        `- Balance still due: ${r.due}. If the guest needs to pay it, the team sends a secure Hostify payment link — you cannot generate one; say the team will send it.`
+                    );
 
                 const out: string[] = [];
                 if (shareable.length) {
@@ -2688,6 +2763,37 @@ export class InboxAIService {
         }
         InboxAIService.reservationCache.set(reservationId, { at: Date.now(), block });
         return block;
+    }
+
+    /**
+     * Door code(s) actually programmed on the smart lock for THIS reservation
+     * (access_codes rows with status='set'). Only for booked guests, never
+     * inquiries. Coverage is partial (smart locks aren't on every property),
+     * but when a row exists it is the exact live code.
+     */
+    private async buildAccessBlock(conversation: InboxConversationEntity): Promise<string | null> {
+        const resvId = conversation.reservationId ? Number(conversation.reservationId) : null;
+        if (!resvId || InboxAIService.isInquiryStatus(conversation.reservationStatus)) return null;
+        const rows: any[] = await appDatabase
+            .query(
+                `SELECT ac.code, ac.code_name, d.device_name, d.location_name
+                 FROM access_codes ac
+                 LEFT JOIN smart_lock_devices d ON d.id = ac.device_id
+                 WHERE ac.reservation_id = ? AND ac.status = 'set'
+                 ORDER BY ac.set_at DESC LIMIT 3`,
+                [resvId]
+            )
+            .catch(() => []);
+        if (!rows.length) return null;
+        const out = ["## Door access for THIS stay (live code programmed on the smart lock — accurate)"];
+        for (const r of rows) {
+            const where = [r.device_name, r.location_name].filter(Boolean).join(", ");
+            out.push(`- Code: ${r.code}${where ? ` (${where})` : ""}${r.code_name ? ` — ${r.code_name}` : ""}`);
+        }
+        out.push(
+            "You MAY give this code to the booked guest when they ask for access details or say their code isn't working. Don't volunteer it long before check-in unless asked."
+        );
+        return out.join("\n");
     }
 
     /**
@@ -2975,6 +3081,20 @@ export class InboxAIService {
             /* non-fatal */
         }
 
+        // Smart-lock door code programmed for this exact stay. The July 16
+        // audit's worst wrong_info miss was the bot INVENTING an access code
+        // ("last four digits of your phone number") while real codes sat in
+        // access_codes untouched.
+        if (includeKnowledge) try {
+            const access = await this.buildAccessBlock(conversation);
+            if (access) {
+                lines.push("");
+                lines.push(access);
+            }
+        } catch {
+            /* non-fatal */
+        }
+
         // Resolve the channel/child listing to its canonical property group so KB
         // and learned facts are shared across all sibling listings (Hostify splits
         // one property into per-channel IDs; conversations arrive on a child ID).
@@ -3061,6 +3181,17 @@ export class InboxAIService {
                 if (l.cleaningFee != null && Number(l.cleaningFee) > 0) details.push(`- Cleaning fee: $${l.cleaningFee}`);
                 if (l.airbnbPetFeeAmount != null && Number(l.airbnbPetFeeAmount) > 0)
                     details.push(`- Pet fee: $${l.airbnbPetFeeAmount}`);
+                // WiFi credentials sat in listing_info for every active listing
+                // while the bot told guests "the team will send the WiFi code"
+                // (July 16 audit, ignored-ask class). Booked guests only — never
+                // hand network credentials to inquiries.
+                const wifiName = String(l.wifiUsername || "").trim();
+                if (wifiName && conversation.reservationId && !InboxAIService.isInquiryStatus(conversation.reservationStatus)) {
+                    const wifiPass = String(l.wifiPassword || "").trim();
+                    details.push(
+                        `- WiFi network: ${wifiName}${wifiPass ? ` (password: ${wifiPass})` : ""} — you MAY share this with this booked guest when they ask`
+                    );
+                }
                 const desc = String(l.description || "").replace(/\s+/g, " ").trim();
                 if (desc) details.push(`- Description: ${desc.slice(0, 900)}`);
                 if (details.length) {
