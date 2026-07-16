@@ -32,8 +32,28 @@ export class AIMessagingSettingsEntity {
     @Column({ type: "text", nullable: true })
     communicationRules: string | null;
 
+    // Per-topic communication rules (JSON: [{ id, topic, rule, appliesTo }]).
+    // Preferred over the free-text `communicationRules` column: giving each rule
+    // its own topic keeps them digestible and lets the prompt inject only the
+    // rules relevant to the current guest message.
+    @Column({ type: "mediumtext", nullable: true })
+    communicationRuleEntries: string | null;
+
     @Column({ type: "text", nullable: true })
     topicsToAvoid: string | null;
+
+    // Capability limits — a short spec of what the assistant is allowed to do vs
+    // what it must refuse/escalate. Fed into the prompt AND used by the teach
+    // capability-check to reject learned instructions the AI can't actually
+    // execute (e.g. "recommend nearby available properties").
+    @Column({ type: "text", nullable: true })
+    capabilityLimits: string | null;
+
+    // Topics (slugs) where the assistant must always source its answer from the
+    // live listing/reservation data instead of a learned fact — protects against
+    // stale learned info once the underlying property/reservation changes.
+    @Column({ type: "text", nullable: true })
+    useListingDataForTopics: string | null;
 
     // Separate rules applied ONLY when the conversation is with Airbnb Support
     // (platform case workers), which needs a very different register than guests.
@@ -64,8 +84,18 @@ export class AIMessagingSettingsEntity {
     @Column({ type: "text", nullable: true })
     actionItemRules: string | null;
 
+    // Managed action-item categories (JSON: [{ id, name, description, examples,
+    // autoCreate }]). Gives the team full control over which categories the
+    // detector may propose and the rules that guide each one.
+    @Column({ type: "mediumtext", nullable: true })
+    actionItemCategories: string | null;
+
     @Column({ type: "text", nullable: true })
     guestIssueRules: string | null;
+
+    // Managed guest-issue categories (JSON, same shape as actionItemCategories).
+    @Column({ type: "mediumtext", nullable: true })
+    guestIssueCategories: string | null;
 
     // Free-form guidance on how to improve detection/creation quality; fed into
     // the detection prompt so the team can iteratively tune it.

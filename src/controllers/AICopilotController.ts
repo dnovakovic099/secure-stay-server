@@ -3,7 +3,7 @@ import { AIMessagingSettingsService } from "../services/AIMessagingSettingsServi
 import { AICopilotService } from "../services/AICopilotService";
 import { InboxAIService } from "../services/InboxAIService";
 import { InboxItemDetectionService } from "../services/InboxItemDetectionService";
-import { AILearnedFactsService } from "../services/AILearnedFactsService";
+import { AILearnedFactsService, checkInstructionSupport } from "../services/AILearnedFactsService";
 import { InboxAIAuditService } from "../services/InboxAIAuditService";
 import { ListingKnowledgeSeeder } from "../services/ListingKnowledgeSeeder";
 import { ListingGroupService } from "../services/ListingGroupService";
@@ -67,7 +67,14 @@ export class AICopilotController {
             const saved = await new AIMessagingSettingsService().update({
                 tone: b.tone,
                 communicationRules: b.communicationRules,
+                communicationRuleEntries: Array.isArray(b.communicationRuleEntries)
+                    ? b.communicationRuleEntries
+                    : undefined,
                 topicsToAvoid: b.topicsToAvoid,
+                capabilityLimits: b.capabilityLimits,
+                useListingDataForTopics: Array.isArray(b.useListingDataForTopics)
+                    ? b.useListingDataForTopics.map(String)
+                    : undefined,
                 airbnbSupportRules: b.airbnbSupportRules,
                 autoRespondEnabled: typeof b.autoRespondEnabled === "boolean" ? b.autoRespondEnabled : undefined,
                 quoAutoRespondEnabled: typeof b.quoAutoRespondEnabled === "boolean" ? b.quoAutoRespondEnabled : undefined,
@@ -77,7 +84,9 @@ export class AICopilotController {
                 paymentAlertEmails: b.paymentAlertEmails,
                 itemDetectionEnabled: typeof b.itemDetectionEnabled === "boolean" ? b.itemDetectionEnabled : undefined,
                 actionItemRules: b.actionItemRules,
+                actionItemCategories: Array.isArray(b.actionItemCategories) ? b.actionItemCategories : undefined,
                 guestIssueRules: b.guestIssueRules,
+                guestIssueCategories: Array.isArray(b.guestIssueCategories) ? b.guestIssueCategories : undefined,
                 detectionFeedback: b.detectionFeedback,
                 userId: userId(request.user),
                 userName: userName(request.user),
@@ -136,6 +145,7 @@ export class AICopilotController {
                 status: (request.query.status as string) || undefined,
                 scope: (request.query.scope as string) || undefined,
                 listingId: toNum(request.query.listingId) ?? undefined,
+                factType: (request.query.factType as string) || undefined,
             });
             return response.status(200).json({ status: true, data });
         } catch (error) {
@@ -199,11 +209,29 @@ export class AICopilotController {
             const question = typeof request.body?.question === "string" ? request.body.question.trim() : "";
             const answer = typeof request.body?.answer === "string" ? request.body.answer.trim() : "";
             const scope = request.body?.scope === "portfolio" ? "portfolio" : "property";
+            const factType =
+                request.body?.factType === "style_rule" || request.body?.factType === "topic_to_avoid"
+                    ? request.body.factType
+                    : "qa";
+            const visibility = request.body?.visibility === "internal" ? "internal" : "external";
+            const acknowledgeUnsupported = request.body?.acknowledgeUnsupported === true;
             if (!answer) {
                 return response.status(400).json({ status: false, message: "answer is required" });
             }
             if (scope === "property" && !listingId) {
                 return response.status(400).json({ status: false, message: "listingId is required for property-scoped facts" });
+            }
+            // Capability guardrail: block instructions the AI can't actually
+            // execute unless the reviewer has explicitly acknowledged the
+            // limitation (client will re-submit with acknowledgeUnsupported).
+            const checkTargets = [question, answer].filter(Boolean).join("\n");
+            const capability = checkInstructionSupport(checkTargets);
+            if (!capability.supported && !acknowledgeUnsupported) {
+                return response.status(422).json({
+                    status: false,
+                    code: "UNSUPPORTED_INSTRUCTION",
+                    message: capability.reason || "This instruction is outside the AI's current capabilities.",
+                });
             }
             const topic = question || answer;
             const saved = await new AILearnedFactsService().upsert(
@@ -213,6 +241,8 @@ export class AICopilotController {
                     topic,
                     question: question || null,
                     answer,
+                    factType,
+                    visibility,
                     source: "simulator",
                     createdByUserId: userId(request.user),
                 },
@@ -259,6 +289,12 @@ export class AICopilotController {
                     topic: b.topic,
                     scope: b.scope,
                     listingId: b.listingId === undefined ? undefined : toNum(b.listingId),
+                    factType:
+                        b.factType === "qa" || b.factType === "style_rule" || b.factType === "topic_to_avoid"
+                            ? b.factType
+                            : undefined,
+                    visibility:
+                        b.visibility === "internal" || b.visibility === "external" ? b.visibility : undefined,
                 },
                 userId(request.user)
             );

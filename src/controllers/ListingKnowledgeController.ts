@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import { ListingKnowledgeService } from "../services/ListingKnowledgeService";
+import { AILearnedFactsService } from "../services/AILearnedFactsService";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -79,6 +80,14 @@ export class ListingKnowledgeController {
                 userId: userId(request.user),
                 userName: userName(request.user),
             });
+            // Any KB edit must propagate to a synced learned fact so the two
+            // views never drift. Best-effort; sync failures are logged, not
+            // fatal to the KB write.
+            try {
+                await new AILearnedFactsService().syncFromKnowledgeEntry(data);
+            } catch {
+                /* logged upstream */
+            }
             return response.status(200).json({ status: true, data });
         } catch (error) {
             return next(error);
@@ -91,6 +100,11 @@ export class ListingKnowledgeController {
             if (id == null) return response.status(400).json({ status: false, message: "Invalid id" });
             const service = new ListingKnowledgeService();
             const data = await service.remove(id, { userId: userId(request.user), userName: userName(request.user) });
+            try {
+                await new AILearnedFactsService().syncFromKnowledgeEntry(data);
+            } catch {
+                /* best-effort */
+            }
             return response.status(200).json({ status: true, data });
         } catch (error) {
             return next(error);

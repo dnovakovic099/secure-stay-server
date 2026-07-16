@@ -37,6 +37,32 @@ export class AILearnedFactEntity {
     @Column({ length: 120 })
     topic: string;
 
+    /**
+     * What kind of fact this row stores:
+     *  - 'qa'            : a plain question/answer (default; guest-answerable)
+     *  - 'style_rule'    : a learned communication-style rule (feeds prompt tone)
+     *  - 'topic_to_avoid': a learned topic the AI should refuse / escalate
+     *
+     * `style_rule` and `topic_to_avoid` never surface as guest answers; they
+     * mirror into the Settings tab's Communication Rules and Topics-to-Avoid
+     * sections so curators can promote them account-wide.
+     */
+    @Index()
+    @Column({ length: 24, default: "qa" })
+    factType: string;
+
+    // Visibility for QA facts: 'external' is guest-shareable; 'internal' is
+    // staff-only guidance and must not be quoted to a guest. Mirrors the
+    // Knowledge Base visibility model so facts sync 1:1 to KB entries.
+    @Column({ length: 16, default: "external" })
+    visibility: string;
+
+    // When set, this learned fact is synced to a listing Knowledge Base entry;
+    // any edit/delete on either side propagates through AILearnedFactsService.
+    @Index()
+    @Column({ type: "bigint", nullable: true })
+    knowledgeEntryId: number | null;
+
     @Column({ type: "text", nullable: true })
     question: string | null;
 

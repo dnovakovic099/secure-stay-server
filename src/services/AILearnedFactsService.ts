@@ -1,7 +1,11 @@
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { AILearnedFactEntity } from "../entity/AILearnedFact";
+import { ListingKnowledgeEntryEntity } from "../entity/ListingKnowledgeEntry";
 import { IsNull, In } from "typeorm";
+
+export type LearnedFactType = "qa" | "style_rule" | "topic_to_avoid";
+export type LearnedFactVisibility = "internal" | "external";
 
 export interface LearnedFactInput {
     scope?: "property" | "portfolio";
@@ -9,10 +13,52 @@ export interface LearnedFactInput {
     topic: string;
     question?: string | null;
     answer?: string | null;
+    factType?: LearnedFactType;
+    visibility?: LearnedFactVisibility;
     sampleThreadId?: number | null;
     source?: string;
     /** users.id of the staff member who taught this fact (manual paths only). */
     createdByUserId?: number | null;
+}
+
+/**
+ * Instruction phrases the AI can't actually execute in a reply. We reject
+ * these on `sandboxTeach` so a well-meaning curator doesn't create a learned
+ * fact that promises something the bot can't deliver ("recommend nearby
+ * available properties", "book them for next weekend"). Kept short and
+ * conservative so obvious cases fire without blocking normal answers.
+ */
+const UNSUPPORTED_INSTRUCTION_PATTERNS: { pattern: RegExp; reason: string }[] = [
+    { pattern: /\b(recommend|find|check|look up|show)\b[^.]{0,60}\b(nearby|other|another|alternate)\b[^.]{0,60}\b(propert|listing|home|unit|place)/i,
+        reason: "The AI cannot search live availability across other properties. Route the guest to the sales channel instead." },
+    { pattern: /\b(book|reserve|hold|charge|refund|cancel)\b[^.]{0,80}\b(for|on|to|the|their|this)\b/i,
+        reason: "The AI cannot execute reservations, payments, or refunds directly. Ask a human to handle transactional actions." },
+    { pattern: /\b(check|verify|look up|pull)\b[^.]{0,60}\b(availability|open dates|calendar)\b/i,
+        reason: "The AI cannot query live calendar availability for arbitrary date ranges. Add rules to defer to the availability endpoint instead." },
+    { pattern: /\b(send|schedule|dispatch)\b[^.]{0,60}\b(cleaner|maintenance|tech|technician|contractor)\b/i,
+        reason: "The AI cannot dispatch staff or vendors. Create an action item or escalate to a human." },
+];
+
+export interface CapabilityCheckResult {
+    supported: boolean;
+    reason?: string;
+    matchedPattern?: string;
+}
+
+/**
+ * Pre-teach check: does this instruction fit what the AI can actually do?
+ * Returns { supported:false, reason } so the sandbox teach endpoint can refuse
+ * and show the reviewer why. Applied to both the question and the answer text.
+ */
+export function checkInstructionSupport(text: string): CapabilityCheckResult {
+    const hay = String(text || "").trim();
+    if (!hay) return { supported: true };
+    for (const rule of UNSUPPORTED_INSTRUCTION_PATTERNS) {
+        if (rule.pattern.test(hay)) {
+            return { supported: false, reason: rule.reason, matchedPattern: rule.pattern.source };
+        }
+    }
+    return { supported: true };
 }
 
 const slug = (s: string) =>
@@ -32,6 +78,7 @@ const slug = (s: string) =>
  */
 export class AILearnedFactsService {
     private repo = appDatabase.getRepository(AILearnedFactEntity);
+    private kbRepo = appDatabase.getRepository(ListingKnowledgeEntryEntity);
 
     private static cleanDisplayName(value: unknown): string | null {
         const text = String(value ?? "").replace(/\s+/g, " ").trim();
@@ -148,6 +195,98 @@ export class AILearnedFactsService {
         }
     }
 
+    /**
+     * Mirror an approved, property-scoped, guest-shareable QA fact into the
+     * property's Knowledge Base so it lives alongside curated listing info.
+     * Internal facts and style_rule / topic_to_avoid facts stay in the learned
+     * store only — the KB is guest-facing and must not leak internal guidance.
+     * Idempotent by (listingId, knowledgeEntryId).
+     */
+    private async syncFactToKnowledge(fact: AILearnedFactEntity): Promise<AILearnedFactEntity> {
+        const shouldMirror =
+            fact.status === "approved" &&
+            fact.scope === "property" &&
+            fact.listingId != null &&
+            fact.factType === "qa" &&
+            fact.visibility === "external";
+
+        // If the fact no longer qualifies (rejected, promoted to portfolio,
+        // switched to internal / style rule), archive the linked KB entry.
+        if (!shouldMirror) {
+            if (fact.knowledgeEntryId) {
+                try {
+                    await this.kbRepo.update(
+                        { id: fact.knowledgeEntryId as any },
+                        { isArchived: 1 }
+                    );
+                } catch (err: any) {
+                    logger.warn(`[LearnedFacts] KB archive failed for fact ${fact.id}: ${err.message}`);
+                }
+                fact.knowledgeEntryId = null;
+                await this.repo.save(fact);
+            }
+            return fact;
+        }
+
+        const title = (fact.question || fact.topic || "").replace(/\s+/g, " ").trim().slice(0, 255) || "Learned";
+        const category = fact.topic || "Learned";
+        const content = fact.answer || "";
+
+        try {
+            let entry = fact.knowledgeEntryId
+                ? await this.kbRepo.findOne({ where: { id: fact.knowledgeEntryId as any } })
+                : null;
+            if (entry) {
+                entry.title = title;
+                entry.category = category.slice(0, 120);
+                entry.content = content;
+                entry.visibility = "external";
+                entry.isArchived = 0;
+                entry.source = "ai_suggested";
+                await this.kbRepo.save(entry);
+            } else {
+                entry = this.kbRepo.create({
+                    listingId: Number(fact.listingId),
+                    category: category.slice(0, 120),
+                    visibility: "external",
+                    title,
+                    content,
+                    source: "ai_suggested",
+                    isArchived: 0,
+                });
+                entry = await this.kbRepo.save(entry);
+                fact.knowledgeEntryId = entry.id;
+                await this.repo.save(fact);
+            }
+        } catch (err: any) {
+            logger.warn(`[LearnedFacts] KB sync failed for fact ${fact.id}: ${err.message}`);
+        }
+        return fact;
+    }
+
+    /**
+     * Reverse sync: called from ListingKnowledgeController when a KB entry is
+     * edited or removed. Keeps the paired learned fact in step so curators
+     * can't get the two views out of sync.
+     */
+    async syncFromKnowledgeEntry(entry: ListingKnowledgeEntryEntity): Promise<void> {
+        const fact = await this.repo.findOne({ where: { knowledgeEntryId: entry.id as any } });
+        if (!fact) return;
+        if (entry.isArchived) {
+            fact.status = "rejected";
+            fact.knowledgeEntryId = null;
+        } else {
+            fact.answer = entry.content;
+            fact.question = entry.title;
+            fact.topic = slug(entry.category || fact.topic);
+            fact.visibility = entry.visibility === "internal" ? "internal" : "external";
+            // If the KB curator flipped it to internal, drop the KB link since
+            // learned facts marked internal never mirror to KB.
+            if (fact.visibility === "internal") fact.knowledgeEntryId = null;
+        }
+        await this.repo.save(fact);
+    }
+
     async upsert(
         input: LearnedFactInput,
         opts: { autoApprove?: boolean; trustedSource?: boolean } = {}
@@ -169,6 +308,9 @@ export class AILearnedFactsService {
         }
         const listingId = scope === "portfolio" ? null : input.listingId ?? null;
         const topic = slug(input.topic);
+        const factType: LearnedFactType =
+            input.factType === "style_rule" || input.factType === "topic_to_avoid" ? input.factType : "qa";
+        const visibility: LearnedFactVisibility = input.visibility === "internal" ? "internal" : "external";
 
         const existing = await this.repo.findOne({
             where: {
@@ -183,6 +325,8 @@ export class AILearnedFactsService {
             existing.lastSeenAt = new Date();
             if (input.answer) existing.answer = input.answer;
             if (input.question) existing.question = input.question;
+            if (input.factType !== undefined) existing.factType = factType;
+            if (input.visibility !== undefined) existing.visibility = visibility;
             if (input.createdByUserId != null) existing.createdByUserId = input.createdByUserId;
             // Auto-approve keeps still-pending facts flowing to the bot; a rejected
             // fact stays rejected until a human re-approves it. Extracted facts
@@ -193,7 +337,8 @@ export class AILearnedFactsService {
                     (await this.passesAutoApproveGate(scope, listingId, topic, existing.frequency));
                 if (approve) existing.status = "approved";
             }
-            return this.repo.save(existing);
+            const saved = await this.repo.save(existing);
+            return this.syncFactToKnowledge(saved);
         }
 
         const autoApproveNew =
@@ -203,6 +348,8 @@ export class AILearnedFactsService {
             scope,
             listingId,
             topic,
+            factType,
+            visibility,
             question: input.question ?? null,
             answer: input.answer ?? null,
             frequency: 1,
@@ -212,7 +359,8 @@ export class AILearnedFactsService {
             createdByUserId: input.createdByUserId ?? null,
             lastSeenAt: new Date(),
         });
-        return this.repo.save(created);
+        const saved = await this.repo.save(created);
+        return this.syncFactToKnowledge(saved);
     }
 
     /** Bulk-approve every currently-pending fact (optionally filtered). */
@@ -229,11 +377,12 @@ export class AILearnedFactsService {
         return { approved: pending.length };
     }
 
-    async list(opts: { status?: string; scope?: string; listingId?: number } = {}) {
+    async list(opts: { status?: string; scope?: string; listingId?: number; factType?: string } = {}) {
         const where: any = {};
         if (opts.status) where.status = opts.status;
         if (opts.scope) where.scope = opts.scope;
         if (opts.listingId != null) where.listingId = opts.listingId;
+        if (opts.factType) where.factType = opts.factType;
         const rows = await this.repo.find({ where, order: { frequency: "DESC", updatedAt: "DESC" }, take: 500 });
         const listingIds = [...new Set(rows.map((f) => f.listingId).filter((id) => id != null).map(Number))];
         const listingNames = await this.resolveListingNicknames(listingIds);
@@ -288,7 +437,8 @@ export class AILearnedFactsService {
         if (!fact) throw new Error(`Learned fact ${id} not found`);
         fact.status = status;
         fact.reviewedByUserId = userId ?? fact.reviewedByUserId ?? null;
-        return this.repo.save(fact);
+        const saved = await this.repo.save(fact);
+        return this.syncFactToKnowledge(saved);
     }
 
     /**
@@ -304,6 +454,8 @@ export class AILearnedFactsService {
             topic?: string;
             scope?: "property" | "portfolio";
             listingId?: number | null;
+            factType?: LearnedFactType;
+            visibility?: LearnedFactVisibility;
         },
         userId?: number | null
     ) {
@@ -319,8 +471,11 @@ export class AILearnedFactsService {
         if (patch.listingId !== undefined && fact.scope !== "portfolio") {
             fact.listingId = patch.listingId;
         }
+        if (patch.factType !== undefined) fact.factType = patch.factType;
+        if (patch.visibility !== undefined) fact.visibility = patch.visibility;
         fact.reviewedByUserId = userId ?? fact.reviewedByUserId ?? null;
-        return this.repo.save(fact);
+        const saved = await this.repo.save(fact);
+        return this.syncFactToKnowledge(saved);
     }
 
     /**
@@ -381,8 +536,23 @@ export class AILearnedFactsService {
             const rank = (list: AILearnedFactEntity[]) =>
                 dedup(list.map((f) => ({ f, s: score(f) })).sort((a, b) => b.s - a.s).map((x) => x.f));
 
-            const rankedProperty = rank(property);
-            const rankedPortfolio = rank(portfolio);
+            // Split by fact type so internal-only guidance can't get quoted
+            // verbatim to a guest. style_rule / topic_to_avoid facts are
+            // surfaced separately from Q&A facts so the prompt can apply them
+            // as rules rather than answers.
+            const isQa = (f: AILearnedFactEntity) => !f.factType || f.factType === "qa";
+            const isInternal = (f: AILearnedFactEntity) => f.visibility === "internal";
+            const qaExternal = (f: AILearnedFactEntity) => isQa(f) && !isInternal(f);
+            const qaInternal = (f: AILearnedFactEntity) => isQa(f) && isInternal(f);
+            const isStyle = (f: AILearnedFactEntity) => f.factType === "style_rule";
+            const isAvoid = (f: AILearnedFactEntity) => f.factType === "topic_to_avoid";
+
+            const rankedPropertyExternal = rank(property.filter(qaExternal));
+            const rankedPropertyInternal = rank(property.filter(qaInternal));
+            const rankedPortfolioExternal = rank(portfolio.filter(qaExternal));
+            const rankedPortfolioInternal = rank(portfolio.filter(qaInternal));
+            const styleRules = rank([...property, ...portfolio].filter(isStyle));
+            const avoidTopics = rank([...property, ...portfolio].filter(isAvoid));
 
             const lines: string[] = [];
             let used = 0;
@@ -391,12 +561,16 @@ export class AILearnedFactsService {
                 const a = (f.answer || "").replace(/\s+/g, " ").trim();
                 return `- Q: ${q}\n  A: ${a}`;
             };
-            const addSection = (header: string, list: AILearnedFactEntity[], budget: number) => {
+            const fmtRule = (f: AILearnedFactEntity) => {
+                const rule = (f.answer || f.question || f.topic || "").replace(/\s+/g, " ").trim();
+                return `- ${rule}`;
+            };
+            const addSection = (header: string, list: AILearnedFactEntity[], budget: number, formatter = fmt) => {
                 if (!list.length) return;
                 const start = lines.length;
                 let sectionUsed = 0;
                 for (const f of list) {
-                    const block = fmt(f);
+                    const block = formatter(f);
                     if (sectionUsed + block.length > budget) break;
                     lines.push(block);
                     sectionUsed += block.length + 1;
@@ -405,13 +579,39 @@ export class AILearnedFactsService {
                 if (lines.length > start) lines.splice(start, 0, header);
             };
 
-            addSection("PROPERTY-SPECIFIC learned answers (guest-shareable):", rankedProperty, Math.floor(maxChars * 0.7));
+            addSection("PROPERTY-SPECIFIC learned answers (guest-shareable):", rankedPropertyExternal, Math.floor(maxChars * 0.45));
             if (lines.length) lines.push("");
             addSection(
                 "PORTFOLIO-WIDE learned answers (apply to all properties, guest-shareable):",
-                rankedPortfolio,
-                Math.max(0, maxChars - used)
+                rankedPortfolioExternal,
+                Math.floor(maxChars * 0.25)
             );
+            if (rankedPropertyInternal.length || rankedPortfolioInternal.length) {
+                lines.push("");
+                addSection(
+                    "INTERNAL learned guidance (staff-only — do NOT quote to the guest, use only to inform your reply):",
+                    [...rankedPropertyInternal, ...rankedPortfolioInternal],
+                    Math.floor(maxChars * 0.15)
+                );
+            }
+            if (styleRules.length) {
+                lines.push("");
+                addSection(
+                    "LEARNED COMMUNICATION STYLE / RULES (apply to every reply):",
+                    styleRules,
+                    Math.floor(maxChars * 0.075),
+                    fmtRule
+                );
+            }
+            if (avoidTopics.length) {
+                lines.push("");
+                addSection(
+                    "LEARNED TOPICS TO AVOID / ALWAYS ESCALATE:",
+                    avoidTopics,
+                    Math.floor(maxChars * 0.075),
+                    fmtRule
+                );
+            }
 
             const out = lines.join("\n").trim();
             return out || null;
