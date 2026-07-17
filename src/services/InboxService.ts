@@ -619,9 +619,22 @@ export class InboxService {
         });
         if (!message) return null;
         message.sentVia = "webhook";
-        const saved = await this.messageRepo.save(message);
-        logger.info(`[InboxService] webhook stored message ${externalId} (thread ${threadId}, ${message.direction})`);
-        return saved;
+        try {
+            const saved = await this.messageRepo.save(message);
+            logger.info(`[InboxService] webhook stored message ${externalId} (thread ${threadId}, ${message.direction})`);
+            return saved;
+        } catch (err: any) {
+            // Same webhook delivered twice in parallel across cluster workers:
+            // both pass the exists-check, one INSERT loses on the unique
+            // externalId key. The message is already stored — return it.
+            if (!String(err?.message || "").includes("Duplicate entry")) throw err;
+            const dup = await this.messageRepo.findOne({ where: { externalId } });
+            if (dup) {
+                logger.info(`[InboxService] webhook message ${externalId} stored by a parallel delivery`);
+                return dup;
+            }
+            throw err;
+        }
     }
 
     // -------------------------------------------------------------------------
