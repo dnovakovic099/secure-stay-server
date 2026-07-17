@@ -375,17 +375,21 @@ export class InboxV2Controller {
         }
     }
 
-    /** Cancel a queued delayed auto-send (human veto from the inbox). */
+    /**
+     * Cancel a queued delayed auto-send (human veto from the inbox). The
+     * suggestion moves to "ignored" so webhook retries can never re-queue it;
+     * the draft text remains editable/sendable in the inbox.
+     */
     async aiVetoDelayedSend(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const id = Number(request.params.id);
             if (!Number.isFinite(id)) {
                 return response.status(400).json({ status: false, message: "Invalid suggestion id" });
             }
-            const service = new InboxAIService();
-            const saved = await service.updateSuggestionStatus(id, "ignored", {
-                acceptedByUserId: toNum(request.user?.secureStayUserId ?? request.user?.id),
-            });
+            const saved = await new InboxAIService().vetoDelayedAutosend(
+                id,
+                toNum(request.user?.secureStayUserId ?? request.user?.id)
+            );
             return response.status(200).json({ status: true, data: saved });
         } catch (error) {
             return next(error);

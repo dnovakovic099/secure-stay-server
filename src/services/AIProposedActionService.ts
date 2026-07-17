@@ -299,6 +299,15 @@ export class AIProposedActionService {
             const { InboxService } = await import("./InboxService");
             await new InboxService().sendReply(Number(action.threadId), reply, user);
             results.push("reply sent to guest");
+            // The guest just got a human-approved answer — cancel any queued
+            // delayed auto-send still pending on this thread's suggestions.
+            await appDatabase
+                .query(
+                    `UPDATE ai_message_suggestions SET autosendScheduledAt = NULL
+                     WHERE threadId = ? AND source = 'hostify' AND autosendScheduledAt IS NOT NULL`,
+                    [Number(action.threadId)]
+                )
+                .catch(() => {});
         }
 
         // 2) Internal task (ops ticket always; schedule changes create a

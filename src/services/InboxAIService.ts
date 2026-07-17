@@ -1774,6 +1774,17 @@ export class InboxAIService {
             // ran) — nothing to answer, nothing to auto-send.
             if (!suggestion) return { sent: false, reason: "no_pending_question" };
 
+            // generateSuggestion dedupes per (thread, message), so webhook
+            // retries hand back the SAME suggestion row. If it was already
+            // delivered/handled, or is already sitting in the delayed queue,
+            // never send again (and never reset a running veto timer).
+            if (suggestion.status !== "suggested") {
+                return { sent: false, reason: `already_${suggestion.status}`, suggestionId: suggestion.id };
+            }
+            if (suggestion.autosendScheduledAt != null) {
+                return { sent: false, reason: "already_queued", suggestionId: suggestion.id };
+            }
+
             // ---- Unpaid-arrival emergency (non-Airbnb only) ----
             // If the guest is arriving/staying on a non-Airbnb channel with an
             // outstanding balance, do NOT auto-answer. Flag the conversation as an
@@ -1901,7 +1912,11 @@ export class InboxAIService {
         });
         if (!due.length) return { sent, cancelled };
 
+        // Settings can change while sends sit in the queue — re-resolve every
+        // gate at delivery time, not just at queueing time.
         const enabled = await InboxAIService.resolveAutosendEnabled();
+        const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
+        const allowedChannels = await InboxAIService.autosendAllowedChannelsAsync();
 
         for (const suggestion of due) {
             const cancel = async (reason: string) => {
@@ -1915,10 +1930,29 @@ export class InboxAIService {
                     await cancel("autosend_disabled");
                     continue;
                 }
+                if (!settings?.autosendTierEnabled) {
+                    await cancel("tiers_disabled");
+                    continue;
+                }
                 const threadId = Number(suggestion.threadId);
                 const conversation = await this.conversationRepo.findOne({ where: { threadId } });
                 if (!conversation || conversation.emergency) {
                     await cancel(conversation ? "emergency" : "no_conversation");
+                    continue;
+                }
+                if (
+                    allowedChannels &&
+                    conversation.channel &&
+                    !allowedChannels.includes(conversation.channel.toLowerCase())
+                ) {
+                    await cancel(`channel_not_allowed:${conversation.channel}`);
+                    continue;
+                }
+                if (
+                    InboxAIService.isInquiryStatus(conversation.reservationStatus) &&
+                    !settings?.inquiryAutoRespondEnabled
+                ) {
+                    await cancel("inquiry_autosend_disabled");
                     continue;
                 }
                 const lastMsg = await this.messageRepo.findOne({
@@ -1938,6 +1972,10 @@ export class InboxAIService {
                     await cancel("empty_reply");
                     continue;
                 }
+                // At-most-once: take the row out of the queue BEFORE delivering.
+                // A crash mid-send then leaves a draft (safe), never a double-send.
+                suggestion.autosendScheduledAt = null;
+                await this.suggestionRepo.save(suggestion);
                 const inboxService = new InboxService();
                 const saved = await inboxService.sendAutomatedReply(threadId, reply, { senderName: "AI Assistant" });
                 const sentExternalId = Number((saved as any)?.externalId);
@@ -1954,6 +1992,24 @@ export class InboxAIService {
             }
         }
         return { sent, cancelled };
+    }
+
+    /**
+     * Human veto of a queued delayed auto-send. Clears the schedule AND moves
+     * the suggestion to "ignored" so a webhook retry can never re-queue it
+     * (maybeAutoRespond only acts on status "suggested"). The draft text stays
+     * in the inbox — staff can still edit and send it themselves, which flips
+     * the status to accepted/edited through the normal flow.
+     */
+    async vetoDelayedAutosend(id: number, vetoedByUserId?: number | null): Promise<AIMessageSuggestionEntity> {
+        const suggestion = await this.suggestionRepo.findOne({ where: { id } });
+        if (!suggestion) throw new Error(`Suggestion ${id} not found`);
+        suggestion.autosendScheduledAt = null;
+        if (suggestion.status === "suggested") suggestion.status = "ignored";
+        if (vetoedByUserId != null) suggestion.acceptedByUserId = vetoedByUserId;
+        await this.suggestionRepo.save(suggestion);
+        logger.info(`[InboxAIService] delayed autosend vetoed by human (suggestion ${id})`);
+        return suggestion;
     }
 
     /**
