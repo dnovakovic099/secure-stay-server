@@ -8,6 +8,17 @@ import { InboxMessageEntity } from "../entity/InboxMessage";
 
 const REVIEW_RISK_MODEL = process.env.AI_ITEM_DETECTION_MODEL || "gpt-4.1-mini";
 
+/** mysql DATE/DATETIME columns arrive as Date objects or strings — normalize to YYYY-MM-DD. */
+const isoDate = (v: any): string | null => {
+    if (!v) return null;
+    const d = v instanceof Date ? v : new Date(v);
+    if (Number.isNaN(d.getTime())) {
+        const m = String(v).match(/\d{4}-\d{2}-\d{2}/);
+        return m ? m[0] : null;
+    }
+    return d.toISOString().slice(0, 10);
+};
+
 /** Root-cause radar topic buckets — deterministic and explainable. */
 const ISSUE_TOPICS: { topic: string; label: string; re: RegExp; fix: string }[] = [
     {
@@ -233,7 +244,7 @@ export class OpsRadarService {
             const lowBattery = battery != null && battery <= 0.25;
             if (!offline && !lowBattery) continue;
 
-            const nextCheckin = d.nextCheckin ? String(d.nextCheckin).slice(0, 10) : null;
+            const nextCheckin = isoDate(d.nextCheckin);
             const daysToCheckin = nextCheckin
                 ? Math.ceil((new Date(nextCheckin).getTime() - Date.now()) / 86400000)
                 : null;
@@ -338,10 +349,10 @@ export class OpsRadarService {
             if (c.items.length < 4 && openCount === 0) continue;
             const key = `root_cause:${k}`;
             activeKeys.push(key);
-            const first = String(c.items[c.items.length - 1].createdAt).slice(0, 10);
+            const first = isoDate(c.items[c.items.length - 1].createdAt);
             const samples = c.items
                 .slice(0, 4)
-                .map((i) => `• ${String(i.item).slice(0, 140)} (${String(i.createdAt).slice(0, 10)})`)
+                .map((i) => `• ${String(i.item).slice(0, 140)} (${isoDate(i.createdAt)})`)
                 .join("\n");
 
             await this.upsertAlert({
@@ -718,7 +729,7 @@ export class OpsRadarService {
             }
 
             const severity = score >= 4 ? "critical" : score >= 3 ? "high" : "medium";
-            const date = String(t.date).slice(0, 10);
+            const date = isoDate(t.date);
             const key = `turnover_risk:${t.listingId}:${date}`;
             activeKeys.push(key);
             await this.upsertAlert({
