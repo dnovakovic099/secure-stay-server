@@ -31,6 +31,12 @@ export interface AIMessagingSettingsPatch {
     quoLineAutoRespond?: { phoneNumberId: string; enabled: boolean }[];
     autosendMinConfidence?: number;
     autosendChannels?: string | null;
+    autosendTierEnabled?: boolean;
+    autosendInstantMinConfidence?: number;
+    autosendDelayedMinConfidence?: number;
+    autosendDelayMinutes?: number;
+    inquirySalesRules?: string | null;
+    inquiryAutoRespondEnabled?: boolean;
     paymentAlertEmails?: string | null;
     itemDetectionEnabled?: boolean;
     actionItemRules?: string | null;
@@ -115,6 +121,18 @@ export class AIMessagingSettingsService {
             row.autosendMinConfidence = Math.max(0, Math.min(100, Math.round(patch.autosendMinConfidence)));
         }
         if (patch.autosendChannels !== undefined) row.autosendChannels = patch.autosendChannels ? String(patch.autosendChannels).slice(0, 255) : null;
+        if (patch.autosendTierEnabled !== undefined) row.autosendTierEnabled = patch.autosendTierEnabled ? 1 : 0;
+        if (patch.autosendInstantMinConfidence !== undefined && Number.isFinite(patch.autosendInstantMinConfidence)) {
+            row.autosendInstantMinConfidence = Math.max(0, Math.min(100, Math.round(patch.autosendInstantMinConfidence)));
+        }
+        if (patch.autosendDelayedMinConfidence !== undefined && Number.isFinite(patch.autosendDelayedMinConfidence)) {
+            row.autosendDelayedMinConfidence = Math.max(0, Math.min(100, Math.round(patch.autosendDelayedMinConfidence)));
+        }
+        if (patch.autosendDelayMinutes !== undefined && Number.isFinite(patch.autosendDelayMinutes)) {
+            row.autosendDelayMinutes = Math.max(1, Math.min(120, Math.round(patch.autosendDelayMinutes)));
+        }
+        if (patch.inquirySalesRules !== undefined) row.inquirySalesRules = patch.inquirySalesRules ?? null;
+        if (patch.inquiryAutoRespondEnabled !== undefined) row.inquiryAutoRespondEnabled = patch.inquiryAutoRespondEnabled ? 1 : 0;
         if (patch.paymentAlertEmails !== undefined) row.paymentAlertEmails = patch.paymentAlertEmails ?? null;
         if (patch.itemDetectionEnabled !== undefined) row.itemDetectionEnabled = patch.itemDetectionEnabled ? 1 : 0;
         if (patch.actionItemRules !== undefined) row.actionItemRules = patch.actionItemRules ?? null;

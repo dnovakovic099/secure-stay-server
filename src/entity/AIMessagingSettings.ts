@@ -72,6 +72,36 @@ export class AIMessagingSettingsEntity {
     @Column({ length: 255, nullable: true })
     autosendChannels: string | null;
 
+    // ---- Confidence-tiered automation ----
+    // When enabled, auto-send runs in three tiers instead of one binary gate:
+    //  * >= autosendInstantMinConfidence  -> send immediately
+    //  * >= autosendDelayedMinConfidence  -> queue for autosendDelayMinutes,
+    //    visible in the inbox; a human can veto before it goes out
+    //  * below                            -> draft only (human sends)
+    @Column({ type: "tinyint", default: 0 })
+    autosendTierEnabled: number;
+
+    @Column({ type: "int", default: 95 })
+    autosendInstantMinConfidence: number;
+
+    @Column({ type: "int", default: 85 })
+    autosendDelayedMinConfidence: number;
+
+    @Column({ type: "int", default: 5 })
+    autosendDelayMinutes: number;
+
+    // ---- Inquiry sales mode ----
+    // Extra prompt rules applied only to pre-booking inquiry conversations.
+    @Column({ type: "text", nullable: true })
+    inquirySalesRules: string | null;
+
+    // Allow auto-send for inquiry (pre-booking) threads. Inquiries are
+    // revenue-critical and speed-to-first-response matters on the platforms,
+    // but they're also sales conversations — so this is a separate opt-in on
+    // top of the regular auto-respond toggle.
+    @Column({ type: "tinyint", default: 0 })
+    inquiryAutoRespondEnabled: number;
+
     // Comma/newline-separated recipients for payment-emergency alert emails
     // ("guest needs to pay" on non-Airbnb reservations arriving unpaid).
     @Column({ type: "text", nullable: true })

@@ -53,6 +53,16 @@ export class AIMessageSuggestionEntity {
     /** One-line verifier explanation when it scores the reply down. */
     @Column({ length: 255, nullable: true }) verifierNote: string | null;
 
+    /**
+     * Tiered auto-send: when set (and status is "suggested"), this reply is
+     * queued for automatic delivery at this time unless a human vetoes it
+     * first (ignore/reject/send their own reply). Cleared on veto/delivery.
+     */
+    @Column({ type: "datetime", nullable: true }) autosendScheduledAt: Date | null;
+
+    /** 1 when this draft was generated with the inquiry sales prompt. */
+    @Column({ type: "tinyint", default: 0 }) salesMode: number;
+
     @Column({ type: "tinyint", default: 0 }) escalationRequired: number;
     @Column({ length: 500, nullable: true }) escalationReason: string | null;
 

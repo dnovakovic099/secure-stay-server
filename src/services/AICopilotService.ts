@@ -97,6 +97,22 @@ export class AICopilotService {
         const thumbsUp = feedback.filter((f) => f.rating === "up").length;
         const thumbsDown = feedback.filter((f) => f.rating === "down").length;
 
+        // Inquiry sales performance: drafts generated in sales mode, and how many
+        // of those inquiry threads have since converted to a booking (their
+        // conversation status is now accepted/confirmed). Rough but honest —
+        // status comes from the live Hostify sync.
+        const salesSuggestions = suggestions.filter((s) => Number(s.salesMode) === 1);
+        const salesThreadIds = Array.from(new Set(salesSuggestions.map((s) => Number(s.threadId)).filter(Boolean)));
+        let salesConverted = 0;
+        if (salesThreadIds.length) {
+            const salesConvs = await this.conversationRepo.find({
+                where: salesThreadIds.map((threadId) => ({ threadId })) as any,
+            });
+            salesConverted = salesConvs.filter((c) =>
+                /^(accepted|confirmed|booked|paid)/i.test(String(c.reservationStatus || ""))
+            ).length;
+        }
+
         // Human response volume by internal user (who is replying to guests).
         const responders = await this.messageRepo
             .createQueryBuilder("m")
@@ -119,6 +135,14 @@ export class AICopilotService {
                 escalationRate: total ? Math.round((escalated / total) * 100) : 0,
             },
             feedback: { thumbsUp, thumbsDown },
+            inquirySales: {
+                suggestions: salesSuggestions.length,
+                threads: salesThreadIds.length,
+                converted: salesConverted,
+                conversionRate: salesThreadIds.length
+                    ? Math.round((salesConverted / salesThreadIds.length) * 100)
+                    : 0,
+            },
             responders: responders.map((r: any) => ({ name: r.name || "Unknown", count: Number(r.count) })),
         };
     }

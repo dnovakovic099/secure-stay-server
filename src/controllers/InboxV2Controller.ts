@@ -3,6 +3,7 @@ import { InboxService } from "../services/InboxService";
 import { InboxAIService } from "../services/InboxAIService";
 import { MessagingService } from "../services/MessagingServices";
 import { AILearningPromptService } from "../services/AILearningPromptService";
+import { AIProposedActionService } from "../services/AIProposedActionService";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -314,6 +315,78 @@ export class InboxV2Controller {
                 correctedResponse: typeof b.correctedResponse === "string" ? b.correctedResponse : null,
             });
             return response.status(201).json({ status: true, data: saved });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // AI proposed actions (one-click, human-approved operations)
+    // -------------------------------------------------------------------------
+
+    /** Open proposed actions for a thread (late checkout, code resend, ops ticket). */
+    async aiListActions(request: Request, response: Response, next: NextFunction) {
+        try {
+            if (!InboxAIService.isEnabled()) {
+                return response.status(200).json({ status: true, data: [], disabled: true });
+            }
+            const threadId = Number(request.params.threadId);
+            if (!Number.isFinite(threadId)) {
+                return response.status(400).json({ status: false, message: "Invalid threadId" });
+            }
+            const data = await new AIProposedActionService().listForThread(threadId, {
+                includeResolved: request.query.includeResolved === "true",
+            });
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** Approve + execute a proposed action (optionally with edited reply/task text). */
+    async aiExecuteAction(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const id = Number(request.params.id);
+            if (!Number.isFinite(id)) {
+                return response.status(400).json({ status: false, message: "Invalid action id" });
+            }
+            const b = request.body || {};
+            const saved = await new AIProposedActionService().execute(id, request.user, {
+                replyOverride: typeof b.reply === "string" ? b.reply : null,
+                taskOverride: typeof b.task === "string" ? b.task : null,
+            });
+            return response.status(200).json({ status: true, data: saved });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** Dismiss a proposed action. */
+    async aiDismissAction(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const id = Number(request.params.id);
+            if (!Number.isFinite(id)) {
+                return response.status(400).json({ status: false, message: "Invalid action id" });
+            }
+            const saved = await new AIProposedActionService().dismiss(id, request.user);
+            return response.status(200).json({ status: true, data: saved });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** Cancel a queued delayed auto-send (human veto from the inbox). */
+    async aiVetoDelayedSend(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const id = Number(request.params.id);
+            if (!Number.isFinite(id)) {
+                return response.status(400).json({ status: false, message: "Invalid suggestion id" });
+            }
+            const service = new InboxAIService();
+            const saved = await service.updateSuggestionStatus(id, "ignored", {
+                acceptedByUserId: toNum(request.user?.secureStayUserId ?? request.user?.id),
+            });
+            return response.status(200).json({ status: true, data: saved });
         } catch (error) {
             return next(error);
         }

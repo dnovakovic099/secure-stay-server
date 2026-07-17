@@ -81,6 +81,13 @@ export class AICopilotController {
                 quoLineAutoRespond: Array.isArray(b.quoLineAutoRespond) ? b.quoLineAutoRespond : undefined,
                 autosendMinConfidence: toNum(b.autosendMinConfidence) ?? undefined,
                 autosendChannels: b.autosendChannels,
+                autosendTierEnabled: typeof b.autosendTierEnabled === "boolean" ? b.autosendTierEnabled : undefined,
+                autosendInstantMinConfidence: toNum(b.autosendInstantMinConfidence) ?? undefined,
+                autosendDelayedMinConfidence: toNum(b.autosendDelayedMinConfidence) ?? undefined,
+                autosendDelayMinutes: toNum(b.autosendDelayMinutes) ?? undefined,
+                inquirySalesRules: b.inquirySalesRules,
+                inquiryAutoRespondEnabled:
+                    typeof b.inquiryAutoRespondEnabled === "boolean" ? b.inquiryAutoRespondEnabled : undefined,
                 paymentAlertEmails: b.paymentAlertEmails,
                 itemDetectionEnabled: typeof b.itemDetectionEnabled === "boolean" ? b.itemDetectionEnabled : undefined,
                 actionItemRules: b.actionItemRules,

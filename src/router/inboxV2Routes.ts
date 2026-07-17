@@ -57,6 +57,13 @@ router.get("/conversations/:threadId/ai/suggestions", verifySession, inboxV2Cont
 router.post("/ai/feedback", verifySession, inboxV2Controller.aiFeedback);
 router.patch("/ai/suggestions/:id/status", verifySession, inboxV2Controller.aiUpdateSuggestionStatus);
 
+// AI proposed actions — one-click operations the AI detected; humans approve.
+router.get("/conversations/:threadId/ai/actions", verifySession, inboxV2Controller.aiListActions);
+router.post("/ai/actions/:id/execute", verifySession, inboxV2Controller.aiExecuteAction);
+router.post("/ai/actions/:id/dismiss", verifySession, inboxV2Controller.aiDismissAction);
+// Veto a queued delayed auto-send before its window elapses.
+router.post("/ai/suggestions/:id/veto-autosend", verifySession, inboxV2Controller.aiVetoDelayedSend);
+
 // -------------------------------------------------------------------------
 // Automated messages (rule-based scheduled sends: winback, reminders,
 // day-of-week notes, one-off follow-ups). Engine gated by AUTO_MESSAGES_ENABLED;

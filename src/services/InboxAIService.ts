@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { IsNull } from "typeorm";
+import { IsNull, LessThanOrEqual } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { InboxConversationEntity } from "../entity/InboxConversation";
@@ -211,10 +211,16 @@ export class InboxAIService {
 
     /** DB-aware config snapshot for the UI / settings surface. */
     static async autosendConfigAsync() {
+        const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
         return {
             enabled: await InboxAIService.resolveAutosendEnabled(),
             minConfidence: await InboxAIService.autosendMinConfidenceAsync(),
             allowedChannels: await InboxAIService.autosendAllowedChannelsAsync(),
+            tierEnabled: Boolean(settings?.autosendTierEnabled),
+            instantMinConfidence: Number(settings?.autosendInstantMinConfidence ?? 95),
+            delayedMinConfidence: Number(settings?.autosendDelayedMinConfidence ?? 85),
+            delayMinutes: Number(settings?.autosendDelayMinutes ?? 5),
+            inquiryAutoRespondEnabled: Boolean(settings?.inquiryAutoRespondEnabled),
         };
     }
 
@@ -318,6 +324,9 @@ export class InboxAIService {
             baseDraft,
         });
         const keywordEscalation = this.scanForEscalation(targetMessage?.body || conversation.lastMessageText || "");
+        const inquirySales =
+            InboxAIService.isInquiryStatus(conversation.reservationStatus) &&
+            !this.isAirbnbSupportThread(conversation, messages);
 
         let output: ModelOutput;
         let raw = "";
@@ -332,7 +341,7 @@ export class InboxAIService {
                         role: "system",
                         content: this.systemPrompt(settings, {
                             airbnbSupport: this.isAirbnbSupportThread(conversation, messages),
-                            inquirySales: InboxAIService.isInquiryStatus(conversation.reservationStatus),
+                            inquirySales,
                         }),
                     },
                     { role: "user", content: context },
@@ -441,6 +450,7 @@ export class InboxAIService {
             modelName: INBOX_AI_MODEL,
             promptVersion: INBOX_AI_PROMPT_VERSION,
             status: "suggested",
+            salesMode: inquirySales ? 1 : 0,
             rawResponse: raw.slice(0, 60000) || null,
             generatedAt: new Date(),
         });
@@ -449,6 +459,20 @@ export class InboxAIService {
             `[InboxAIService] suggestion ${saved.id} generated for thread ${threadId} ` +
             `(conf ${confidencePct ?? "?"}, verified ${verifier?.confidence ?? "?"}, escalate ${saved.escalationRequired})`
         );
+
+        // Proposed one-click actions (late checkout, lock code resend, ops
+        // ticket) for the guest message that triggered this suggestion.
+        // Best-effort; never blocks or fails the suggestion.
+        if (targetMessage && targetMessage.direction === "incoming" && !instructions) {
+            try {
+                const { AIProposedActionService } = await import("./AIProposedActionService");
+                new AIProposedActionService()
+                    .detectForMessage({ conversation, guestMessage: targetMessage, suggestion: saved })
+                    .catch(() => {});
+            } catch {
+                /* non-fatal */
+            }
+        }
 
         // If the model flagged a reusable knowledge gap, raise a learning prompt
         // for staff on this conversation. Best-effort; never blocks the suggestion.
@@ -1347,6 +1371,7 @@ export class InboxAIService {
                 messageId: targetQuo.id,
                 reservationId: conv.reservationId ? Number(conv.reservationId) : null,
                 listingId: conv.listingId ? Number(conv.listingId) : null,
+                salesMode: !isPmLine && InboxAIService.isInquiryStatus(reservationStatus) ? 1 : 0,
                 suggestedReply: output.suggested_reply || null,
                 confidence: confidencePct,
                 verifierConfidence: verifier?.confidence ?? null,
@@ -1652,6 +1677,8 @@ export class InboxAIService {
         suggestion.status = status;
         if (opts.acceptedByUserId != null) suggestion.acceptedByUserId = opts.acceptedByUserId;
         if (opts.finalSentMessageId != null) suggestion.finalSentMessageId = opts.finalSentMessageId;
+        // Any human action (or delivery) vetoes a queued delayed auto-send.
+        if (status !== "suggested") suggestion.autosendScheduledAt = null;
         return this.suggestionRepo.save(suggestion);
     }
 
@@ -1773,7 +1800,6 @@ export class InboxAIService {
             }
 
             // ---- Hard guardrails (any failure => leave for human) ----
-            const minConf = await InboxAIService.autosendMinConfidenceAsync();
             // Gate on the stricter of the generator's self-score and the
             // independent verifier score; BOTH must clear the bar. A missing
             // verifier score fails closed (no auto-send without verification).
@@ -1786,12 +1812,41 @@ export class InboxAIService {
             if (suggestion.escalationRequired) return this.autosendSkip(threadId, suggestion.id, "escalation_required");
             if (!reply) return this.autosendSkip(threadId, suggestion.id, "empty_reply");
             if (warnings.length > 0) return this.autosendSkip(threadId, suggestion.id, "model_warnings");
-            if (conf == null || conf < minConf) {
+
+            // Inquiry (pre-booking) threads are sales conversations — auto-send
+            // needs its own opt-in on top of the general auto-respond toggle.
+            const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
+            if (InboxAIService.isInquiryStatus(conversation.reservationStatus) && !settings?.inquiryAutoRespondEnabled) {
+                return this.autosendSkip(threadId, suggestion.id, "inquiry_autosend_disabled");
+            }
+
+            // ---- Confidence tier decision ----
+            // Tiered mode: instant send at the top tier; a delayed, human-vetoable
+            // send in the middle tier; draft-only below. Legacy mode: one bar.
+            const tierEnabled = Boolean(settings?.autosendTierEnabled);
+            const instantBar = tierEnabled
+                ? Number(settings?.autosendInstantMinConfidence ?? 95)
+                : await InboxAIService.autosendMinConfidenceAsync();
+            const delayedBar = tierEnabled ? Number(settings?.autosendDelayedMinConfidence ?? 85) : null;
+
+            if (conf == null || (tierEnabled ? delayedBar != null && conf < delayedBar : conf < instantBar)) {
                 return this.autosendSkip(
                     threadId,
                     suggestion.id,
-                    `low_confidence:self=${selfConf ?? "?"},verified=${verConf ?? "?"}<${minConf}`
+                    `low_confidence:self=${selfConf ?? "?"},verified=${verConf ?? "?"}<${tierEnabled ? delayedBar : instantBar}`
                 );
+            }
+
+            if (tierEnabled && conf < instantBar) {
+                // Middle tier: queue with a veto window instead of sending now.
+                const delayMin = Math.max(1, Number(settings?.autosendDelayMinutes ?? 5));
+                suggestion.autosendScheduledAt = new Date(Date.now() + delayMin * 60000);
+                await this.suggestionRepo.save(suggestion);
+                logger.info(
+                    `[InboxAIService] auto-send QUEUED for thread ${threadId} ` +
+                    `(suggestion ${suggestion.id}, conf ${conf} in [${delayedBar}, ${instantBar}), sends in ${delayMin}m unless vetoed)`
+                );
+                return { sent: false, reason: "queued_delayed", suggestionId: suggestion.id };
             }
 
             // ---- Deliver ----
@@ -1804,7 +1859,7 @@ export class InboxAIService {
                 });
                 logger.info(
                     `[InboxAIService] AUTO-SENT reply for thread ${threadId} ` +
-                    `(suggestion ${suggestion.id}, conf ${conf} >= ${minConf})`
+                    `(suggestion ${suggestion.id}, conf ${conf} >= ${instantBar})`
                 );
                 return { sent: true, reason: "sent", suggestionId: suggestion.id, messageExternalId: sentExternalId };
             } catch (err: any) {
@@ -1823,6 +1878,82 @@ export class InboxAIService {
             `(suggestion ${suggestionId}): ${reason} — left for human review`
         );
         return { sent: false, reason, suggestionId };
+    }
+
+    /**
+     * Deliver queued middle-tier auto-sends whose veto window has elapsed.
+     * Runs on a short scheduler interval. Each candidate is re-checked before
+     * delivery: auto-send must still be enabled, the thread must not be in an
+     * emergency, and the guest message this reply answers must still be the
+     * last message in the thread (a team reply or a newer guest message vetoes
+     * the queued send — the newer message gets its own fresh pipeline run).
+     */
+    async processDueDelayedAutosends(): Promise<{ sent: number; cancelled: number }> {
+        let sent = 0;
+        let cancelled = 0;
+        const due = await this.suggestionRepo.find({
+            where: {
+                source: "hostify",
+                status: "suggested",
+                autosendScheduledAt: LessThanOrEqual(new Date()),
+            },
+            take: 25,
+        });
+        if (!due.length) return { sent, cancelled };
+
+        const enabled = await InboxAIService.resolveAutosendEnabled();
+
+        for (const suggestion of due) {
+            const cancel = async (reason: string) => {
+                suggestion.autosendScheduledAt = null;
+                await this.suggestionRepo.save(suggestion);
+                cancelled++;
+                logger.info(`[InboxAIService] delayed autosend cancelled (suggestion ${suggestion.id}): ${reason}`);
+            };
+            try {
+                if (!enabled) {
+                    await cancel("autosend_disabled");
+                    continue;
+                }
+                const threadId = Number(suggestion.threadId);
+                const conversation = await this.conversationRepo.findOne({ where: { threadId } });
+                if (!conversation || conversation.emergency) {
+                    await cancel(conversation ? "emergency" : "no_conversation");
+                    continue;
+                }
+                const lastMsg = await this.messageRepo.findOne({
+                    where: { threadId },
+                    order: { sentAt: "DESC", id: "DESC" },
+                });
+                const stillPending =
+                    lastMsg &&
+                    lastMsg.direction === "incoming" &&
+                    (suggestion.messageId == null || Number(lastMsg.externalId) === Number(suggestion.messageId));
+                if (!stillPending) {
+                    await cancel("thread_moved_on");
+                    continue;
+                }
+                const reply = (suggestion.suggestedReply || "").trim();
+                if (!reply) {
+                    await cancel("empty_reply");
+                    continue;
+                }
+                const inboxService = new InboxService();
+                const saved = await inboxService.sendAutomatedReply(threadId, reply, { senderName: "AI Assistant" });
+                const sentExternalId = Number((saved as any)?.externalId);
+                await this.updateSuggestionStatus(suggestion.id, "auto_sent", {
+                    finalSentMessageId: Number.isFinite(sentExternalId) ? sentExternalId : null,
+                });
+                sent++;
+                logger.info(
+                    `[InboxAIService] delayed AUTO-SENT reply for thread ${threadId} (suggestion ${suggestion.id})`
+                );
+            } catch (err: any) {
+                logger.error(`[InboxAIService] delayed autosend failed (suggestion ${suggestion.id}): ${err.message}`);
+                await cancel(`delivery_failed:${err.message}`).catch(() => {});
+            }
+        }
+        return { sent, cancelled };
     }
 
     /**
@@ -1859,6 +1990,8 @@ export class InboxAIService {
             suggestion.actualReplyMessageId = outgoing.externalId ?? null;
             suggestion.actualReplyAt = outgoing.sentAt ?? null;
             suggestion.replySimilarity = this.replyOverlapPct(suggestion.suggestedReply || "", outgoing.body);
+            // Team replied themselves — veto any queued delayed auto-send.
+            suggestion.autosendScheduledAt = null;
             suggestion.auditedAt = new Date();
             await this.suggestionRepo.save(suggestion);
             logger.info(
@@ -2118,6 +2251,11 @@ export class InboxAIService {
                     "If a line sounds like a brochure or an upsell, rewrite it or cut it. If the last line could come from a support ticket, rewrite it warmer.",
                 ].join("\n")
             );
+            const inquiryRules = (settings?.inquirySalesRules || "").trim();
+            if (inquiryRules) {
+                settingsBlock.push("TEAM INQUIRY SALES RULES (follow these strictly for inquiry replies):");
+                settingsBlock.push(inquiryRules);
+            }
         }
         settingsBlock.push("");
 

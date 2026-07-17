@@ -584,6 +584,26 @@ export function scheduleGetReservation() {
     }
   );
 
+  // Tiered auto-send delivery sweep — every minute. Middle-tier suggestions
+  // are queued with a veto window (autosendScheduledAt); this delivers the
+  // ones whose window elapsed with no human action. Re-checks safety before
+  // every send (auto-send still on, thread not moved on, no emergency).
+  schedule.scheduleJob(
+    "* * * * *",
+    async () => {
+      try {
+        const { InboxAIService } = require("../services/InboxAIService");
+        if (!InboxAIService.isEnabled()) return;
+        const result = await new InboxAIService().processDueDelayedAutosends();
+        if (result.sent || result.cancelled) {
+          logger.info(`[InboxAI] Delayed autosend sweep — sent=${result.sent}, cancelled=${result.cancelled}`);
+        }
+      } catch (error) {
+        logger.error("[InboxAI] Error in delayed autosend sweep:", error);
+      }
+    }
+  );
+
   // Overdue payment sweep — refresh Hostify paid_part/paid_sum for non-Airbnb
   // reservations in the current+upcoming+recent window so the Overdue Payments
   // page reads our DB, and clear payment emergencies once settled. Every 3 hours.
