@@ -8,6 +8,22 @@ import { InboxMessageEntity } from "../entity/InboxMessage";
 
 const REVIEW_RISK_MODEL = process.env.AI_ITEM_DETECTION_MODEL || "gpt-4.1-mini";
 
+/**
+ * Reservation statuses that represent a real (kept) booking. Hostify data is
+ * full of expired/declined inquiries that still carry dates — treating those
+ * as bookings fakes check-ins and turnovers.
+ */
+const BOOKED_STATUSES = "('accepted','confirmed','modified','new','ownerStay','owner_stay')";
+
+const safeParse = (raw: string | null | undefined): any => {
+    if (!raw) return {};
+    try {
+        return JSON.parse(raw) ?? {};
+    } catch {
+        return {};
+    }
+};
+
 /** mysql DATE/DATETIME columns arrive as Date objects or strings — normalize to YYYY-MM-DD. */
 const isoDate = (v: any): string | null => {
     if (!v) return null;
@@ -169,14 +185,15 @@ export class OpsRadarService {
     }
 
     async listAlerts(opts: { type?: string; status?: string; limit?: number } = {}) {
-        const where: any = {};
-        where.status = opts.status || "open";
-        if (opts.type) where.type = opts.type;
-        return this.repo.find({
-            where,
-            order: { severity: "ASC", lastSeenAt: "DESC" },
-            take: Math.min(Math.max(opts.limit || 200, 1), 500),
-        });
+        const qb = this.repo
+            .createQueryBuilder("a")
+            .where("a.status = :status", { status: opts.status || "open" })
+            // severity is a word, not a rank — order explicitly.
+            .orderBy("FIELD(a.severity, 'critical', 'high', 'medium', 'low')", "ASC")
+            .addOrderBy("a.lastSeenAt", "DESC")
+            .take(Math.min(Math.max(opts.limit || 200, 1), 500));
+        if (opts.type) qb.andWhere("a.type = :type", { type: opts.type });
+        return qb.getMany();
     }
 
     async summary() {
@@ -231,7 +248,7 @@ export class OpsRadarService {
                     pd.property_id listingId, li.name listingName,
                     (SELECT MIN(r.arrivalDate) FROM reservation_info r
                       WHERE r.listingMapId = pd.property_id AND r.arrivalDate >= CURDATE()
-                        AND (r.status IS NULL OR r.status NOT LIKE 'cancel%')) nextCheckin
+                        AND r.status IN ${BOOKED_STATUSES}) nextCheckin
              FROM property_devices pd
              JOIN smart_lock_devices d ON d.id = pd.device_id
              LEFT JOIN listing_info li ON li.id = pd.property_id
@@ -536,14 +553,15 @@ export class OpsRadarService {
             .andWhere("c.checkout >= CURDATE()")
             .andWhere("c.isArchived = 0")
             .andWhere("c.lastMessageAt >= DATE_SUB(NOW(), INTERVAL 5 DAY)")
-            .andWhere("(c.reservationStatus IS NULL OR c.reservationStatus NOT LIKE 'cancel%')")
-            .andWhere("(c.reservationStatus IS NULL OR c.reservationStatus NOT LIKE 'inquiry%')")
+            // Only real stays: expired/declined inquiries also carry dates that
+            // can span today, but nobody is actually in the unit.
+            .andWhere(`c.reservationStatus IN ${BOOKED_STATUSES}`)
             .getMany();
 
         for (const c of stays) {
             const key = `review_risk:${c.threadId}`;
             const existing = await this.repo.findOne({ where: { dedupeKey: key } });
-            const lastScoredAt = existing?.payload ? JSON.parse(existing.payload)?.lastMessageAt || null : null;
+            const lastScoredAt = safeParse(existing?.payload)?.lastMessageAt || null;
             const lastMsgIso = c.lastMessageAt ? new Date(c.lastMessageAt).toISOString() : null;
 
             // Nothing new since the last scoring — keep the current alert state.
@@ -602,10 +620,10 @@ export class OpsRadarService {
                 if (existing && existing.status === "open") {
                     existing.status = "resolved";
                     existing.resolvedAt = new Date();
-                    existing.payload = JSON.stringify({ ...(existing.payload ? JSON.parse(existing.payload) : {}), lastMessageAt: lastMsgIso, risk: "low" });
+                    existing.payload = JSON.stringify({ ...safeParse(existing.payload), lastMessageAt: lastMsgIso, risk: "low" });
                     await this.repo.save(existing);
                 } else if (existing) {
-                    existing.payload = JSON.stringify({ ...(existing.payload ? JSON.parse(existing.payload) : {}), lastMessageAt: lastMsgIso, risk: "low" });
+                    existing.payload = JSON.stringify({ ...safeParse(existing.payload), lastMessageAt: lastMsgIso, risk: "low" });
                     await this.repo.save(existing);
                 } else {
                     // Persist a resolved marker purely as a scoring cache.
@@ -674,9 +692,9 @@ export class OpsRadarService {
              JOIN reservation_info arr
                ON arr.listingMapId = dep.listingMapId
               AND arr.arrivalDate = dep.departureDate
-              AND (arr.status IS NULL OR arr.status NOT LIKE 'cancel%')
+              AND arr.status IN ${BOOKED_STATUSES}
              WHERE dep.departureDate BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 3 DAY)
-               AND (dep.status IS NULL OR dep.status NOT LIKE 'cancel%')`
+               AND dep.status IN ${BOOKED_STATUSES}`
         );
         if (!turnovers.length) {
             await this.autoResolve("turnover_risk", []);
