@@ -584,6 +584,62 @@ export function scheduleGetReservation() {
     }
   );
 
+  // Ops Radar — SLA watchdog sweep every 15 minutes (unanswered guest threads,
+  // stale tickets). Cheap: two indexed queries + dedupe-keyed upserts.
+  schedule.scheduleJob(
+    "4-59/15 * * * *",
+    async () => {
+      try {
+        const { OpsRadarService } = require("../services/OpsRadarService");
+        if (!OpsRadarService.isEnabled()) return;
+        const result = await new OpsRadarService().sweepSLA();
+        if (result.alerts) logger.info(`[OpsRadar] SLA sweep — ${result.alerts} breach(es) open`);
+      } catch (error) {
+        logger.error("[OpsRadar] Error in SLA sweep:", error);
+      }
+    }
+  );
+
+  // Ops Radar — review-risk scoring for active stays, every 3 hours. One
+  // small LLM call per thread with NEW guest messages (cached by message time).
+  schedule.scheduleJob(
+    "12 */3 * * *",
+    async () => {
+      try {
+        const { OpsRadarService } = require("../services/OpsRadarService");
+        if (!OpsRadarService.isEnabled()) return;
+        const result = await new OpsRadarService().sweepReviewRisks();
+        if (result.scored || result.alerts) {
+          logger.info(`[OpsRadar] Review-risk sweep — scored=${result.scored}, alerts=${result.alerts}`);
+        }
+      } catch (error) {
+        logger.error("[OpsRadar] Error in review-risk sweep:", error);
+      }
+    }
+  );
+
+  // Ops Radar — daily deep scan at 6:30 AM ET: predictive maintenance from
+  // lock telemetry, recurring-issue root causes, and turnover-failure risks
+  // for the next 3 days. Ready before the team starts the day.
+  schedule.scheduleJob(
+    { hour: 6, minute: 30, tz: "America/New_York" },
+    async () => {
+      try {
+        const { OpsRadarService } = require("../services/OpsRadarService");
+        if (!OpsRadarService.isEnabled()) return;
+        const svc = new OpsRadarService();
+        const maintenance = await svc.sweepMaintenance();
+        const rootCauses = await svc.sweepRootCauses();
+        const turnovers = await svc.sweepTurnoverRisks();
+        logger.info(
+          `[OpsRadar] Daily scan — maintenance=${JSON.stringify(maintenance)}, rootCauses=${JSON.stringify(rootCauses)}, turnovers=${JSON.stringify(turnovers)}`
+        );
+      } catch (error) {
+        logger.error("[OpsRadar] Error in daily scan:", error);
+      }
+    }
+  );
+
   // Tiered auto-send delivery sweep — every minute. Middle-tier suggestions
   // are queued with a veto window (autosendScheduledAt); this delivers the
   // ones whose window elapsed with no human action. Re-checks safety before

@@ -17,6 +17,8 @@ import { IssueUpdates } from "../entity/IsssueUpdates";
 import { ListingService } from "./ListingService";
 import { format } from "date-fns";
 import * as XLSX from "xlsx";
+import { InboxConversationEntity } from "../entity/InboxConversation";
+import { AILearningPromptService } from "./AILearningPromptService";
 
 interface ActionItemFilter {
   category?: string;
@@ -449,6 +451,63 @@ export class ActionItemsService {
     return await this.actionItemsRepo.save(newActionItem);
   }
 
+  /**
+   * Self-enriching property knowledge: when a maintenance-style ticket is
+   * completed, ask the fixer HOW it was fixed. The answer flows through the
+   * existing learning-prompt pipeline and becomes a learned fact / KB entry,
+   * so the next "wifi is down" gets the documented fix instead of a truck roll.
+   * Fire-and-forget; never blocks or fails the status update itself.
+   */
+  private maybeRaiseResolutionLearningPrompt(item: ActionItems, previousStatus?: string | null) {
+    try {
+      if (!item || String(item.status).toLowerCase() !== "completed") return;
+      if (String(previousStatus || "").toLowerCase() === "completed") return;
+      const knowledgeWorthy =
+        /maintenance|repair|issue|guest request/i.test(String(item.category || "")) ||
+        ["inbox_ai", "ops_radar"].includes(String(item.source || ""));
+      if (!knowledgeWorthy) return;
+      if (!item.listingId && !item.reservationId) return;
+
+      setImmediate(async () => {
+        try {
+          const convRepo = appDatabase.getRepository(InboxConversationEntity);
+          let conv: InboxConversationEntity | null = null;
+          if (item.reservationId) {
+            conv = await convRepo.findOne({ where: { reservationId: item.reservationId as any } });
+          }
+          if (!conv && item.listingId) {
+            conv = await convRepo
+              .createQueryBuilder("c")
+              .where("c.listingId = :lid", { lid: item.listingId })
+              .orderBy("c.lastMessageAt", "DESC")
+              .getOne();
+          }
+          if (!conv) return;
+
+          const prompts = new AILearningPromptService();
+          // Don't clobber a real knowledge-gap question already pending there.
+          const pending = await prompts.getPendingForThread(Number(conv.threadId));
+          if (pending) return;
+
+          await prompts.raise({
+            threadId: Number(conv.threadId),
+            listingId: item.listingId ? Number(item.listingId) : conv.listingId ? Number(conv.listingId) : null,
+            listingName: item.listingName || conv.listingName || null,
+            topic: "maintenance-resolution",
+            question:
+              `Ticket completed: "${String(item.item || "").slice(0, 300)}". ` +
+              `How was it fixed? Any steps, locations, or quirks worth remembering (breaker panel, router spot, spare parts, vendor used)? ` +
+              `I'll save the answer so guests and staff get the fix instantly next time.`,
+          });
+        } catch (err: any) {
+          logger.warn(`[ActionItems] resolution learning prompt failed for item ${item.id}: ${err.message}`);
+        }
+      });
+    } catch {
+      /* never block the status update */
+    }
+  }
+
   async updateActionItem(actionItem: ActionItems, userId: string) {
     const existingActionItem = await this.actionItemsRepo.findOne({
       where: { id: actionItem.id },
@@ -459,6 +518,7 @@ export class ActionItemsService {
       );
     }
 
+    const previousStatus = existingActionItem.status;
     existingActionItem.listingName = actionItem.listingName;
     existingActionItem.guestName = actionItem.guestName;
     existingActionItem.item = actionItem.item;
@@ -475,16 +535,15 @@ export class ActionItemsService {
         ? format(new Date(), "yyyy-MM-dd")
         : null;
 
-    if (
-      existingActionItem.status !== "completed" &&
-      actionItem.status === "completed"
-    ) {
+    if (previousStatus !== "completed" && actionItem.status === "completed") {
       existingActionItem.completedOn = format(new Date(), "yyyy-MM-dd");
-    } else {
+    } else if (actionItem.status !== "completed") {
       existingActionItem.completedOn = null;
     }
 
-    return await this.actionItemsRepo.save(existingActionItem);
+    const saved = await this.actionItemsRepo.save(existingActionItem);
+    this.maybeRaiseResolutionLearningPrompt(saved, previousStatus);
+    return saved;
   }
 
   async deleteActionItem(id: number, userId: string) {
@@ -722,9 +781,12 @@ export class ActionItemsService {
       );
       return null;
     }
+    const previousStatus = actionItem.status;
     actionItem.status = status;
     actionItem.updatedBy = userId;
-    return await this.actionItemsRepo.save(actionItem);
+    const saved = await this.actionItemsRepo.save(actionItem);
+    this.maybeRaiseResolutionLearningPrompt(saved, previousStatus);
+    return saved;
   }
 
   async bulkUpdateActionItems(
@@ -748,6 +810,7 @@ export class ActionItemsService {
 
       // Update all action items with the provided data
       const updatePromises = existingActionItems.map((actionItem) => {
+        const previousStatus = actionItem.status;
         // Only update fields that are provided in updateData
         if (updateData.listingName !== undefined) {
           actionItem.listingName = updateData.listingName;
@@ -777,7 +840,10 @@ export class ActionItemsService {
         }
 
         actionItem.updatedBy = userId;
-        return this.actionItemsRepo.save(actionItem);
+        return this.actionItemsRepo.save(actionItem).then((saved) => {
+          this.maybeRaiseResolutionLearningPrompt(saved, previousStatus);
+          return saved;
+        });
       });
 
       const updatedActionItems = await Promise.all(updatePromises);
@@ -839,9 +905,12 @@ export class ActionItemsService {
     if (!actionItem) {
       throw CustomErrorHandler.notFound(`actionItem with ID ${id} not found`);
     }
+    const previousStatus = actionItem.status;
     actionItem.status = status;
     actionItem.updatedBy = userId;
-    return await this.actionItemsRepo.save(actionItem);
+    const saved = await this.actionItemsRepo.save(actionItem);
+    this.maybeRaiseResolutionLearningPrompt(saved, previousStatus);
+    return saved;
   }
 
   // У ActionItemsService

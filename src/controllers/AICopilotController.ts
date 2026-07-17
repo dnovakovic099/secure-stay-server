@@ -10,6 +10,7 @@ import { ListingGroupService } from "../services/ListingGroupService";
 import { ExemplarService } from "../services/ExemplarService";
 import { RetrievalService } from "../services/RetrievalService";
 import { QuoInboxService } from "../services/QuoInboxService";
+import { OpsRadarService } from "../services/OpsRadarService";
 import logger from "../utils/logger.utils";
 
 interface CustomRequest extends Request {
@@ -88,6 +89,8 @@ export class AICopilotController {
                 inquirySalesRules: b.inquirySalesRules,
                 inquiryAutoRespondEnabled:
                     typeof b.inquiryAutoRespondEnabled === "boolean" ? b.inquiryAutoRespondEnabled : undefined,
+                selfServiceTroubleshootingEnabled:
+                    typeof b.selfServiceTroubleshootingEnabled === "boolean" ? b.selfServiceTroubleshootingEnabled : undefined,
                 paymentAlertEmails: b.paymentAlertEmails,
                 itemDetectionEnabled: typeof b.itemDetectionEnabled === "boolean" ? b.itemDetectionEnabled : undefined,
                 actionItemRules: b.actionItemRules,
@@ -393,6 +396,56 @@ export class AICopilotController {
                 .backfillAllHistory()
                 .catch((e) => console.error("[InboxAIAudit] history backfill failed", e));
             return response.status(202).json({ status: true, message: "History backfill started" });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Ops Radar — manage-by-exception alert feed
+    // ------------------------------------------------------------------
+
+    /** Open alerts (optionally filtered by type/status) + summary counts. */
+    async opsAlerts(request: Request, response: Response, next: NextFunction) {
+        try {
+            const svc = new OpsRadarService();
+            const [alerts, summary] = await Promise.all([
+                svc.listAlerts({
+                    type: request.query.type ? String(request.query.type) : undefined,
+                    status: request.query.status ? String(request.query.status) : undefined,
+                    limit: request.query.limit ? Number(request.query.limit) : undefined,
+                }),
+                svc.summary(),
+            ]);
+            return response.status(200).json({ status: true, data: { alerts, summary } });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async opsDismissAlert(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const alert = await new OpsRadarService().dismiss(Number(request.params.id), userId(request.user));
+            return response.status(200).json({ status: true, data: alert });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async opsResolveAlert(request: Request, response: Response, next: NextFunction) {
+        try {
+            const alert = await new OpsRadarService().resolve(Number(request.params.id));
+            return response.status(200).json({ status: true, data: alert });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** Manual "Scan now" — runs all sweeps and returns their tallies. */
+    async opsScan(_request: Request, response: Response, next: NextFunction) {
+        try {
+            const result = await new OpsRadarService().runAll();
+            return response.status(200).json({ status: true, data: result });
         } catch (error) {
             return next(error);
         }

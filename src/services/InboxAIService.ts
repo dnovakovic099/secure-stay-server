@@ -2313,6 +2313,19 @@ export class InboxAIService {
                 settingsBlock.push(inquiryRules);
             }
         }
+        if (Number(settings?.selfServiceTroubleshootingEnabled) === 1 && !opts.airbnbSupport && !opts.pmClient && !opts.inquirySales) {
+            settingsBlock.push(
+                [
+                    "SELF-SERVICE TROUBLESHOOTING MODE (enabled by the team):",
+                    "When a guest reports an in-stay issue that commonly has a guest-side fix (wifi/router, TV/remote, smart lock or keypad, thermostat/AC/heat, breaker/power, appliances, hot water):",
+                    "- FIRST check the property knowledge/context for documented fixes (router location and restart steps, breaker panel location, lock instructions, remote/TV input steps).",
+                    "- If steps exist, walk the guest through them clearly and numbered, one short step per line, then ask them to try it and let you know if it works. Reassure them the team will step in if it doesn't.",
+                    "- Only offer steps that are actually documented in the provided context. If nothing is documented for the issue, acknowledge, say the team is on it, and escalate as usual.",
+                    "- NEVER troubleshoot when the issue is dangerous (gas smell, sparks, flooding, fire, carbon monoxide, break-in) or the guest is locked OUT at night — escalate those immediately.",
+                    "- If the guest already tried the fix or says it didn't work, do NOT repeat the same steps — acknowledge and escalate to the team.",
+                ].join("\n")
+            );
+        }
         settingsBlock.push("");
 
         return [

@@ -43,6 +43,13 @@ router.post("/sandbox/feedback", verifySession, controller.sandboxFeedback);
 // On-demand trigger of the nightly self-improvement audit.
 router.post("/audit/run", verifySession, controller.runAudit);
 
+// Ops Radar — the manager's manage-by-exception feed (predictive maintenance,
+// root causes, SLA breaches, review risks, turnover risks).
+router.get("/ops/alerts", verifySession, controller.opsAlerts);
+router.post("/ops/alerts/:id/dismiss", verifySession, controller.opsDismissAlert);
+router.post("/ops/alerts/:id/resolve", verifySession, controller.opsResolveAlert);
+router.post("/ops/scan", verifySession, controller.opsScan);
+
 // Seed KB from structured listing data + one-shot full-history learning.
 router.post("/kb/seed-from-listings", verifySession, controller.seedKnowledgeFromListings);
 router.post("/audit/backfill-history", verifySession, controller.backfillHistory);

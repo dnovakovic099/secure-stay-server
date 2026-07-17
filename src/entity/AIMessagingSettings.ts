@@ -102,6 +102,14 @@ export class AIMessagingSettingsEntity {
     @Column({ type: "tinyint", default: 0 })
     inquiryAutoRespondEnabled: number;
 
+    // ---- Guest self-service troubleshooting ----
+    // When ON, the assistant walks guests through documented fixes (router
+    // restart, breaker location, lock steps) step-by-step BEFORE the team
+    // dispatches anyone — deflecting the tickets that are really a 2-minute
+    // guest-side fix. OFF returns to plain acknowledge-and-escalate behavior.
+    @Column({ type: "tinyint", default: 0 })
+    selfServiceTroubleshootingEnabled: number;
+
     // Comma/newline-separated recipients for payment-emergency alert emails
     // ("guest needs to pay" on non-Airbnb reservations arriving unpaid).
     @Column({ type: "text", nullable: true })
