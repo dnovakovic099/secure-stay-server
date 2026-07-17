@@ -933,22 +933,37 @@ export class QuoInboxService {
         const sent = res.data?.data || {};
         const sentAt = sent.createdAt ? new Date(sent.createdAt) : new Date();
 
-        const msg = await this.messageRepo.save(
-            this.messageRepo.create({
-                externalId: sent.id || `local-${Date.now()}`,
-                conversationId,
-                phoneNumberId: conv.phoneNumberId,
-                body,
-                direction: "outgoing",
-                fromNumber: conv.lineNumber,
-                toNumbers: to.join(","),
-                status: sent.status || "sent",
-                quoUserId: sent.userId || null,
-                senderName: senderName || null,
-                sentByUserId: sentByUserId ?? null,
-                sentAt,
-            })
-        );
+        const externalId = String(sent.id || `local-${Date.now()}`);
+        let msg: QuoMessageEntity;
+        try {
+            msg = await this.messageRepo.save(
+                this.messageRepo.create({
+                    externalId,
+                    conversationId,
+                    phoneNumberId: conv.phoneNumberId,
+                    body,
+                    direction: "outgoing",
+                    fromNumber: conv.lineNumber,
+                    toNumbers: to.join(","),
+                    status: sent.status || "sent",
+                    quoUserId: sent.userId || null,
+                    senderName: senderName || null,
+                    sentByUserId: sentByUserId ?? null,
+                    sentAt,
+                })
+            );
+        } catch (err: any) {
+            // Webhook can store the same OpenPhone message id before this save
+            // finishes — guest already got the SMS; adopt that row instead of 500.
+            if (!String(err?.message || "").includes("Duplicate entry")) throw err;
+            const existing = await this.messageRepo.findOne({ where: { externalId } });
+            if (!existing) throw err;
+            if (senderName) existing.senderName = senderName;
+            if (sentByUserId != null) existing.sentByUserId = sentByUserId;
+            if (body && !existing.body) existing.body = body;
+            msg = await this.messageRepo.save(existing);
+            logger.info(`[QuoInbox] outgoing ${externalId} already stored by webhook — attributed`);
+        }
 
         conv.lastMessageText = body;
         conv.lastMessageAt = sentAt;

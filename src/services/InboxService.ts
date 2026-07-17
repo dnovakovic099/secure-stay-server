@@ -1339,6 +1339,37 @@ export class InboxService {
     // -------------------------------------------------------------------------
     // Outgoing reply: send to Hostify, then persist locally with attribution
     // -------------------------------------------------------------------------
+    /**
+     * Persist an outgoing message after Hostify/OpenPhone already accepted it.
+     * Hostify webhooks often arrive with the real message id before this save
+     * runs — losing that race on uq_inbox_messages_external must NOT 500 the
+     * reply endpoint (guest already got the message; Anj was seeing
+     * "Internal Server Error" while the send succeeded).
+     */
+    private async saveOutgoingOrAdoptWebhook(message: InboxMessageEntity): Promise<InboxMessageEntity> {
+        try {
+            return await this.messageRepo.save(message);
+        } catch (err: any) {
+            if (!String(err?.message || "").includes("Duplicate entry")) throw err;
+            const existing = await this.messageRepo.findOne({ where: { externalId: message.externalId } });
+            if (!existing) throw err;
+            // Webhook won — stamp human/AI attribution onto its row.
+            if (message.sentByUserId != null) existing.sentByUserId = message.sentByUserId;
+            if (message.sentByName) existing.sentByName = message.sentByName;
+            if (message.sentVia) existing.sentVia = message.sentVia;
+            if (message.senderName) existing.senderName = message.senderName;
+            if (message.senderType) existing.senderType = message.senderType;
+            if (message.isAutomatic != null) existing.isAutomatic = message.isAutomatic;
+            if (message.body && !existing.body) existing.body = message.body;
+            if (message.attachmentUrl && !existing.attachmentUrl) existing.attachmentUrl = message.attachmentUrl;
+            const saved = await this.messageRepo.save(existing);
+            logger.info(
+                `[InboxService] outgoing ${message.externalId} already stored by webhook — attributed via=${message.sentVia || "inbox"}`
+            );
+            return saved;
+        }
+    }
+
     async sendReply(threadId: number, body: string, user: any, opts: { attachmentUrls?: string[]; } = {}) {
         const conversation = await this.conversationRepo.findOne({ where: { threadId } });
         if (!conversation) {
@@ -1378,7 +1409,7 @@ export class InboxService {
             sentVia: "inbox_v2",
             source: "hostify",
         });
-        const saved = await this.messageRepo.save(message);
+        const saved = await this.saveOutgoingOrAdoptWebhook(message);
 
         conversation.lastMessageText = body;
         conversation.lastMessageAt = saved.sentAt;
@@ -1479,7 +1510,7 @@ export class InboxService {
             sentVia: "ai_auto",
             source: "hostify",
         });
-        const saved = await this.messageRepo.save(message);
+        const saved = await this.saveOutgoingOrAdoptWebhook(message);
 
         conversation.lastMessageText = body;
         conversation.lastMessageAt = saved.sentAt;
