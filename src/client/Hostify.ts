@@ -766,7 +766,7 @@ export class Hostify {
                 per_page,
             };
         } catch (error) {
-            logger.error("Error fetching inbox threads:", error.message);
+            logger.error(`Error fetching inbox threads: ${error?.response?.status || ""} ${error?.message || error}`);
             return { threads: [], per_page };
         }
     }
@@ -790,7 +790,7 @@ export class Hostify {
 
             return response.data || null;
         } catch (error) {
-            logger.error(`Error fetching inbox thread ${inboxId}:`, error.message);
+            logger.error(`Error fetching inbox thread ${inboxId}: ${error?.response?.status || ""} ${error?.message || error}`);
             return null;
         }
     }
