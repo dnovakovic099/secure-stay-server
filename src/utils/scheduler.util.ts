@@ -638,6 +638,17 @@ export function scheduleGetReservation() {
         await svc.sendDailyDigest().catch((err: any) =>
           logger.warn(`[OpsRadar] daily digest failed: ${err.message}`)
         );
+        // Knowledge conflict sweep — hash-cached, so only listings whose
+        // facts/KB/listing data changed since yesterday hit the LLM.
+        try {
+          const { AIConflictDetectorService } = require("../services/AIConflictDetectorService");
+          if (AIConflictDetectorService.isEnabled()) {
+            const conflicts = await new AIConflictDetectorService().sweep();
+            logger.info(`[ConflictDetector] daily sweep — ${JSON.stringify(conflicts)}`);
+          }
+        } catch (err: any) {
+          logger.error(`[ConflictDetector] daily sweep failed: ${err.message}`);
+        }
       } catch (error) {
         logger.error("[OpsRadar] Error in daily scan:", error);
       }

@@ -451,4 +451,60 @@ export class AICopilotController {
             return next(error);
         }
     }
+
+    // ------------------------------------------------------------------
+    // Conflict detector — contradictions between listing data / facts / KB
+    // ------------------------------------------------------------------
+
+    /** Open conflicts + counts. */
+    async conflicts(request: Request, response: Response, next: NextFunction) {
+        try {
+            const { AIConflictDetectorService } = require("../services/AIConflictDetectorService");
+            const svc = new AIConflictDetectorService();
+            const [conflicts, summary] = await Promise.all([
+                svc.list({
+                    status: request.query.status ? String(request.query.status) : undefined,
+                    listingId: request.query.listingId ? Number(request.query.listingId) : undefined,
+                    limit: request.query.limit ? Number(request.query.limit) : undefined,
+                }),
+                svc.summary(),
+            ]);
+            return response.status(200).json({ status: true, data: { conflicts, summary } });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async conflictResolve(request: Request, response: Response, next: NextFunction) {
+        try {
+            const { AIConflictDetectorService } = require("../services/AIConflictDetectorService");
+            const row = await new AIConflictDetectorService().resolve(Number(request.params.id));
+            return response.status(200).json({ status: true, data: row });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async conflictDismiss(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const { AIConflictDetectorService } = require("../services/AIConflictDetectorService");
+            const row = await new AIConflictDetectorService().dismiss(Number(request.params.id), userId(request.user));
+            return response.status(200).json({ status: true, data: row });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** Manual scan; ?force=true re-scans even unchanged listings. */
+    async conflictScan(request: Request, response: Response, next: NextFunction) {
+        try {
+            const { AIConflictDetectorService } = require("../services/AIConflictDetectorService");
+            const result = await new AIConflictDetectorService().sweep({
+                force: String(request.query.force || request.body?.force || "") === "true",
+            });
+            return response.status(200).json({ status: true, data: result });
+        } catch (error) {
+            return next(error);
+        }
+    }
 }

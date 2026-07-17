@@ -50,6 +50,13 @@ router.post("/ops/alerts/:id/dismiss", verifySession, controller.opsDismissAlert
 router.post("/ops/alerts/:id/resolve", verifySession, controller.opsResolveAlert);
 router.post("/ops/scan", verifySession, controller.opsScan);
 
+// Conflict detector — contradictions between listing data, learned facts and
+// KB entries (e.g. listing says 10 AM checkout, a taught fact says 11 AM).
+router.get("/conflicts", verifySession, controller.conflicts);
+router.post("/conflicts/:id/resolve", verifySession, controller.conflictResolve);
+router.post("/conflicts/:id/dismiss", verifySession, controller.conflictDismiss);
+router.post("/conflicts/scan", verifySession, controller.conflictScan);
+
 // Seed KB from structured listing data + one-shot full-history learning.
 router.post("/kb/seed-from-listings", verifySession, controller.seedKnowledgeFromListings);
 router.post("/audit/backfill-history", verifySession, controller.backfillHistory);
