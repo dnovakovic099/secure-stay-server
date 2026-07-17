@@ -986,6 +986,10 @@ export class InboxService {
             );
         }
 
+        // Full > Pro > Launch, mirroring normalizeServiceTypeValue so filtering
+        // agrees with the badge shown on each conversation card. Without the
+        // cascading NOTs a listing tagged "Full, Pro" would appear under both
+        // the Full and Pro filters even though only its Full badge is shown.
         const serviceBuckets = parseListParam(options.serviceType).map((value) => value.toLowerCase());
         if (serviceBuckets.length) {
             const raw = "LOWER(COALESCE(l.tags, ''))";
@@ -993,8 +997,12 @@ export class InboxService {
                 new Brackets((b) => {
                     serviceBuckets.forEach((serviceBucket, index) => {
                         const method = index === 0 ? "where" : "orWhere";
-                        if (serviceBucket === "full" || serviceBucket === "pro" || serviceBucket === "launch") {
-                            b[method](wordBoundary(raw, serviceBucket));
+                        if (serviceBucket === "full") {
+                            b[method](wordBoundary(raw, "full"));
+                        } else if (serviceBucket === "pro") {
+                            b[method](`${wordBoundary(raw, "pro")} AND NOT ${wordBoundary(raw, "full")}`);
+                        } else if (serviceBucket === "launch") {
+                            b[method](`${wordBoundary(raw, "launch")} AND NOT ${wordBoundary(raw, "full")} AND NOT ${wordBoundary(raw, "pro")}`);
                         }
                     });
                 })
