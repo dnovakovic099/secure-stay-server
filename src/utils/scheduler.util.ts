@@ -634,6 +634,10 @@ export function scheduleGetReservation() {
         logger.info(
           `[OpsRadar] Daily scan — maintenance=${JSON.stringify(maintenance)}, rootCauses=${JSON.stringify(rootCauses)}, turnovers=${JSON.stringify(turnovers)}`
         );
+        // Morning digest email (no-op when no recipients are configured).
+        await svc.sendDailyDigest().catch((err: any) =>
+          logger.warn(`[OpsRadar] daily digest failed: ${err.message}`)
+        );
       } catch (error) {
         logger.error("[OpsRadar] Error in daily scan:", error);
       }

@@ -91,6 +91,7 @@ export class AICopilotController {
                     typeof b.inquiryAutoRespondEnabled === "boolean" ? b.inquiryAutoRespondEnabled : undefined,
                 selfServiceTroubleshootingEnabled:
                     typeof b.selfServiceTroubleshootingEnabled === "boolean" ? b.selfServiceTroubleshootingEnabled : undefined,
+                opsAlertEmails: b.opsAlertEmails,
                 paymentAlertEmails: b.paymentAlertEmails,
                 itemDetectionEnabled: typeof b.itemDetectionEnabled === "boolean" ? b.itemDetectionEnabled : undefined,
                 actionItemRules: b.actionItemRules,

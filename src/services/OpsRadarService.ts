@@ -1,7 +1,9 @@
 import OpenAI from "openai";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
+import sendEmail from "../utils/sendEmai";
 import { AIOpsAlertEntity } from "../entity/AIOpsAlert";
+import { AIMessagingSettingsEntity } from "../entity/AIMessagingSettings";
 import { ActionItems } from "../entity/ActionItems";
 import { InboxConversationEntity } from "../entity/InboxConversation";
 import { InboxMessageEntity } from "../entity/InboxMessage";
@@ -129,12 +131,24 @@ export class OpsRadarService {
     // ------------------------------------------------------------------
 
     /**
+     * All alerts of a type keyed by dedupeKey, in one query. Sweeps preload
+     * this so upserting N alerts costs 1 read instead of N (the SLA sweep
+     * runs every 15 minutes over ~200 alerts).
+     */
+    private async loadAlertMap(type: string): Promise<Map<string, AIOpsAlertEntity>> {
+        const rows = await this.repo.find({ where: { type } });
+        return new Map(rows.map((r) => [r.dedupeKey, r]));
+    }
+
+    /**
      * Insert or refresh an alert. Dismissed alerts stay dismissed while the
      * same condition persists; resolved alerts reopen if the condition recurs.
+     * `preloaded` skips the per-key lookup (pass null for "known absent").
      */
-    async upsertAlert(input: OpsAlertInput): Promise<AIOpsAlertEntity | null> {
+    async upsertAlert(input: OpsAlertInput, preloaded?: AIOpsAlertEntity | null): Promise<AIOpsAlertEntity | null> {
         const now = new Date();
-        const existing = await this.repo.findOne({ where: { dedupeKey: input.dedupeKey } });
+        const existing =
+            preloaded !== undefined ? preloaded : await this.repo.findOne({ where: { dedupeKey: input.dedupeKey } });
         if (existing) {
             existing.lastSeenAt = now;
             existing.severity = input.severity || existing.severity;
@@ -241,6 +255,7 @@ export class OpsRadarService {
         let alerts = 0;
         let ticketsCreated = 0;
         const activeKeys: string[] = [];
+        const known = await this.loadAlertMap("maintenance");
 
         const devices: any[] = await appDatabase.query(
             `SELECT d.id deviceId, d.device_name deviceName, d.is_online isOnline,
@@ -279,7 +294,7 @@ export class OpsRadarService {
 
             // Auto-ticket once per alert when critical.
             let actionItemId: number | null = null;
-            const existing = await this.repo.findOne({ where: { dedupeKey: key } });
+            const existing = known.get(key) ?? null;
             if (critical && (!existing || existing.actionItemId == null)) {
                 try {
                     const repo = appDatabase.getRepository(ActionItems);
@@ -317,7 +332,7 @@ export class OpsRadarService {
                     : `Replace the battery on the next cleaner visit${nextCheckin ? ` — before ${nextCheckin}` : ""}.`,
                 payload: { deviceId: d.deviceId, battery: pct, offline, nextCheckin },
                 actionItemId,
-            });
+            }, existing);
             alerts++;
         }
 
@@ -337,6 +352,7 @@ export class OpsRadarService {
     async sweepRootCauses(): Promise<{ alerts: number }> {
         let alerts = 0;
         const activeKeys: string[] = [];
+        const known = await this.loadAlertMap("root_cause");
 
         const items: any[] = await appDatabase.query(
             `SELECT id, item, listingId, listingName, status, createdAt
@@ -387,7 +403,7 @@ export class OpsRadarService {
                     open: openCount,
                     itemIds: c.items.map((i) => i.id).slice(0, 20),
                 },
-            });
+            }, known.get(key) ?? null);
             alerts++;
         }
 
@@ -416,6 +432,7 @@ export class OpsRadarService {
     async sweepSLA(): Promise<{ alerts: number }> {
         let alerts = 0;
         const activeKeys: string[] = [];
+        const known = await this.loadAlertMap("sla");
         const now = Date.now();
         const ageMin = (d: any) => (now - new Date(d).getTime()) / 60000;
 
@@ -465,7 +482,7 @@ export class OpsRadarService {
                     ? "Unanswered inquiries kill conversion and platform ranking — answer or assign now."
                     : "Past the response-time SLA — answer or reassign.",
                 payload: { waitingMinutes: Math.round(min), emergency: !!c.emergency, inquiry },
-            });
+            }, known.get(key) ?? null);
             alerts++;
         }
 
@@ -522,7 +539,7 @@ export class OpsRadarService {
                     oldestDays,
                     ticketIds: group.map((t) => t.id).slice(0, 25),
                 },
-            });
+            }, known.get(key) ?? null);
             alerts++;
         }
 
@@ -546,6 +563,7 @@ export class OpsRadarService {
         let scored = 0;
         let alerts = 0;
         const activeKeys: string[] = [];
+        const known = await this.loadAlertMap("review_risk");
 
         const stays = await this.conversationRepo
             .createQueryBuilder("c")
@@ -560,7 +578,7 @@ export class OpsRadarService {
 
         for (const c of stays) {
             const key = `review_risk:${c.threadId}`;
-            const existing = await this.repo.findOne({ where: { dedupeKey: key } });
+            const existing = known.get(key) ?? null;
             const lastScoredAt = safeParse(existing?.payload)?.lastMessageAt || null;
             const lastMsgIso = c.lastMessageAt ? new Date(c.lastMessageAt).toISOString() : null;
 
@@ -660,7 +678,7 @@ export class OpsRadarService {
                 detail: result.reason,
                 recommendation: result.gesture || "Reach out proactively and make it right before checkout.",
                 payload: { lastMessageAt: lastMsgIso, risk: result.risk, checkout: c.checkout },
-            });
+            }, existing);
             alerts++;
         }
 
@@ -683,6 +701,7 @@ export class OpsRadarService {
     async sweepTurnoverRisks(): Promise<{ alerts: number }> {
         let alerts = 0;
         const activeKeys: string[] = [];
+        const known = await this.loadAlertMap("turnover_risk");
 
         const turnovers: any[] = await appDatabase.query(
             `SELECT dep.id depId, dep.listingMapId listingId, dep.listingName,
@@ -764,7 +783,7 @@ export class OpsRadarService {
                         ? "Confirm the cleaner's window explicitly today and line up a backup — this one has little slack."
                         : "Confirm the cleaner has this turnover on their schedule.",
                 payload: { date, score, factors, departingReservationId: t.depId, arrivingReservationId: t.arrId },
-            });
+            }, known.get(key) ?? null);
             alerts++;
         }
 
@@ -775,6 +794,93 @@ export class OpsRadarService {
     // ------------------------------------------------------------------
     // Orchestration
     // ------------------------------------------------------------------
+
+    /**
+     * Morning digest: one email with every open critical/high alert, grouped
+     * by type, sent to the recipients configured in AI settings. Sent by the
+     * daily cron right after the deep scan — manage-by-exception without
+     * having to open the dashboard. No recipients configured = no email.
+     */
+    async sendDailyDigest(): Promise<{ sent: number; alerts: number }> {
+        const settings = await appDatabase
+            .getRepository(AIMessagingSettingsEntity)
+            .findOne({ where: { listingId: null as any } });
+        const recipients = String(settings?.opsAlertEmails || "")
+            .split(/[\s,;]+/)
+            .map((s) => s.trim())
+            .filter((s) => /.+@.+\..+/.test(s));
+        if (!recipients.length) return { sent: 0, alerts: 0 };
+
+        const alerts = await this.repo
+            .createQueryBuilder("a")
+            .where("a.status = 'open'")
+            .andWhere("a.severity IN ('critical','high')")
+            .orderBy("FIELD(a.severity, 'critical', 'high')", "ASC")
+            .addOrderBy("a.lastSeenAt", "DESC")
+            .take(60)
+            .getMany();
+        if (!alerts.length) return { sent: 0, alerts: 0 };
+
+        const dashboardUrl = (process.env.DASHBOARD_URL || process.env.FRONTEND_URL || "").replace(/\/$/, "");
+        const typeLabels: Record<string, string> = {
+            maintenance: "Predictive maintenance",
+            root_cause: "Recurring root causes",
+            sla: "SLA breaches",
+            review_risk: "Review risks",
+            turnover_risk: "Risky turnovers",
+        };
+        const esc = (s: any) =>
+            String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+        const byType = new Map<string, AIOpsAlertEntity[]>();
+        for (const a of alerts) {
+            const arr = byType.get(a.type) || [];
+            arr.push(a);
+            byType.set(a.type, arr);
+        }
+        const sections = [...byType.entries()]
+            .map(([type, list]) => {
+                const rows = list
+                    .map(
+                        (a) => `
+          <tr>
+            <td style="padding:6px 10px 6px 0;vertical-align:top;white-space:nowrap">
+              <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;${
+                  a.severity === "critical" ? "background:#fee2e2;color:#b91c1c" : "background:#ffedd5;color:#c2410c"
+              }">${esc(a.severity)}</span>
+            </td>
+            <td style="padding:6px 0">
+              <div style="font-weight:600;color:#111">${esc(a.title)}</div>
+              ${a.recommendation ? `<div style="color:#555;font-size:13px;margin-top:2px">${esc(a.recommendation)}</div>` : ""}
+              ${
+                  a.threadId && dashboardUrl
+                      ? `<a href="${dashboardUrl}/messages/inbox-v2?thread=${a.threadId}" style="font-size:12px;color:#4f46e5">Open conversation</a>`
+                      : ""
+              }
+            </td>
+          </tr>`
+                    )
+                    .join("");
+                return `<h3 style="margin:18px 0 4px;color:#111">${esc(typeLabels[type] || type)} (${list.length})</h3>
+        <table style="border-collapse:collapse;width:100%">${rows}</table>`;
+            })
+            .join("");
+
+        const critical = alerts.filter((a) => a.severity === "critical").length;
+        const subject = `Ops Radar digest: ${critical} critical, ${alerts.length - critical} high`;
+        const html = `
+      <div style="font-family:Arial,sans-serif;max-width:640px">
+        <h2 style="color:#111">Morning Ops Radar digest</h2>
+        <p style="color:#555">Open alerts that need attention today. Everything else is on the dashboard.</p>
+        ${sections}
+        ${dashboardUrl ? `<p style="margin-top:20px"><a href="${dashboardUrl}/messages/ops-radar" style="background:#4f46e5;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">Open Ops Radar</a></p>` : ""}
+      </div>`;
+        const from = process.env.EMAIL_FROM;
+        const results = await Promise.allSettled(recipients.map((to) => sendEmail(subject, html, from as string, to)));
+        const sent = results.filter((r) => r.status === "fulfilled").length;
+        logger.info(`[OpsRadar] daily digest sent to ${sent}/${recipients.length} recipient(s), ${alerts.length} alert(s)`);
+        return { sent, alerts: alerts.length };
+    }
 
     /** Run every sweep; used by the daily cron and the "Scan now" button. */
     async runAll(): Promise<Record<string, any>> {

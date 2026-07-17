@@ -39,6 +39,7 @@ export interface AIMessagingSettingsPatch {
     inquiryAutoRespondEnabled?: boolean;
     selfServiceTroubleshootingEnabled?: boolean;
     paymentAlertEmails?: string | null;
+    opsAlertEmails?: string | null;
     itemDetectionEnabled?: boolean;
     actionItemRules?: string | null;
     actionItemCategories?: ActionItemCategoryEntry[] | null;
@@ -136,6 +137,7 @@ export class AIMessagingSettingsService {
         if (patch.inquiryAutoRespondEnabled !== undefined) row.inquiryAutoRespondEnabled = patch.inquiryAutoRespondEnabled ? 1 : 0;
         if (patch.selfServiceTroubleshootingEnabled !== undefined) row.selfServiceTroubleshootingEnabled = patch.selfServiceTroubleshootingEnabled ? 1 : 0;
         if (patch.paymentAlertEmails !== undefined) row.paymentAlertEmails = patch.paymentAlertEmails ?? null;
+        if (patch.opsAlertEmails !== undefined) row.opsAlertEmails = patch.opsAlertEmails ?? null;
         if (patch.itemDetectionEnabled !== undefined) row.itemDetectionEnabled = patch.itemDetectionEnabled ? 1 : 0;
         if (patch.actionItemRules !== undefined) row.actionItemRules = patch.actionItemRules ?? null;
         if (patch.actionItemCategories !== undefined) {

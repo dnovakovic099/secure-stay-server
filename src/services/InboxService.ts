@@ -465,8 +465,16 @@ export class InboxService {
         }
         const toInsert = messages.filter((m) => !existingIds.has(Number(m.externalId)));
         if (!toInsert.length) return 0;
-        await this.messageRepo.save(toInsert, { chunk: 200 });
-        return toInsert.length;
+        // INSERT IGNORE: a webhook delivery can store one of these messages
+        // between our exists-check and this insert (check-then-insert race
+        // across cluster workers) — losing that race must not fail the sync.
+        const result = await this.messageRepo
+            .createQueryBuilder()
+            .insert()
+            .values(toInsert)
+            .orIgnore()
+            .execute();
+        return result.raw?.affectedRows ?? toInsert.length;
     }
 
     /**

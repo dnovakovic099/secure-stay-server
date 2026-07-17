@@ -115,6 +115,11 @@ export class AIMessagingSettingsEntity {
     @Column({ type: "text", nullable: true })
     paymentAlertEmails: string | null;
 
+    // Comma/newline-separated recipients for the Ops Radar morning digest
+    // (open critical/high alerts after the daily deep scan). Empty = no email.
+    @Column({ type: "text", nullable: true })
+    opsAlertEmails: string | null;
+
     // ---- AI detection of our own Action Items + Guest Issues (dormant) ----
     @Column({ type: "tinyint", default: 0 })
     itemDetectionEnabled: number;
