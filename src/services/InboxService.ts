@@ -158,6 +158,9 @@ const tagTokens = (...values: (string | null | undefined)[]): Set<string> => {
 };
 
 export class InboxService {
+    /** 5-minute cache for the filter dropdown options (see getFilterOptions). */
+    private static filterOptionsCache: { at: number; channels: string[]; repliedByUsers: string[] } | null = null;
+
     private conversationRepo = appDatabase.getRepository(InboxConversationEntity);
     private messageRepo = appDatabase.getRepository(InboxMessageEntity);
     private usersRepo = appDatabase.getRepository(UsersEntity);
@@ -1094,13 +1097,28 @@ export class InboxService {
         }
 
         // Payment/other emergencies are pinned to the top of the list so an
-        // unpaid guest arriving today can't be missed; then newest activity.
+        // unpaid guest arriving today can't be missed; then inquiries the team
+        // hasn't replied to yet (fresh leads decay by the minute); then newest
+        // activity. All joins are many-to-one so offset/limit is safe (no row
+        // fan-out) and avoids TypeORM's two-pass skip/take id subquery.
         qb.orderBy("c.emergency", "DESC")
+            // Only recent inquiries get pinned — months-old expired inquiries
+            // shouldn't sit above today's conversations forever.
+            .addOrderBy(
+                "(CASE WHEN c.answered = 0 AND LOWER(COALESCE(c.reservationStatus, '')) LIKE 'inquiry%' AND c.lastMessageAt >= NOW() - INTERVAL 14 DAY THEN 1 ELSE 0 END)",
+                "DESC"
+            )
             .addOrderBy("c.lastMessageAt", "DESC")
-            .skip((page - 1) * perPage)
-            .take(perPage);
+            .offset((page - 1) * perPage)
+            // Fetch one extra row to learn whether another page exists. The
+            // exact COUNT over the mirror-dedup WHERE took ~15s on prod and ran
+            // on every list load AND every 20s poll — it was the reason the
+            // inbox felt slow. hasMore makes pagination O(page size).
+            .limit(perPage + 1);
 
-        const [conversations, total] = await qb.getManyAndCount();
+        const rows = await qb.getMany();
+        const hasMore = rows.length > perPage;
+        const conversations = hasMore ? rows.slice(0, perPage) : rows;
         const listingIds = Array.from(
             new Set(
                 conversations
@@ -1127,7 +1145,25 @@ export class InboxService {
             };
         }));
 
-        // Full channel list for the filter dropdown (independent of pagination).
+        const { channels, repliedByUsers } = await this.getFilterOptions();
+
+        // `total` is a legacy field older clients used to derive hasMore; keep
+        // it monotonic (loaded-so-far + 1 when more exist) without paying for
+        // an exact COUNT over the expensive mirror-dedup WHERE clause.
+        const total = (page - 1) * perPage + conversations.length + (hasMore ? 1 : 0);
+        return { conversations: enrichedConversations, total, hasMore, page, perPage, channels, repliedByUsers };
+    }
+
+    /**
+     * Channel + replied-by dropdown options. These only change when a brand
+     * new channel appears or a new teammate sends their first reply, so a
+     * short in-process cache keeps them off the hot list-conversations path.
+     */
+    private async getFilterOptions(): Promise<{ channels: string[]; repliedByUsers: string[] }> {
+        const cached = InboxService.filterOptionsCache;
+        if (cached && Date.now() - cached.at < 5 * 60 * 1000) {
+            return { channels: cached.channels, repliedByUsers: cached.repliedByUsers };
+        }
         const channelRows: { ch: string; }[] = await this.conversationRepo
             .createQueryBuilder("c")
             .select("DISTINCT c.channel", "ch")
@@ -1145,8 +1181,8 @@ export class InboxService {
             .orderBy("m.sentByName", "ASC")
             .getRawMany();
         const repliedByUsers = repliedByRows.map((r) => r.name).filter(Boolean);
-
-        return { conversations: enrichedConversations, total, page, perPage, channels, repliedByUsers };
+        InboxService.filterOptionsCache = { at: Date.now(), channels, repliedByUsers };
+        return { channels, repliedByUsers };
     }
 
     async getConversation(threadId: number) {
