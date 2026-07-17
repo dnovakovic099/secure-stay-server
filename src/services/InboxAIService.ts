@@ -2357,7 +2357,7 @@ export class InboxAIService {
             "- NEVER ASSERT AN UNKNOWN POLICY: if the context does not tell you how something is handled, do NOT state a policy either way — never say something is 'not allowed', 'non-refundable', 'no refund', or that a policy is 'unknown'. Instead say the team will confirm the specifics. (Stating a policy the context does not support is the worst kind of error.)",
             "- For platform cancellations or rebooking (Airbnb/Booking.com/Vrbo), direct the guest to manage it through that platform. Do not state a fee amount that is not in the provided context.",
             "- Do NOT put a specific door code, lock code, access code, gate code, wifi password, or a specific price/amount in the reply UNLESS that exact value already appears in the provided message history or listing context. If the guest needs a code or figure you do not have, say the team will send it (e.g. before check-in) rather than guessing a value.",
-            "- SHARING ACCESS DETAILS WITH CONFIRMED GUESTS: when the guest has a confirmed reservation and it is their check-in day or they are mid-stay, and the context contains documented access/arrival instructions (garage code, door code, lockbox, parking) — including in staff-only entries — you SHOULD give them the exact steps and codes when they ask how to get in. That is the ONE exception to the no-verbatim rule for internal entries. Never share access codes with pre-booking inquiries or guests whose stay has not reached check-in day.",
+            "- SHARING ACCESS DETAILS WITH CONFIRMED GUESTS: when the guest has a confirmed reservation and it is their check-in day or they are mid-stay, and the context contains documented guest-shareable access/arrival instructions (garage code, door code, lockbox, parking from EXTERNAL knowledge, reservation access codes, or the access block), you SHOULD give them the exact steps and codes when they ask how to get in. Never use or infer from staff-only/internal notes — those are not in your context. Never share access codes with pre-booking inquiries or guests whose stay has not reached check-in day.",
             "- If needed information is missing, say so in `warnings` and write a safe reply that asks the guest for clarification or says the team will follow up — do not guess.",
             "- Prefer the property's documented house rules / check-in info when present in context.",
             "- WHEN THE GUEST ASKS FOR THE RULES OR INSTRUCTIONS THEMSELVES (house rules, check-in/checkout instructions, house manual): if the actual content is in context (e.g. a 'House rules' or check-in entry), SEND IT — reproduce the documented rules/steps in the reply rather than telling the guest where to find them or offering to send them later. Only point to a physical location or defer if the actual content is not in context.",
@@ -3444,16 +3444,12 @@ export class InboxAIService {
                 // them whole. Slicing at 700 dropped trailing caveats like "Note:
                 // Pool and hot tub heating are available for an additional fee",
                 // which made the bot present paid amenities as free.
+                // External only — internal KB is never fed into guest replies
+                // (even "to inform" is a leak risk for sensitive staff notes).
                 if (kbSem.external.length) {
                     lines.push("");
                     lines.push("## Listing Knowledge Base (you MAY share this with the guest)");
                     for (const d of kbSem.external) lines.push(`- ${d.text.replace(/\s+/g, " ").trim().slice(0, 1400)}`);
-                    rendered = true;
-                }
-                if (kbSem.internal.length) {
-                    lines.push("");
-                    lines.push("## Internal knowledge (staff-only — use to inform your reply, do NOT quote verbatim)");
-                    for (const d of kbSem.internal) lines.push(`- ${d.text.replace(/\s+/g, " ").trim().slice(0, 1400)}`);
                     rendered = true;
                 }
             }
@@ -3520,15 +3516,11 @@ export class InboxAIService {
         // inform its reply.
         if (includeKnowledge && ExemplarService.isEnabled() && guestQuery.trim()) try {
             const docs = await new RetrievalService().retrieveDocs(canonicalListingId, guestQuery, { k: 3 });
+            // External only — internal documents never reach guest-facing prompts.
             if (docs.external.length) {
                 lines.push("");
                 lines.push("## Listing documents (guest-shareable — you MAY share this content)");
                 for (const d of docs.external) lines.push(`- ${d.text.replace(/\s+/g, " ").trim().slice(0, 1400)}`);
-            }
-            if (docs.internal.length) {
-                lines.push("");
-                lines.push("## Internal listing documents (staff-only — use to inform your reply, do NOT quote verbatim)");
-                for (const d of docs.internal) lines.push(`- ${d.text.replace(/\s+/g, " ").trim().slice(0, 1400)}`);
             }
         } catch {
             /* non-fatal */

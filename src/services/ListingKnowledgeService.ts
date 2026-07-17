@@ -158,11 +158,12 @@ export class ListingKnowledgeService {
             return `- [${head}] ${body}`;
         };
 
+        // Guest-reply context: EXTERNAL only. Internal entries stay available
+        // in the All Listings KB UI for staff but must never reach the model
+        // that drafts guest messages (even "to inform" is a leak hazard).
         const external = rank(entries.filter((e) => e.visibility === "external"));
-        const internal = rank(entries.filter((e) => e.visibility === "internal"));
 
         const lines: string[] = [];
-        let used = 0;
         const addSection = (header: string, list: ListingKnowledgeEntryEntity[], budget: number) => {
             if (!list.length) return;
             const start = lines.length;
@@ -172,18 +173,11 @@ export class ListingKnowledgeService {
                 if (sectionUsed + line.length > budget) continue; // skip oversized, keep scanning for smaller high-value ones
                 lines.push(line);
                 sectionUsed += line.length + 1;
-                used += line.length + 1;
             }
             if (lines.length > start) lines.splice(start, 0, header);
         };
 
-        addSection("EXTERNAL (guest-shareable facts — you may state these directly):", external, Math.floor(maxChars * 0.72));
-        if (lines.length) lines.push("");
-        addSection(
-            "INTERNAL (staff-only — use to inform your reply but DO NOT quote to the guest):",
-            internal,
-            Math.max(0, maxChars - used)
-        );
+        addSection("EXTERNAL (guest-shareable facts — you may state these directly):", external, maxChars);
 
         const out = lines.join("\n").trim();
         return out || null;

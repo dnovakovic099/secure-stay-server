@@ -28,20 +28,26 @@ export class RetrievalService {
     private exemplars = new ExemplarService();
     private groups = new ListingGroupService();
 
-    private static portfolioFactCache: { at: number; rows: { text: string; payload: string; vec: number[] }[] } | null = null;
+    private static portfolioFactCache: {
+        at: number;
+        rows: { text: string; payload: string; vec: number[]; refId: number | null; visibility: string | null }[];
+    } | null = null;
 
     static invalidate() {
         RetrievalService.portfolioFactCache = null;
     }
 
-    /** Index all approved learned facts into the embedding store (idempotent). */
+    /** Index all approved EXTERNAL learned facts into the embedding store (idempotent). */
     async embedFacts(): Promise<number> {
+        // Internal facts are staff-only and must never be retrieved into guest
+        // reply context — skip embedding them entirely.
         const facts = await this.factRepo.find({ where: { status: "approved" } });
+        const externalFacts = facts.filter((f) => f.visibility !== "internal" && (!f.factType || f.factType === "qa"));
         const existing = new Set(
             (await this.repo.find({ select: ["dedupKey"], where: { kind: "fact" } })).map((e) => e.dedupKey).filter(Boolean) as string[]
         );
         const records = [];
-        for (const f of facts) {
+        for (const f of externalFacts) {
             const dedupKey = `fact|${f.id}`;
             if (existing.has(dedupKey)) continue;
             const q = (f.question || f.topic || "").toString();
@@ -57,12 +63,22 @@ export class RetrievalService {
                 text: focusQuery(q),
                 payload: `Q: ${q}\nA: ${a}`,
                 dedupKey,
+                visibility: "external",
             });
         }
         const n = await this.exemplars.embedAndStore(records);
         RetrievalService.invalidate();
-        logger.info(`[Retrieval] embedded ${n} new fact vectors (of ${facts.length} approved)`);
+        logger.info(`[Retrieval] embedded ${n} new fact vectors (of ${externalFacts.length} approved external QA; ${facts.length} total approved)`);
         return n;
+    }
+
+    /** Fact IDs marked internal — used to scrub already-embedded internal facts from retrieval. */
+    private async internalFactIds(): Promise<Set<number>> {
+        const rows = await this.factRepo.find({
+            where: { status: "approved", visibility: "internal" as any },
+            select: ["id"],
+        });
+        return new Set(rows.map((f) => Number(f.id)));
     }
 
     /**
@@ -154,18 +170,26 @@ export class RetrievalService {
         return { external, internal };
     }
 
-    private async getPortfolioFacts() {
+    private async getPortfolioFacts(blockedIds: Set<number>) {
         const c = RetrievalService.portfolioFactCache;
-        if (c && Date.now() - c.at < 30 * 60 * 1000) return c.rows;
+        if (c && Date.now() - c.at < 30 * 60 * 1000) {
+            return c.rows.filter((r) => r.refId == null || !blockedIds.has(r.refId));
+        }
         const rows = await this.repo.find({ where: { kind: "fact", scope: "portfolio" }, take: 1000 });
         const parsed = rows
-            .map((r) => ({ text: r.embeddedText, payload: r.payload || "", vec: EmbeddingService.parseVector(r.vector) || [] }))
-            .filter((r) => r.vec.length && r.payload);
+            .map((r) => ({
+                text: r.embeddedText,
+                payload: r.payload || "",
+                vec: EmbeddingService.parseVector(r.vector) || [],
+                refId: r.refId != null ? Number(r.refId) : null,
+                visibility: r.visibility || null,
+            }))
+            .filter((r) => r.vec.length && r.payload && r.visibility !== "internal");
         RetrievalService.portfolioFactCache = { at: Date.now(), rows: parsed };
-        return parsed;
+        return parsed.filter((r) => r.refId == null || !blockedIds.has(r.refId));
     }
 
-    /** Semantically retrieve the most relevant learned facts for a query. */
+    /** Semantically retrieve the most relevant EXTERNAL learned facts for a query. */
     async retrieveFacts(
         groupId: number | null | undefined,
         queryText: string,
@@ -175,18 +199,21 @@ export class RetrievalService {
         const k = opts.k ?? 6;
         const minSim = opts.minSim ?? 0.4;
         const qv = await this.embed.embedOne(focusQuery(queryText));
+        const blockedIds = await this.internalFactIds();
         const scored: RetrievedFact[] = [];
 
         if (groupId) {
             const rows = await this.repo.find({ where: { kind: "fact", groupId: Number(groupId) as any }, take: 2000 });
             for (const r of rows) {
+                if (r.visibility === "internal") continue;
+                if (r.refId != null && blockedIds.has(Number(r.refId))) continue;
                 const v = EmbeddingService.parseVector(r.vector);
                 if (!v || !r.payload) continue;
                 const sim = EmbeddingService.cosine(qv, v);
                 if (sim >= minSim) scored.push({ question: r.embeddedText, answer: r.payload, sim, scope: "property" });
             }
         }
-        for (const r of await this.getPortfolioFacts()) {
+        for (const r of await this.getPortfolioFacts(blockedIds)) {
             const sim = EmbeddingService.cosine(qv, r.vec);
             if (sim >= Math.max(minSim, 0.45)) scored.push({ question: r.text, answer: r.payload, sim, scope: "portfolio" });
         }

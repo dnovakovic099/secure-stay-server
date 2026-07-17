@@ -16,12 +16,12 @@ import {
  * makes it (a) shared across the team and (b) available to InboxAIService so
  * suggested replies can cite real, property-specific facts.
  *
- * visibility:
- *  - "external": guest-facing facts the assistant may share verbatim
- *    (e.g. check-in time, wifi network name, parking instructions).
- *  - "internal": staff-only guidance the assistant may use to inform a reply
- *    but must NOT quote to a guest (e.g. owner preferences, lockbox override).
- */
+     * visibility:
+     *  - "external": guest-facing facts the assistant may share with guests
+     *    (e.g. check-in time, wifi network name, parking instructions).
+     *  - "internal": staff-only notes. Never fed into guest-facing AI replies
+     *    (not even "to inform") — e.g. owner preferences, cleaner schedules.
+     */
 @Entity("listing_knowledge_entries")
 export class ListingKnowledgeEntryEntity {
     @PrimaryGeneratedColumn()

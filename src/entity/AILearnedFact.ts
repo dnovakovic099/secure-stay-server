@@ -52,8 +52,8 @@ export class AILearnedFactEntity {
     factType: string;
 
     // Visibility for QA facts: 'external' is guest-shareable; 'internal' is
-    // staff-only guidance and must not be quoted to a guest. Mirrors the
-    // Knowledge Base visibility model so facts sync 1:1 to KB entries.
+    // staff-only and never fed into guest-facing AI replies. Only external
+    // facts sync to Knowledge Base entries.
     @Column({ length: 16, default: "external" })
     visibility: string;
 

@@ -541,16 +541,14 @@ export class AILearnedFactsService {
             // surfaced separately from Q&A facts so the prompt can apply them
             // as rules rather than answers.
             const isQa = (f: AILearnedFactEntity) => !f.factType || f.factType === "qa";
-            const isInternal = (f: AILearnedFactEntity) => f.visibility === "internal";
-            const qaExternal = (f: AILearnedFactEntity) => isQa(f) && !isInternal(f);
-            const qaInternal = (f: AILearnedFactEntity) => isQa(f) && isInternal(f);
+            // Guest-reply context: EXTERNAL QA only. Internal facts remain in
+            // the Learned tab for staff, but never enter guest-facing prompts.
+            const qaExternal = (f: AILearnedFactEntity) => isQa(f) && f.visibility !== "internal";
             const isStyle = (f: AILearnedFactEntity) => f.factType === "style_rule";
             const isAvoid = (f: AILearnedFactEntity) => f.factType === "topic_to_avoid";
 
             const rankedPropertyExternal = rank(property.filter(qaExternal));
-            const rankedPropertyInternal = rank(property.filter(qaInternal));
             const rankedPortfolioExternal = rank(portfolio.filter(qaExternal));
-            const rankedPortfolioInternal = rank(portfolio.filter(qaInternal));
             const styleRules = rank([...property, ...portfolio].filter(isStyle));
             const avoidTopics = rank([...property, ...portfolio].filter(isAvoid));
 
@@ -579,21 +577,13 @@ export class AILearnedFactsService {
                 if (lines.length > start) lines.splice(start, 0, header);
             };
 
-            addSection("PROPERTY-SPECIFIC learned answers (guest-shareable):", rankedPropertyExternal, Math.floor(maxChars * 0.45));
+            addSection("PROPERTY-SPECIFIC learned answers (guest-shareable):", rankedPropertyExternal, Math.floor(maxChars * 0.55));
             if (lines.length) lines.push("");
             addSection(
                 "PORTFOLIO-WIDE learned answers (apply to all properties, guest-shareable):",
                 rankedPortfolioExternal,
-                Math.floor(maxChars * 0.25)
+                Math.floor(maxChars * 0.3)
             );
-            if (rankedPropertyInternal.length || rankedPortfolioInternal.length) {
-                lines.push("");
-                addSection(
-                    "INTERNAL learned guidance (staff-only — do NOT quote to the guest, use only to inform your reply):",
-                    [...rankedPropertyInternal, ...rankedPortfolioInternal],
-                    Math.floor(maxChars * 0.15)
-                );
-            }
             if (styleRules.length) {
                 lines.push("");
                 addSection(
