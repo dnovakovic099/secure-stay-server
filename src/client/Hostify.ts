@@ -828,20 +828,77 @@ export class Hostify {
                 },
             });
 
-            const listing = response.data?.listing;
+            const listing =
+                response.data?.listing ||
+                response.data?.data?.listing ||
+                response.data?.data ||
+                response.data;
             if (!listing) {
                 return null;
             }
 
+            const firstNumericValue = (...values: unknown[]) => {
+                for (const value of values) {
+                    if (value === null || value === undefined || value === "") continue;
+                    const numericValue = Number(String(value).replace("%", "").trim());
+                    if (Number.isFinite(numericValue)) return numericValue;
+                }
+                return 0;
+            };
+            const findNestedTaxPercent = (value: unknown): number => {
+                if (!value || typeof value !== "object") return 0;
+                const taxKeys = new Set([
+                    "tax",
+                    "tax_rate",
+                    "taxRate",
+                    "tax_percent",
+                    "taxPercent",
+                    "percent",
+                ]);
+                const visit = (node: unknown): number => {
+                    if (!node || typeof node !== "object") return 0;
+                    if (Array.isArray(node)) {
+                        for (const item of node) {
+                            const found = visit(item);
+                            if (found) return found;
+                        }
+                        return 0;
+                    }
+                    for (const [key, nodeValue] of Object.entries(node as Record<string, unknown>)) {
+                        if (taxKeys.has(key)) {
+                            const numericValue = firstNumericValue(nodeValue);
+                            if (numericValue) return numericValue;
+                        }
+                    }
+                    for (const nodeValue of Object.values(node as Record<string, unknown>)) {
+                        const found = visit(nodeValue);
+                        if (found) return found;
+                    }
+                    return 0;
+                };
+                return visit(value);
+            };
+            const taxPercent =
+                firstNumericValue(
+                    listing.tax,
+                    listing.tax_rate,
+                    listing.taxRate,
+                    listing.taxes,
+                    listing.tax_percent,
+                    listing.taxPercent,
+                    listing.total_tax,
+                    listing.totalTax
+                ) || findNestedTaxPercent(listing);
+
             return {
                 listingId: listing.id,
-                tax: listing.tax || 0,  // Tax percentage (e.g., 10.25)
-                cleaningFee: listing.cleaning_fee || 0,
+                tax: taxPercent,
+                cleaningFee: firstNumericValue(listing.cleaning_fee, listing.cleaningFee),
                 petsAllowed: listing.pets_allowed === 1,
-                petsFee: listing.pets_fee || 0,
-                securityDeposit: listing.security_deposit || 0,
-                extraPerson: listing.extra_person || 0,
-                guestsIncluded: listing.guests_included || 1,
+                petsFee: firstNumericValue(listing.pets_fee, listing.petsFee),
+                securityDeposit: firstNumericValue(listing.security_deposit, listing.securityDeposit),
+                extraPerson: firstNumericValue(listing.extra_person, listing.extraPerson),
+                guestsIncluded: firstNumericValue(listing.guests_included, listing.guestsIncluded) || 1,
                 currency: listing.currency || 'USD',
             };
         } catch (error: any) {
