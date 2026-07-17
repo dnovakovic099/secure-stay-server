@@ -63,6 +63,14 @@ export class AIProposedActionService {
             const text = String(input.guestMessage?.body || "").trim();
             if (!text) return created;
 
+            // Cheap regex screen first — only hit the DB when something matched.
+            const matchedAny =
+                LATE_CHECKOUT_RE.test(text) ||
+                EARLY_CHECKIN_RE.test(text) ||
+                LOCKOUT_RE.test(text) ||
+                OPS_ISSUE_RE.test(text);
+            if (!matchedAny) return created;
+
             const open = await this.repo.find({
                 where: { threadId: Number(input.conversation.threadId), status: "proposed" },
             });
@@ -131,11 +139,17 @@ export class AIProposedActionService {
                 ? `Live calendar: the night of ${key} is NOT open — likely a same-day turnover. Approve only if cleaning allows.`
                 : `Live calendar unavailable — check the ${key} night before approving.`;
 
+        // Only promise outright when the calendar confirms the night is open;
+        // otherwise the default reply defers to housekeeping (staff can edit).
         const guestFirst = (conv.guestName || "").split(" ")[0] || "there";
         const proposedReply =
-            type === "late_checkout"
-                ? `Good news ${guestFirst}, we can do a late checkout for you. Take your time and let us know if you need anything else!`
-                : `Good news ${guestFirst}, we can get you in early. We'll confirm the exact time as soon as the place is ready!`;
+            nightOpen === true
+                ? type === "late_checkout"
+                    ? `Good news ${guestFirst}, we can do a late checkout for you. Take your time and let us know if you need anything else!`
+                    : `Good news ${guestFirst}, we can get you in early. We'll confirm the exact time as soon as the place is ready!`
+                : type === "late_checkout"
+                ? `Hi ${guestFirst}, we'd love to help with a late checkout — let us check the cleaning schedule and we'll confirm shortly!`
+                : `Hi ${guestFirst}, we'd love to get you in early — let us check with housekeeping and we'll confirm as soon as we can!`;
 
         return this.repo.save(
             this.repo.create({
@@ -184,7 +198,7 @@ export class AIProposedActionService {
         const where = [rows[0].device_name, rows[0].location_name].filter(Boolean).join(", ");
         const guestFirst = (conv.guestName || "").split(" ")[0] || "there";
         const proposedReply =
-            `So sorry about the trouble, ${guestFirst}! Your door code is ${code}${code.endsWith("#") ? "" : ""} — ` +
+            `So sorry about the trouble, ${guestFirst}! Your door code is ${code} — ` +
             `enter it on the keypad${where ? ` (${where})` : ""} and press # if the lock has one. ` +
             `If it still doesn't work, message us right away and we'll get you in.`;
 
