@@ -584,7 +584,26 @@ export class InboxService {
         } else if (direction === "outgoing") {
             conversation.answered = 1;
         }
-        await this.conversationRepo.save(conversation);
+        try {
+            conversation = await this.conversationRepo.save(conversation);
+        } catch (err: any) {
+            // Two webhook deliveries for a brand-new thread can race across
+            // cluster workers: both miss the lookup, both INSERT, the loser
+            // hits the unique threadId key. Merge into the winner's row
+            // instead of dropping the message.
+            if (!String(err?.message || "").includes("Duplicate entry")) throw err;
+            const winner = await this.conversationRepo.findOne({ where: { threadId } });
+            if (!winner) throw err;
+            winner.lastMessageText = conversation.lastMessageText ?? winner.lastMessageText;
+            winner.lastMessageAt = conversation.lastMessageAt ?? winner.lastMessageAt;
+            if (direction === "incoming") {
+                winner.unread = 1;
+                winner.answered = 0;
+            } else if (direction === "outgoing") {
+                winner.answered = 1;
+            }
+            conversation = await this.conversationRepo.save(winner);
+        }
 
         const existing = await this.messageRepo.findOne({ where: { externalId } });
         if (existing) {

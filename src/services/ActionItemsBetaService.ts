@@ -1079,7 +1079,9 @@ export class ActionItemsBetaService {
             priority: String(candidate.priority || "Medium"),
             confidence: Math.max(0, Math.min(1, Number(candidate.confidence || 0))),
             reason: String(candidate.reason || "Flagged by AI review"),
-            source: String(candidate.source || this.resolveCandidateSource(linkedMessages) || "unknown"),
+            // Model-generated; clamp to the column width (varchar(40)) so a
+            // verbose value can't fail the whole detection batch.
+            source: String(candidate.source || this.resolveCandidateSource(linkedMessages) || "unknown").slice(0, 40),
             messageIds: linkedMessages.map((message) => message.id),
             snippet: linkedMessages[linkedMessages.length - 1]?.content?.slice(0, 280) || description.slice(0, 280),
             highlightTerms: Array.isArray(candidate.highlightTerms)
