@@ -332,9 +332,12 @@ export class OpsRadarService {
 
         for (const [k, c] of clusters) {
             if (c.items.length < 3) continue;
+            const openCount = c.items.filter((i) => String(i.status || "").toLowerCase() !== "completed").length;
+            // 3-count clusters must still have an open item to surface; bigger
+            // clusters surface regardless (pattern worth a permanent fix).
+            if (c.items.length < 4 && openCount === 0) continue;
             const key = `root_cause:${k}`;
             activeKeys.push(key);
-            const openCount = c.items.filter((i) => String(i.status || "").toLowerCase() !== "completed").length;
             const first = String(c.items[c.items.length - 1].createdAt).slice(0, 10);
             const samples = c.items
                 .slice(0, 4)
@@ -369,15 +372,18 @@ export class OpsRadarService {
     // ------------------------------------------------------------------
 
     /**
-     * Unanswered guest threads and stale open tickets past their SLA.
-     * Thresholds (age of the waiting item):
+     * Unanswered guest threads and stale open tickets past their SLA —
+     * deliberately narrow so the feed stays manage-by-exception (a first run
+     * against the full historic ticket backlog produced 3,000+ alerts, which
+     * is a report, not an exception feed):
+     *
      *   guest thread, emergency flag:      15m high, 45m critical
      *   guest thread, pre-booking inquiry: 60m high, 4h critical (revenue!)
-     *   guest thread, normal:              2h medium, 6h high
-     *   ticket urgency>=2:                 24h high, 72h critical
-     *   ticket normal:                     7d medium
-     * Only doubly-breached (high/critical) items page the manager — that's
-     * the manage-by-exception contract.
+     *   guest thread, normal:              2h medium, 6h high — only while the
+     *     guest is still relevant (not cancelled/expired, checkout within 2d)
+     *   ticket urgency>=2:                 24h high, 72h critical — only for
+     *     tickets < 14 days old (older = historic backlog, not an exception)
+     *   non-urgent tickets:                never alerted here
      */
     async sweepSLA(): Promise<{ alerts: number }> {
         let alerts = 0;
@@ -391,13 +397,21 @@ export class OpsRadarService {
             .where("c.answered = 0")
             .andWhere("c.isArchived = 0")
             .andWhere("c.lastMessageAt IS NOT NULL")
-            .andWhere("c.lastMessageAt >= DATE_SUB(NOW(), INTERVAL 14 DAY)")
+            .andWhere("c.lastMessageAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)")
             .andWhere("c.lastMessageAt <= DATE_SUB(NOW(), INTERVAL 30 MINUTE)")
+            .andWhere(
+                "(c.reservationStatus IS NULL OR c.reservationStatus NOT IN ('cancelled','expired','timedout','declined','denied','not_possible'))"
+            )
             .getMany();
 
         for (const c of threads) {
             const min = ageMin(c.lastMessageAt);
             const inquiry = /^(inquiry|preapproved|offer|pending)/i.test(String(c.reservationStatus || ""));
+            // Post-stay threads (checked out > 2 days ago) aren't SLA material.
+            if (!inquiry && !c.emergency && c.checkout) {
+                const daysSinceCheckout = (now - new Date(c.checkout).getTime()) / 86400000;
+                if (daysSinceCheckout > 2) continue;
+            }
             let severity: string | null = null;
             if (c.emergency) severity = min >= 45 ? "critical" : min >= 15 ? "high" : null;
             else if (inquiry) severity = min >= 240 ? "critical" : min >= 60 ? "high" : null;
@@ -427,37 +441,59 @@ export class OpsRadarService {
             alerts++;
         }
 
-        // --- Stale open tickets ---
+        // --- Stale open URGENT tickets, aggregated per listing ---
+        // One alert per property ("9 urgent tickets sitting >24h at X"), not one
+        // per ticket: individual rows at this volume are a report, not an
+        // exception feed.
         const tickets: any[] = await appDatabase.query(
             `SELECT id, item, listingId, listingName, urgency, assignee, createdAt
              FROM action_items
              WHERE deletedAt IS NULL AND (status IS NULL OR status NOT IN ('completed'))
-               AND createdAt >= DATE_SUB(NOW(), INTERVAL 60 DAY)
-               AND createdAt <= DATE_SUB(NOW(), INTERVAL 24 HOUR)`
+               AND urgency >= 2
+               AND createdAt >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+               AND createdAt <= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+             ORDER BY createdAt ASC`
         );
+        const byListing = new Map<string, any[]>();
         for (const t of tickets) {
-            const min = ageMin(t.createdAt);
-            const urgent = Number(t.urgency) >= 2;
-            let severity: string | null = null;
-            if (urgent) severity = min >= 72 * 60 ? "critical" : "high";
-            else severity = min >= 7 * 24 * 60 ? "medium" : null;
-            if (!severity) continue;
-
-            const key = `sla:ticket:${t.id}`;
+            const k = t.listingId ? String(t.listingId) : "none";
+            const arr = byListing.get(k) || [];
+            arr.push(t);
+            byListing.set(k, arr);
+        }
+        for (const [lid, group] of byListing) {
+            const oldestMin = ageMin(group[0].createdAt);
+            const oldestDays = Math.floor(oldestMin / 1440);
+            const severity = oldestMin >= 72 * 60 ? "critical" : "high";
+            const unassigned = group.filter((t) => !t.assignee).length;
+            const listingName = group.find((t) => t.listingName)?.listingName || null;
+            const key = `sla:tickets:${lid}`;
             activeKeys.push(key);
-            const days = Math.floor(min / 1440);
+            const samples = group
+                .slice(0, 3)
+                .map((t) => `• ${String(t.item).slice(0, 120)} (${Math.floor(ageMin(t.createdAt) / 1440)}d)`)
+                .join("\n");
             await this.upsertAlert({
                 type: "sla",
                 dedupeKey: key,
                 severity,
-                listingId: t.listingId ? Number(t.listingId) : null,
-                listingName: t.listingName,
-                title: `${urgent ? "Urgent ticket" : "Ticket"} open ${days}d: ${String(t.item).slice(0, 120)}`,
-                detail: `${t.assignee ? `Assigned to ${t.assignee}` : "UNASSIGNED"}${t.listingName ? ` — ${t.listingName}` : ""}`,
-                recommendation: t.assignee
-                    ? "Nudge the assignee or reassign — this has sat past its SLA."
-                    : "Nobody owns this ticket. Assign it.",
-                payload: { actionItemId: t.id, ageDays: days, urgent, assignee: t.assignee || null },
+                listingId: lid !== "none" ? Number(lid) : null,
+                listingName,
+                title:
+                    lid === "none"
+                        ? `${group.length} urgent unassigned ticket${group.length === 1 ? "" : "s"} sitting >24h (no property linked), oldest ${oldestDays}d`
+                        : `${group.length} urgent ticket${group.length === 1 ? "" : "s"} sitting >24h at ${listingName || "listing " + lid}, oldest ${oldestDays}d`,
+                detail: samples,
+                recommendation:
+                    unassigned === group.length
+                        ? "None of these have an owner. Triage and assign them."
+                        : "Past the urgent-ticket SLA — nudge the assignees or reprioritize.",
+                payload: {
+                    count: group.length,
+                    unassigned,
+                    oldestDays,
+                    ticketIds: group.map((t) => t.id).slice(0, 25),
+                },
             });
             alerts++;
         }
