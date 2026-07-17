@@ -11,6 +11,7 @@ import { VendorAssignment } from "../entity/VendorAssignment";
 import { VendorAssignmentUpdate } from "../entity/VendorAssignmentUpdate";
 import { VendorProfile } from "../entity/VendorProfile";
 import { VendorProfileUpdate } from "../entity/VendorProfileUpdate";
+import { UtilityProvider, UtilityProviderPropertyLink } from "../entity/UtilityProvider";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { ContractorInfoService } from "./ContractorService";
@@ -34,10 +35,14 @@ type VendorExpenseUsage = {
 };
 
 export class VendorProfileService {
+    private static readonly TRASH_PROVIDER_TYPE = "Trash";
+    private static readonly TRASH_VENDOR_ROLE = "Trash Haul";
+
     private vendorProfileRepo = appDatabase.getRepository(VendorProfile);
     private vendorAssignmentRepo = appDatabase.getRepository(VendorAssignment);
     private vendorProfileUpdateRepo = appDatabase.getRepository(VendorProfileUpdate);
     private vendorAssignmentUpdateRepo = appDatabase.getRepository(VendorAssignmentUpdate);
+    private utilityProviderRepo = appDatabase.getRepository(UtilityProvider);
     private contactRepo = appDatabase.getRepository(Contact);
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private listingRepo = appDatabase.getRepository(Listing);
@@ -342,6 +347,132 @@ export class VendorProfileService {
             throw CustomErrorHandler.validationError("Date Started must use YYYY-MM-DD format.");
         }
         return new Date(`${normalized}T00:00:00.000Z`);
+    }
+
+    private normalizeNullableString(value: unknown) {
+        return typeof value === "string" ? value.trim() || null : value == null ? null : String(value).trim() || null;
+    }
+
+    private normalizeNullableNumber(value: unknown) {
+        const normalized = Number(value);
+        return Number.isFinite(normalized) ? normalized : null;
+    }
+
+    private normalizeUtilityDateString(value: unknown) {
+        if (!value) return null;
+        if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString();
+        const normalized = String(value).trim();
+        if (!normalized) return null;
+        const date = new Date(normalized);
+        return Number.isNaN(date.getTime()) ? null : normalized;
+    }
+
+    private isTrashVendorAssignment(assignment: Partial<VendorAssignment>) {
+        return String(assignment.role || "").trim().toLowerCase() === VendorProfileService.TRASH_VENDOR_ROLE.toLowerCase();
+    }
+
+    private isActiveTrashVendorAssignment(assignment: Partial<VendorAssignment>) {
+        return this.isTrashVendorAssignment(assignment)
+            && String(assignment.status || "").trim().toLowerCase() === "active"
+            && !assignment.deletedAt;
+    }
+
+    private buildTrashUtilityPropertyLink(assignment: VendorAssignment, profile: VendorProfile): UtilityProviderPropertyLink | null {
+        const propertyId = Number(assignment.listingId);
+        if (!Number.isFinite(propertyId) || propertyId <= 0) return null;
+
+        return {
+            propertyId,
+            accountNumber: null,
+            propertyNotes: this.normalizeNullableString(assignment.notes),
+            source: this.normalizeNullableString(profile.source),
+            managedBy: this.normalizeNullableString(assignment.managedBy),
+            workSchedule: this.normalizeNullableString(assignment.workSchedule),
+            workScheduleDays: this.normalizeNullableString(assignment.workScheduleDays),
+            workScheduleIntervalWeeks: this.normalizeNullableNumber(assignment.workScheduleIntervalWeeks),
+            workScheduleDayOfMonth: this.normalizeNullableNumber(assignment.workScheduleDayOfMonth),
+            workScheduleQuarter: this.normalizeNullableString(assignment.workScheduleQuarter),
+            workScheduleMonth: this.normalizeNullableString(assignment.workScheduleMonth),
+            workScheduleCheckoutTiming: this.normalizeNullableString(assignment.workScheduleCheckoutTiming),
+            autopay: Boolean(assignment.isAutoPay),
+            paymentMethod: this.normalizeNullableString(assignment.paymentMethod),
+            paymentScheduleType: this.normalizeNullableString(assignment.paymentScheduleType),
+            paidBy: this.normalizeNullableString(assignment.paidBy),
+            rate: this.normalizeNullableString(assignment.rate),
+            rateType: this.normalizeNullableString(assignment.rateType),
+            customRateDescription: this.normalizeNullableString(assignment.customRateDescription),
+            payoutDetails: this.normalizeNullableString(assignment.payoutDetails),
+            paymentIntervalMonth: this.normalizeNullableNumber(assignment.paymentIntervalMonth),
+            paymentDayOfWeek: this.normalizeNullableString(assignment.paymentDayOfWeek),
+            paymentWeekOfMonth: this.normalizeNullableNumber(assignment.paymentWeekOfMonth),
+            paymentDayOfMonth: this.normalizeNullableNumber(assignment.paymentDayOfMonth),
+            nextServiceDate: this.normalizeUtilityDateString(assignment.nextServiceDate),
+        };
+    }
+
+    private async syncTrashVendorProfileToUtility(profileId: number, userId: string, previousProfileName?: string | null) {
+        const profile = await this.vendorProfileRepo.findOne({
+            where: { id: profileId },
+            relations: ["assignments"],
+        });
+        if (!profile || profile.deletedAt) return;
+
+        const activeTrashAssignments = (profile.assignments || [])
+            .filter((assignment) => this.isActiveTrashVendorAssignment(assignment));
+        const profileName = this.normalizeNullableString(profile.name);
+        const lookupNames = Array.from(new Set([profileName, this.normalizeNullableString(previousProfileName)].filter(Boolean) as string[]));
+        if (!profileName && activeTrashAssignments.length === 0) return;
+
+        let utility: UtilityProvider | null = null;
+        if (lookupNames.length > 0) {
+            utility = await this.utilityProviderRepo
+                .createQueryBuilder("utility")
+                .where("utility.deletedAt IS NULL")
+                .andWhere("LOWER(utility.providerType) = LOWER(:providerType)", { providerType: VendorProfileService.TRASH_PROVIDER_TYPE })
+                .andWhere("LOWER(utility.providerName) IN (:...lookupNames)", { lookupNames: lookupNames.map((name) => name.toLowerCase()) })
+                .orderBy("utility.updatedAt", "DESC")
+                .getOne();
+        }
+
+        if (!utility && activeTrashAssignments.length === 0) return;
+
+        const propertyLinks = activeTrashAssignments
+            .map((assignment) => this.buildTrashUtilityPropertyLink(assignment, profile))
+            .filter(Boolean) as UtilityProviderPropertyLink[];
+        const dedupedPropertyLinks = Array.from(new Map(propertyLinks.map((link) => [link.propertyId, link])).values());
+        const firstWebsiteAssignment = activeTrashAssignments.find((assignment) => this.normalizeNullableString(assignment.website_link));
+
+        if (!utility) {
+            utility = this.utilityProviderRepo.create({
+                providerType: VendorProfileService.TRASH_PROVIDER_TYPE,
+                customProviderLabel: null,
+                providerName: profileName,
+                accountName: null,
+                username: null,
+                website: this.normalizeNullableString(firstWebsiteAssignment?.website_link),
+                password: null,
+                lastpass: false,
+                notes: this.normalizeNullableString(profile.notes),
+                propertyIds: dedupedPropertyLinks.map((link) => link.propertyId),
+                propertyLinks: dedupedPropertyLinks,
+                createdBy: userId,
+                updatedBy: userId,
+            });
+        } else {
+            utility.providerName = profileName;
+            utility.website = this.normalizeNullableString(firstWebsiteAssignment?.website_link) || utility.website || null;
+            utility.notes = this.normalizeNullableString(profile.notes);
+            utility.propertyLinks = dedupedPropertyLinks;
+            utility.propertyIds = dedupedPropertyLinks.map((link) => link.propertyId);
+            utility.updatedBy = userId;
+        }
+
+        await this.utilityProviderRepo.save(utility);
+    }
+
+    private async syncTrashVendorAssignmentToUtility(assignment: VendorAssignment, userId: string) {
+        if (!this.isTrashVendorAssignment(assignment)) return;
+        await this.syncTrashVendorProfileToUtility(assignment.vendorProfileId, userId);
     }
 
     private getProfileAuditChanges(existing: VendorProfile, next: Partial<VendorProfile>) {
@@ -996,6 +1127,7 @@ export class VendorProfileService {
 
             return profile.id;
         });
+        await this.syncTrashVendorProfileToUtility(profileId, userId);
         return this.getVendorProfile(profileId, userId);
     }
 
@@ -1003,6 +1135,7 @@ export class VendorProfileService {
         await this.ensureVendorSchema();
         const existing = await this.vendorProfileRepo.findOneBy({ id });
         if (!existing) throw CustomErrorHandler.notFound(`Vendor profile with ID ${id} not found.`);
+        const previousName = existing.name;
         const nextName = this.buildVendorName({
             ...body,
             firstName: body.firstName !== undefined ? body.firstName : existing.firstName,
@@ -1053,6 +1186,7 @@ export class VendorProfileService {
                 logger.error(`Vendor profile ${saved.id} was saved, but contractor sync failed. ${error}`);
             }
         }
+        await this.syncTrashVendorProfileToUtility(saved.id, userId, previousName);
         return this.getVendorProfile(saved.id, userId);
     }
 
@@ -1096,6 +1230,7 @@ export class VendorProfileService {
         await this.assertSingleActiveCleanerAssignment(this.vendorAssignmentRepo, payload);
         const assignment = await this.vendorAssignmentRepo.save(this.vendorAssignmentRepo.create(payload));
         await this.createAssignmentChangeUpdate(assignment, [{ label: "Assignment", oldValue: null, newValue: "Created" }], userId);
+        await this.syncTrashVendorAssignmentToUtility(assignment, userId);
         return this.getVendorProfile(vendorProfileId, userId);
     }
 
@@ -1112,6 +1247,7 @@ export class VendorProfileService {
         const changes = this.getAssignmentAuditChanges(existing, nextValues);
         const saved = await this.vendorAssignmentRepo.save(this.vendorAssignmentRepo.merge(existing, nextValues));
         await this.createAssignmentChangeUpdate(saved, changes, userId);
+        await this.syncTrashVendorAssignmentToUtility(saved, userId);
         return this.getVendorProfile(saved.vendorProfileId, userId);
     }
 
@@ -1130,6 +1266,7 @@ export class VendorProfileService {
             const saved = await this.vendorAssignmentRepo.save(this.vendorAssignmentRepo.merge(assignment, nextValues));
             await this.createAssignmentChangeUpdate(saved, changes, userId);
         }
+        if (vendorProfileId) await this.syncTrashVendorProfileToUtility(vendorProfileId, userId);
         return vendorProfileId ? this.getVendorProfile(vendorProfileId, userId) : { success: true };
     }
 
@@ -1141,6 +1278,7 @@ export class VendorProfileService {
         const vendorProfileId = assignment.vendorProfileId;
         await this.vendorAssignmentRepo.save(assignment);
         await this.vendorAssignmentRepo.softRemove(assignment);
+        await this.syncTrashVendorProfileToUtility(vendorProfileId, userId);
         return this.getVendorProfile(vendorProfileId, userId);
     }
 }
