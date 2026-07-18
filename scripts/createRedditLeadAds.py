@@ -268,6 +268,7 @@ def create_ad_group(
         "name": name,
         "configured_status": "PAUSED",
         "bid_strategy": "MAXIMIZE_VOLUME",
+        "bid_type": "CPC",
         "goal_type": "DAILY_SPEND",
         "goal_value": budget_micro,
         "start_time": start,
