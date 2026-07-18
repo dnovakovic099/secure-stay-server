@@ -216,7 +216,9 @@ def create_lead_forms(client: RedditAds, ad_account_id: str) -> Dict[str, str]:
 
 
 def create_campaign(client: RedditAds, ad_account_id: str) -> str:
-    name = "LL Host PM — Reddit Lead Gen (Paused)"
+    # Prefer CLICKS objective for API compatibility. Lead forms are still attached
+    # at the ad level; LEAD_GENERATION currently rejects optimization goals via API.
+    name = "LL Host PM — Reddit Lead Ads (Paused)"
     for c in list_all(client, f"/ad_accounts/{ad_account_id}/campaigns"):
         if c.get("name") == name and c.get("id"):
             print(f"Reusing campaign: {c['id']}")
@@ -226,7 +228,7 @@ def create_campaign(client: RedditAds, ad_account_id: str) -> str:
         {
             "data": {
                 "name": name,
-                "objective": "LEAD_GENERATION",
+                "objective": "CLICKS",
                 "configured_status": "PAUSED",
             }
         },
@@ -263,8 +265,7 @@ def create_ad_group(
     if communities:
         targeting["communities"] = communities
 
-    # LEAD_GENERATION campaigns currently accept click optimization in Ads API
-    # (not optimization_goal=LEAD). Bid is required for CPC.
+    # CLICKS campaigns + CPC. Bid is required for CPC.
     bid_value = int(float(os.environ.get("REDDIT_CPC_BID", "1.50")) * 1_000_000)
     data: Dict[str, Any] = {
         "campaign_id": campaign_id,
