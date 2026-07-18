@@ -17,6 +17,10 @@ jobs:
     steps:
       - name: Deploy secure-stay-server to EC2
         uses: appleboy/ssh-action@v1
+        env:
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          REDDIT_REDIRECT_URI: ${{ secrets.REDDIT_REDIRECT_URI }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
@@ -24,6 +28,7 @@ jobs:
           port: ${{ secrets.EC2_PORT }}
           script_stop: true
           command_timeout: 40m
+          envs: REDDIT_CLIENT_ID,REDDIT_CLIENT_SECRET,REDDIT_REDIRECT_URI
           script: |
             set -e
 
@@ -32,6 +37,28 @@ jobs:
 
             echo ">>> Pulling latest code from dev-new..."
             git pull origin dev-new || { echo "❌ Git pull origin dev-new failed"; exit 1; }
+
+            if [ -n "$REDDIT_CLIENT_ID" ] && [ -n "$REDDIT_CLIENT_SECRET" ]; then
+              echo ">>> Upserting Reddit OAuth env vars..."
+              REDIRECT_URI="${REDDIT_REDIRECT_URI:-https://securestay.ai/securestay_api/oauth/reddit/callback}"
+              upsert_env() {
+                key="$1"
+                value="$2"
+                if grep -q "^${key}=" .env 2>/dev/null; then
+                  awk -v k="$key" -v v="$value" 'BEGIN{FS=OFS="="} $1==k{$0=k"="v} {print}' .env > .env.tmp && mv .env.tmp .env
+                else
+                  printf '%s=%s\n' "$key" "$value" >> .env
+                fi
+              }
+              upsert_env REDDIT_CLIENT_ID "$REDDIT_CLIENT_ID"
+              upsert_env REDDIT_CLIENT_SECRET "$REDDIT_CLIENT_SECRET"
+              upsert_env REDDIT_REDIRECT_URI "$REDIRECT_URI"
+              upsert_env REDDIT_USER_AGENT "SecureStay/1.0"
+              upsert_env REDDIT_OAUTH_SCOPES "adsread adsedit adsconversions"
+              echo ">>> Reddit OAuth env vars upserted"
+            else
+              echo ">>> Reddit OAuth secrets not set in GitHub; skipping env upsert"
+            fi
 
             echo ">>> Installing dependencies..."
             npm install || { echo "❌ npm install failed"; exit 1; }
