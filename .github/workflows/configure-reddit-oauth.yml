@@ -1,0 +1,73 @@
+name: Configure Reddit OAuth Env
+
+concurrency:
+  group: configure-reddit-oauth
+  cancel-in-progress: false
+
+on:
+  workflow_dispatch:
+
+jobs:
+  configure:
+    name: Write Reddit OAuth env on EC2
+    runs-on: ubuntu-latest
+    steps:
+      - name: Upsert Reddit env vars and reload PM2
+        uses: appleboy/ssh-action@v1
+        env:
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          REDDIT_REDIRECT_URI: ${{ secrets.REDDIT_REDIRECT_URI }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT }}
+          command_timeout: 10m
+          envs: REDDIT_CLIENT_ID,REDDIT_CLIENT_SECRET,REDDIT_REDIRECT_URI
+          script: |
+            set -e
+            cd /home/ec2-user/secure_stay/secure-stay-server || exit 1
+            test -n "$REDDIT_CLIENT_ID" || { echo "Missing REDDIT_CLIENT_ID"; exit 1; }
+            test -n "$REDDIT_CLIENT_SECRET" || { echo "Missing REDDIT_CLIENT_SECRET"; exit 1; }
+            REDIRECT_URI="${REDDIT_REDIRECT_URI:-https://securestay.ai/securestay_api/oauth/reddit/callback}"
+
+            python3 - <<'PY'
+            import os
+            from pathlib import Path
+            path = Path(".env")
+            text = path.read_text() if path.exists() else ""
+            updates = {
+                "REDDIT_CLIENT_ID": os.environ["REDDIT_CLIENT_ID"],
+                "REDDIT_CLIENT_SECRET": os.environ["REDDIT_CLIENT_SECRET"],
+                "REDDIT_REDIRECT_URI": os.environ.get("REDDIT_REDIRECT_URI") or "https://securestay.ai/securestay_api/oauth/reddit/callback",
+                "REDDIT_USER_AGENT": "SecureStay/1.0",
+                "REDDIT_OAUTH_SCOPES": "adsread adsedit adsconversions",
+            }
+            lines = text.splitlines()
+            seen = set()
+            out = []
+            for line in lines:
+                if not line or line.lstrip().startswith("#") or "=" not in line:
+                    out.append(line)
+                    continue
+                key = line.split("=", 1)[0].strip()
+                if key in updates:
+                    out.append(f"{key}={updates[key]}")
+                    seen.add(key)
+                else:
+                    out.append(line)
+            missing = [k for k in updates if k not in seen]
+            if missing:
+                if out and out[-1] != "":
+                    out.append("")
+                out.append("# Reddit Ads API OAuth")
+                for key in missing:
+                    out.append(f"{key}={updates[key]}")
+            path.write_text("\n".join(out) + "\n")
+            print("Updated Reddit OAuth env keys:", ", ".join(sorted(updates)))
+            PY
+
+            pm2 reload ecosystem.config.js
+            pm2 save
+            echo "Reddit OAuth env configured and PM2 reloaded"
