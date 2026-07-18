@@ -91,5 +91,10 @@ jobs:
               echo ">>> Skipping Reddit ad creation (no refresh token yet, or already created)"
             fi
 
+            if grep -q '^REDDIT_REFRESH_TOKEN=.' .env 2>/dev/null && [ -f scripts/verifyRedditLeadAds.py ]; then
+              echo ">>> Verifying Reddit lead ads setup..."
+              python3 scripts/verifyRedditLeadAds.py || { echo "⚠️ Reddit ad verification reported issues"; }
+            fi
+
             echo "========== Deployment complete =========="
             pm2 list
