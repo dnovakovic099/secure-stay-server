@@ -8,7 +8,8 @@ const DEFAULT_SCOPES = "adsread adsedit adsconversions";
 function redditRedirectUri(): string {
   const configured = String(process.env.REDDIT_REDIRECT_URI || "").trim();
   if (configured) return configured;
-  const base = String(process.env.BASE_URL || "https://securestay.ai").replace(/\/$/, "");
+  // Production API is mounted at /securestay_api behind nginx.
+  const base = String(process.env.BASE_URL || "https://securestay.ai/securestay_api").replace(/\/$/, "");
   return `${base}/oauth/reddit/callback`;
 }
 
