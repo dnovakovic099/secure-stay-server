@@ -166,7 +166,8 @@ def create_lead_forms(client: RedditAds, ad_account_id: str) -> Dict[str, str]:
     forms = {
         "general": {
             "name": "LL Host PM — Full Service Lead Form",
-            "prompt": "Get a free review of your Airbnb. Full-service management — earn more, hands-off.",
+            # Reddit enforces max 100 characters on prompt.
+            "prompt": "Get a free Airbnb review. Full-service management — earn more, hands-off.",
             "questions": [
                 {"type": "FIRST_NAME", "required": True},
                 {"type": "LAST_NAME", "required": True},
@@ -177,7 +178,7 @@ def create_lead_forms(client: RedditAds, ad_account_id: str) -> Dict[str, str]:
         },
         "three_bedroom": {
             "name": "LL Host PM — 3+ Bedroom Qualifier Form",
-            "prompt": "3+ bedroom Airbnb owners only: get a free property review and see if 15% full-service management makes sense.",
+            "prompt": "3+ bedroom Airbnb owners: get a free review for 15% full-service management.",
             "questions": [
                 {"type": "FIRST_NAME", "required": True},
                 {"type": "LAST_NAME", "required": True},
