@@ -1,4 +1,6 @@
 import { Request, Response } from "express";
+import fs from "fs";
+import path from "path";
 import logger from "../utils/logger.utils";
 
 const REDDIT_AUTHORIZE_URL = "https://www.reddit.com/api/v1/authorize";
@@ -11,6 +13,31 @@ function redditRedirectUri(): string {
   // Production API is mounted at /securestay_api behind nginx.
   const base = String(process.env.BASE_URL || "https://securestay.ai/securestay_api").replace(/\/$/, "");
   return `${base}/oauth/reddit/callback`;
+}
+
+function upsertEnvVar(key: string, value: string): void {
+  const envPath = path.resolve(process.cwd(), ".env");
+  let text = "";
+  try {
+    text = fs.readFileSync(envPath, "utf8");
+  } catch {
+    text = "";
+  }
+  const lines = text.split(/\r?\n/);
+  let found = false;
+  const next = lines.map((line) => {
+    if (!line || line.trimStart().startsWith("#") || !line.includes("=")) return line;
+    const k = line.split("=", 1)[0].trim();
+    if (k !== key) return line;
+    found = true;
+    return `${key}=${value}`;
+  });
+  if (!found) {
+    if (next.length && next[next.length - 1] !== "") next.push("");
+    next.push(`${key}=${value}`);
+  }
+  fs.writeFileSync(envPath, next.join("\n").replace(/\n*$/, "\n"), "utf8");
+  process.env[key] = value;
 }
 
 function htmlPage(title: string, body: string): string {
@@ -35,6 +62,24 @@ function htmlPage(title: string, body: string): string {
 }
 
 export class RedditOAuthController {
+  /**
+   * GET /oauth/reddit/status
+   * Reports whether Reddit OAuth refresh token is configured (no secrets leaked).
+   */
+  status = async (_req: Request, res: Response) => {
+    const hasClient = Boolean(String(process.env.REDDIT_CLIENT_ID || "").trim());
+    const hasSecret = Boolean(String(process.env.REDDIT_CLIENT_SECRET || "").trim());
+    const hasRefresh = Boolean(String(process.env.REDDIT_REFRESH_TOKEN || "").trim());
+    return res.json({
+      configured: hasClient && hasSecret && hasRefresh,
+      has_client_id: hasClient,
+      has_client_secret: hasSecret,
+      has_refresh_token: hasRefresh,
+      redirect_uri: redditRedirectUri(),
+      authorize_url: "/oauth/reddit/authorize",
+    });
+  };
+
   /**
    * GET /oauth/reddit/authorize
    * Starts the Reddit Ads OAuth consent flow.
@@ -123,19 +168,25 @@ export class RedditOAuthController {
           .send(htmlPage("Token exchange failed", `<p>Reddit rejected the token request. Check server logs.</p>`));
       }
 
-      // Never render tokens in the browser; log once for ops to copy into env/secrets.
+      // Never render tokens in the browser; persist refresh token to .env for API jobs.
       logger.info(
         `[RedditOAuth] Token exchange succeeded. access_token_len=${String(tokenJson.access_token || "").length} refresh_token_present=${Boolean(tokenJson.refresh_token)} scope=${tokenJson.scope || ""}`
       );
       if (tokenJson.refresh_token) {
-        logger.info(`[RedditOAuth] REDDIT_REFRESH_TOKEN=${tokenJson.refresh_token}`);
+        try {
+          upsertEnvVar("REDDIT_REFRESH_TOKEN", String(tokenJson.refresh_token));
+          logger.info("[RedditOAuth] Persisted REDDIT_REFRESH_TOKEN to .env");
+        } catch (persistErr: any) {
+          logger.error(`[RedditOAuth] Failed to persist refresh token: ${persistErr?.message || persistErr}`);
+          logger.info(`[RedditOAuth] REDDIT_REFRESH_TOKEN=${tokenJson.refresh_token}`);
+        }
       }
 
       return res.send(
         htmlPage(
           "Reddit connected to SecureStay",
           `<p>Authorization succeeded. You can close this tab.</p>
-           <p>Refresh token was written to server logs — add it as <code>REDDIT_REFRESH_TOKEN</code> in secrets/env.</p>`
+           <p>Refresh token was saved on the server. Tell Cursor to create the Reddit ads next.</p>`
         )
       );
     } catch (err: any) {
