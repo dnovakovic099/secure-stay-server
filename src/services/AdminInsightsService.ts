@@ -1,10 +1,21 @@
 import { appDatabase } from "../utils/database.util";
+import { AdminWorkloadService } from "./AdminWorkloadService";
 
 /**
  * Admin-only insights: who trains the AI (feedback, learning answers, taught
- * facts, suggestion outcomes), who replies in the inboxes, whose replies grade
- * best, and a transparent per-user activity/time estimate. The heavier
- * AI-graded "hours worked" lives in AdminWorkloadService.
+ * facts, suggestion outcomes), who responds in the inboxes and on calls,
+ * whose replies grade best, and a transparent per-user activity/time estimate.
+ *
+ * Attribution rules (enforced everywhere below):
+ *   - Reply/response counts credit an SS user ONLY when we have a numeric
+ *     users.id on the row (via sentByUserId, quoUserId→email→users.id, or
+ *     Quo call answeredBy/initiatedBy→email→users.id). Rows we cannot
+ *     positively pin to an internal user are dropped — this stops external
+ *     Hostify hosts, guests, or "same-name" collisions from padding an
+ *     employee's numbers.
+ *   - Name-only sources (missResolvedBy, discardedBy) are resolved to a
+ *     userId via a strict full-name lookup. Ambiguous names (multiple SS
+ *     users with the same firstName+lastName) are dropped rather than merged.
  */
 
 const DEFAULT_ADMIN_EMAILS = [
@@ -25,35 +36,126 @@ export function isAdminEmail(email: string | null | undefined): boolean {
     return !!email && adminEmails().has(String(email).trim().toLowerCase());
 }
 
+export interface InsightsFilters {
+    days?: number;
+    /** ISO date strings (inclusive start, exclusive end). Override `days` when set. */
+    startDate?: string | null;
+    endDate?: string | null;
+    /** Restrict to a specific listing/property (applies where the source table carries it). */
+    listingId?: number | null;
+    /** Restrict to specific SS user ids. */
+    userIds?: number[] | null;
+    /** 'admin' | 'regular' — filters via join to users.userType. */
+    userType?: string | null;
+    /** Feedback-log kinds. */
+    kinds?: string[] | null;
+}
+
+interface DateRange {
+    start: Date;
+    end: Date;
+}
+
+interface UserRecord {
+    id: number;
+    name: string;
+    email: string | null;
+    userType: string | null;
+}
+
 export class AdminInsightsService {
     private sinceDate(days: number): Date {
         return new Date(Date.now() - Math.min(Math.max(days || 30, 1), 365) * 86400000);
     }
 
-    /** users.id -> display name map for everything below. */
-    private async userNames(): Promise<Map<number, string>> {
+    /** Resolve a filter range: honors startDate/endDate when given, else falls back to `days` (default 30). */
+    private dateRange(f: InsightsFilters): DateRange {
+        const now = new Date();
+        let start: Date;
+        let end: Date;
+        if (f.startDate) {
+            const s = new Date(f.startDate);
+            start = isNaN(s.getTime()) ? this.sinceDate(f.days || 30) : s;
+        } else {
+            start = this.sinceDate(f.days || 30);
+        }
+        if (f.endDate) {
+            const e = new Date(f.endDate);
+            end = isNaN(e.getTime()) ? now : e;
+        } else {
+            end = now;
+        }
+        if (end < start) end = new Date(start.getTime() + 86400000);
+        return { start, end };
+    }
+
+    /** Full user directory keyed by id. */
+    private async userDirectory(): Promise<Map<number, UserRecord>> {
         const rows: any[] = await appDatabase.query(
-            "SELECT id, firstName, lastName, email FROM users WHERE deletedAt IS NULL"
+            "SELECT id, firstName, lastName, email, userType FROM users WHERE deletedAt IS NULL"
         );
-        const map = new Map<number, string>();
+        const map = new Map<number, UserRecord>();
         for (const u of rows) {
             const name = [u.firstName, u.lastName].filter(Boolean).join(" ").trim();
-            map.set(Number(u.id), name || u.email || `user ${u.id}`);
+            map.set(Number(u.id), {
+                id: Number(u.id),
+                name: name || u.email || `user ${u.id}`,
+                email: u.email || null,
+                userType: u.userType || null,
+            });
         }
         return map;
     }
 
+    /** Full-name (case-insensitive) -> userId when exactly one SS user matches. */
+    private buildNameIndex(users: Map<number, UserRecord>): Map<string, number | null> {
+        const buckets = new Map<string, number[]>();
+        for (const u of users.values()) {
+            const key = u.name.trim().toLowerCase();
+            if (!key) continue;
+            const arr = buckets.get(key) || [];
+            arr.push(u.id);
+            buckets.set(key, arr);
+        }
+        const out = new Map<string, number | null>();
+        for (const [name, ids] of buckets) out.set(name, ids.length === 1 ? ids[0] : null); // null == ambiguous, drop
+        return out;
+    }
+
+    /** Filter helper — apply userIds/userType to a row (post-query) by userId. */
+    private makeUserGuard(f: InsightsFilters, users: Map<number, UserRecord>) {
+        const wanted = new Set<number>((f.userIds || []).filter((n) => Number.isFinite(n)).map((n) => Number(n)));
+        const type = (f.userType || "").trim().toLowerCase();
+        return (userId: number | null | undefined): boolean => {
+            if (userId == null) return false;
+            const u = users.get(Number(userId));
+            if (!u) return false;
+            if (wanted.size && !wanted.has(u.id)) return false;
+            if (type && type !== "all" && (u.userType || "").toLowerCase() !== type) return false;
+            return true;
+        };
+    }
+
     // -------------------------------------------------------------------------
-    // Overview: per-user AI-training + reply counts + quality + time estimate.
+    // Overview: per-user AI-training + response counts + quality + time estimate.
     // -------------------------------------------------------------------------
-    async overview(days: number): Promise<any> {
-        const since = this.sinceDate(days);
-        const names = await this.userNames();
-        const nameOf = (id: any) => (id != null && names.get(Number(id))) || null;
+    async overview(f: InsightsFilters = {}): Promise<any> {
+        const { start, end } = this.dateRange(f);
+        const users = await this.userDirectory();
+        const nameIndex = this.buildNameIndex(users);
+        const guard = this.makeUserGuard(f, users);
+        const nameOf = (id: any) => (id != null && users.get(Number(id))?.name) || null;
+        const listingId = f.listingId != null && Number.isFinite(Number(f.listingId)) ? Number(f.listingId) : null;
 
         type Row = Record<string, any>;
-        const q = (sql: string, params: any[] = [since]): Promise<Row[]> =>
+        const q = (sql: string, params: any[]): Promise<Row[]> =>
             appDatabase.query(sql, params).catch(() => [] as Row[]);
+
+        // Property-filter (listingId) is applied wherever the source table
+        // carries that column. Quo SMS and Quo calls have no listingId (Quo
+        // is SMS/telephony) — a property filter drops those sources rather
+        // than fabricating a link.
+        const noListingScope = listingId != null;
 
         const [
             feedback,
@@ -65,62 +167,149 @@ export class AdminInsightsService {
             discards,
             hostifyReplies,
             quoReplies,
+            quoCalls,
             replyQuality,
         ] = await Promise.all([
-            q(`SELECT userId, rating, COUNT(*) c,
-                      SUM(feedbackText IS NOT NULL AND feedbackText <> '') withText,
-                      SUM(correctedResponse IS NOT NULL AND correctedResponse <> '') withCorrection
-               FROM ai_message_feedback WHERE userId IS NOT NULL AND createdAt >= ? GROUP BY userId, rating`),
-            q(`SELECT answeredByUserId AS userId, status, COUNT(*) c
-               FROM ai_learning_prompts WHERE answeredByUserId IS NOT NULL AND resolvedAt >= ? GROUP BY answeredByUserId, status`),
-            q(`SELECT createdByUserId AS userId, COUNT(*) c
-               FROM ai_learned_facts WHERE createdByUserId IS NOT NULL AND createdAt >= ? GROUP BY createdByUserId`),
-            q(`SELECT reviewedByUserId AS userId, COUNT(*) c
-               FROM ai_learned_facts WHERE reviewedByUserId IS NOT NULL AND updatedAt >= ? GROUP BY reviewedByUserId`),
-            q(`SELECT acceptedByUserId AS userId, status, COUNT(*) c
-               FROM ai_message_suggestions WHERE acceptedByUserId IS NOT NULL AND generatedAt >= ? GROUP BY acceptedByUserId, status`),
-            q(`SELECT missResolvedBy AS name, COUNT(*) c
-               FROM ai_message_suggestions WHERE missResolvedBy IS NOT NULL AND missResolvedAt >= ? GROUP BY missResolvedBy`),
-            q(`SELECT discardedBy AS name, COUNT(*) c
-               FROM ai_discard_feedback WHERE discardedBy IS NOT NULL AND createdAt >= ? GROUP BY discardedBy`),
-            // Team replies land two ways: sent from our dashboard (sentByUserId)
-            // or sent in Hostify itself and synced back with the rep's name in
-            // senderName. Count both; exclude the AI's auto-sends.
-            q(`SELECT sentByUserId AS userId, COALESCE(sentByName, senderName) AS name, COUNT(*) c,
-                      COUNT(DISTINCT threadId) threads, MIN(sentAt) firstAt, MAX(sentAt) lastAt
-               FROM inbox_messages
-               WHERE direction = 'outgoing' AND sentVia <> 'ai_auto' AND sentAt >= ?
-                 AND TRIM(COALESCE(sentByName, senderName, '')) <> ''
-               GROUP BY sentByUserId, COALESCE(sentByName, senderName)`),
-            q(`SELECT sentByUserId AS userId, senderName AS name, COUNT(*) c,
-                      COUNT(DISTINCT conversationId) threads, MIN(sentAt) firstAt, MAX(sentAt) lastAt
-               FROM quo_messages
-               WHERE direction = 'outgoing' AND sentAt >= ? AND (sentByUserId IS NOT NULL OR senderName IS NOT NULL)
-               GROUP BY sentByUserId, senderName`),
-            // "Replied best": team replies captured by the nightly audit, joined
-            // back to the sender. replyRelevance='relevant' means the judge said
-            // their reply actually addressed the guest's message.
-            q(`SELECT COALESCE(m.sentByName, m.senderName) AS name, m.sentByUserId AS userId,
-                      COUNT(*) compared,
-                      SUM(s.replyRelevance = 'relevant') answers,
-                      SUM(s.replyRelevance = 'off_topic') offTopic,
-                      AVG(NULLIF(s.replyCoverageScore, -1)) avgCoverage
-               FROM ai_message_suggestions s
-               JOIN inbox_messages m ON m.externalId = s.actualReplyMessageId AND m.threadId = s.threadId
-               WHERE s.source = 'hostify' AND s.actualReplyAt >= ? AND s.actualReplyText IS NOT NULL
-                 AND COALESCE(m.sentByName, m.senderName) IS NOT NULL
-               GROUP BY COALESCE(m.sentByName, m.senderName), m.sentByUserId
-               HAVING compared >= 3
-               ORDER BY compared DESC`),
+            q(
+                `SELECT userId, rating, COUNT(*) c,
+                        SUM(feedbackText IS NOT NULL AND feedbackText <> '') withText,
+                        SUM(correctedResponse IS NOT NULL AND correctedResponse <> '') withCorrection
+                 FROM ai_message_feedback
+                 WHERE userId IS NOT NULL AND createdAt >= ? AND createdAt < ?
+                   ${listingId != null ? "AND listingId = ?" : ""}
+                 GROUP BY userId, rating`,
+                listingId != null ? [start, end, listingId] : [start, end]
+            ),
+            q(
+                `SELECT answeredByUserId AS userId, status, COUNT(*) c
+                 FROM ai_learning_prompts
+                 WHERE answeredByUserId IS NOT NULL AND resolvedAt >= ? AND resolvedAt < ?
+                   ${listingId != null ? "AND listingId = ?" : ""}
+                 GROUP BY answeredByUserId, status`,
+                listingId != null ? [start, end, listingId] : [start, end]
+            ),
+            q(
+                `SELECT createdByUserId AS userId, COUNT(*) c
+                 FROM ai_learned_facts
+                 WHERE createdByUserId IS NOT NULL AND createdAt >= ? AND createdAt < ?
+                   ${listingId != null ? "AND listingId = ?" : ""}
+                 GROUP BY createdByUserId`,
+                listingId != null ? [start, end, listingId] : [start, end]
+            ),
+            q(
+                `SELECT reviewedByUserId AS userId, COUNT(*) c
+                 FROM ai_learned_facts
+                 WHERE reviewedByUserId IS NOT NULL AND updatedAt >= ? AND updatedAt < ?
+                   ${listingId != null ? "AND listingId = ?" : ""}
+                 GROUP BY reviewedByUserId`,
+                listingId != null ? [start, end, listingId] : [start, end]
+            ),
+            q(
+                `SELECT acceptedByUserId AS userId, status, COUNT(*) c
+                 FROM ai_message_suggestions
+                 WHERE acceptedByUserId IS NOT NULL AND generatedAt >= ? AND generatedAt < ?
+                   ${listingId != null ? "AND listingId = ?" : ""}
+                 GROUP BY acceptedByUserId, status`,
+                listingId != null ? [start, end, listingId] : [start, end]
+            ),
+            q(
+                `SELECT missResolvedBy AS name, COUNT(*) c
+                 FROM ai_message_suggestions
+                 WHERE missResolvedBy IS NOT NULL AND missResolvedAt >= ? AND missResolvedAt < ?
+                   ${listingId != null ? "AND listingId = ?" : ""}
+                 GROUP BY missResolvedBy`,
+                listingId != null ? [start, end, listingId] : [start, end]
+            ),
+            q(
+                `SELECT discardedBy AS name, COUNT(*) c
+                 FROM ai_discard_feedback
+                 WHERE discardedBy IS NOT NULL AND createdAt >= ? AND createdAt < ?
+                   ${listingId != null ? "AND listingId = ?" : ""}
+                 GROUP BY discardedBy`,
+                listingId != null ? [start, end, listingId] : [start, end]
+            ),
+            // ---- HOSTIFY REPLIES: strict SS-user attribution -------------
+            // Only counts messages where sentByUserId is populated AND that
+            // user exists in our users table. `sentVia = 'inbox_v2'` proves
+            // the reply originated from our dashboard (not a Hostify-only
+            // send, and not the guest). Guest-name and same-name-host
+            // collisions cannot occur under this rule.
+            q(
+                `SELECT m.sentByUserId AS userId, COUNT(*) c,
+                        COUNT(DISTINCT m.threadId) threads
+                 FROM inbox_messages m
+                 JOIN users u ON u.id = m.sentByUserId AND u.deletedAt IS NULL
+                 WHERE m.direction = 'outgoing'
+                   AND m.sentVia = 'inbox_v2'
+                   AND m.sentByUserId IS NOT NULL
+                   AND m.sentAt >= ? AND m.sentAt < ?
+                   ${listingId != null ? "AND m.listingId = ?" : ""}
+                 GROUP BY m.sentByUserId`,
+                listingId != null ? [start, end, listingId] : [start, end]
+            ),
+            // ---- QUO SMS: SS-user attribution via sentByUserId OR
+            // quoUserId (resolved to SS user through the Quo directory
+            // outside SQL). We fetch both columns and resolve in code.
+            noListingScope
+                ? Promise.resolve([] as Row[])
+                : q(
+                      `SELECT sentByUserId, quoUserId, COUNT(*) c,
+                              COUNT(DISTINCT conversationId) threads
+                       FROM quo_messages
+                       WHERE direction = 'outgoing'
+                         AND sentAt >= ? AND sentAt < ?
+                         AND (sentByUserId IS NOT NULL OR quoUserId IS NOT NULL)
+                       GROUP BY sentByUserId, quoUserId`,
+                      [start, end]
+                  ),
+            // ---- QUO CALLS: attribute via answeredBy (incoming) or
+            // initiatedBy/quoUserId (outgoing). Resolve to SS user in code.
+            noListingScope
+                ? Promise.resolve([] as Row[])
+                : q(
+                      `SELECT direction, initiatedBy, answeredBy, quoUserId,
+                              COUNT(*) c, COALESCE(SUM(duration),0) totalSec
+                       FROM quo_calls
+                       WHERE occurredAt >= ? AND occurredAt < ?
+                         AND (initiatedBy IS NOT NULL OR answeredBy IS NOT NULL OR quoUserId IS NOT NULL)
+                       GROUP BY direction, initiatedBy, answeredBy, quoUserId`,
+                      [start, end]
+                  ),
+            // ---- REPLY QUALITY: group strictly by sentByUserId; rows
+            // where sentByUserId is null (Hostify-only sends) are dropped
+            // to avoid same-name merges between employees and external
+            // hosts.
+            q(
+                `SELECT m.sentByUserId AS userId,
+                        COUNT(*) compared,
+                        SUM(s.replyRelevance = 'relevant') answers,
+                        SUM(s.replyRelevance = 'off_topic') offTopic,
+                        AVG(NULLIF(s.replyCoverageScore, -1)) avgCoverage
+                 FROM ai_message_suggestions s
+                 JOIN inbox_messages m
+                   ON m.externalId = s.actualReplyMessageId AND m.threadId = s.threadId
+                 JOIN users u ON u.id = m.sentByUserId AND u.deletedAt IS NULL
+                 WHERE s.source = 'hostify'
+                   AND s.actualReplyAt >= ? AND s.actualReplyAt < ?
+                   AND s.actualReplyText IS NOT NULL
+                   AND m.sentByUserId IS NOT NULL
+                   ${listingId != null ? "AND m.listingId = ?" : ""}
+                 GROUP BY m.sentByUserId
+                 HAVING compared >= 3
+                 ORDER BY compared DESC`,
+                listingId != null ? [start, end, listingId] : [start, end]
+            ),
         ]);
 
         // ---- fold the AI-training rows into one record per user -------------
-        const training = new Map<string, any>();
-        const ensure = (key: string, userId: number | null, name: string | null) => {
-            if (!training.has(key)) {
-                training.set(key, {
+        const training = new Map<number, any>();
+        const ensure = (userId: number) => {
+            if (!training.has(userId)) {
+                const u = users.get(userId);
+                training.set(userId, {
                     userId,
-                    name: name || (userId != null ? nameOf(userId) : null) || key,
+                    name: u?.name || `user ${userId}`,
+                    userType: u?.userType || null,
                     thumbsUp: 0,
                     thumbsDown: 0,
                     textFeedback: 0,
@@ -136,37 +325,57 @@ export class AdminInsightsService {
                     itemsDiscarded: 0,
                 });
             }
-            return training.get(key);
+            return training.get(userId);
         };
-        const byUserId = (id: any) => ensure(`u${id}`, Number(id), nameOf(id));
 
         for (const r of feedback) {
-            const t = byUserId(r.userId);
+            const id = Number(r.userId);
+            if (!guard(id)) continue;
+            const t = ensure(id);
             if (r.rating === "up") t.thumbsUp += Number(r.c);
             else if (r.rating === "down") t.thumbsDown += Number(r.c);
             t.textFeedback += Number(r.withText || 0);
             t.corrections += Number(r.withCorrection || 0);
         }
         for (const r of prompts) {
-            const t = byUserId(r.userId);
+            const id = Number(r.userId);
+            if (!guard(id)) continue;
+            const t = ensure(id);
             if (r.status === "dismissed") t.promptsDismissed += Number(r.c);
             else t.promptsAnswered += Number(r.c);
         }
-        for (const r of factsTaught) byUserId(r.userId).factsTaught += Number(r.c);
-        for (const r of factsReviewed) byUserId(r.userId).factsReviewed += Number(r.c);
+        for (const r of factsTaught) {
+            const id = Number(r.userId);
+            if (!guard(id)) continue;
+            ensure(id).factsTaught += Number(r.c);
+        }
+        for (const r of factsReviewed) {
+            const id = Number(r.userId);
+            if (!guard(id)) continue;
+            ensure(id).factsReviewed += Number(r.c);
+        }
         for (const r of suggestionActions) {
-            const t = byUserId(r.userId);
+            const id = Number(r.userId);
+            if (!guard(id)) continue;
+            const t = ensure(id);
             if (r.status === "accepted" || r.status === "auto_sent") t.suggestionsAccepted += Number(r.c);
             else if (r.status === "edited") t.suggestionsEdited += Number(r.c);
             else if (r.status === "ignored" || r.status === "rejected") t.suggestionsIgnored += Number(r.c);
         }
-        // Name-keyed sources (no numeric id stored) — merge by display name.
-        const byName = (name: string) => {
-            for (const t of training.values()) if (t.name === name) return t;
-            return ensure(`n${name}`, null, name);
-        };
-        for (const r of missesResolved) byName(String(r.name)).missesResolved += Number(r.c);
-        for (const r of discards) byName(String(r.name)).itemsDiscarded += Number(r.c);
+        // Name-keyed sources — resolve strictly to a unique SS user.
+        // Ambiguous names (or names not in the directory) are dropped.
+        for (const r of missesResolved) {
+            const key = String(r.name || "").trim().toLowerCase();
+            const uid = key ? nameIndex.get(key) : null;
+            if (uid == null || !guard(uid)) continue;
+            ensure(uid).missesResolved += Number(r.c);
+        }
+        for (const r of discards) {
+            const key = String(r.name || "").trim().toLowerCase();
+            const uid = key ? nameIndex.get(key) : null;
+            if (uid == null || !guard(uid)) continue;
+            ensure(uid).itemsDiscarded += Number(r.c);
+        }
 
         const trainingRows = [...training.values()]
             .map((t) => ({
@@ -178,58 +387,123 @@ export class AdminInsightsService {
             .filter((t) => t.total > 0 || t.suggestionsAccepted + t.suggestionsEdited + t.suggestionsIgnored > 0)
             .sort((a, b) => b.total - a.total);
 
-        // ---- replies (merge hostify + quo per user) --------------------------
-        const replies = new Map<string, any>();
-        const repKey = (userId: any, name: any) => (userId != null ? `u${userId}` : `n${name}`);
-        for (const src of [
-            { rows: hostifyReplies, field: "hostify" },
-            { rows: quoReplies, field: "quo" },
-        ]) {
-            for (const r of src.rows) {
-                const k = repKey(r.userId, r.name);
-                if (!replies.has(k)) {
-                    replies.set(k, {
-                        userId: r.userId != null ? Number(r.userId) : null,
-                        name: (r.userId != null && nameOf(r.userId)) || r.name || "unknown",
-                        hostify: 0,
-                        quo: 0,
-                        threads: 0,
-                    });
-                }
-                const rec = replies.get(k);
-                rec[src.field] += Number(r.c);
-                rec.threads += Number(r.threads || 0);
-            }
+        // ---- responses (HF replies + Quo SMS + Quo calls per SS user) ------
+        // Build Quo user -> SS user resolver, using the same directory the
+        // workload page uses. Fetching the Quo user list hits the OpenPhone
+        // API but is process-cached for 10 minutes.
+        const workload = new AdminWorkloadService();
+        let quoUserMap: Map<string, { email: string; name: string }> | null = null;
+        try {
+            quoUserMap = await workload.quoUsers();
+        } catch {
+            quoUserMap = null;
         }
-        const replyRows = [...replies.values()]
-            .map((r) => ({ ...r, total: r.hostify + r.quo }))
+        const emailToSsId = new Map<string, number>();
+        for (const u of users.values()) {
+            if (u.email) emailToSsId.set(u.email.trim().toLowerCase(), u.id);
+        }
+        const quoIdToSsId = (quoUid: string | null | undefined): number | null => {
+            if (!quoUid || !quoUserMap) return null;
+            const u = quoUserMap.get(quoUid);
+            if (!u) return null;
+            const ssId = emailToSsId.get(u.email);
+            return ssId != null ? ssId : null;
+        };
+
+        interface ResponseRec {
+            userId: number;
+            name: string;
+            userType: string | null;
+            hostify: number;
+            quo: number;
+            calls: number;
+            callMinutes: number;
+            threads: number;
+        }
+        const responses = new Map<number, ResponseRec>();
+        const ensureResp = (userId: number): ResponseRec => {
+            if (!responses.has(userId)) {
+                const u = users.get(userId);
+                responses.set(userId, {
+                    userId,
+                    name: u?.name || `user ${userId}`,
+                    userType: u?.userType || null,
+                    hostify: 0,
+                    quo: 0,
+                    calls: 0,
+                    callMinutes: 0,
+                    threads: 0,
+                });
+            }
+            return responses.get(userId)!;
+        };
+
+        for (const r of hostifyReplies) {
+            const id = Number(r.userId);
+            if (!guard(id)) continue;
+            const rec = ensureResp(id);
+            rec.hostify += Number(r.c);
+            rec.threads += Number(r.threads || 0);
+        }
+        for (const r of quoReplies) {
+            let id: number | null = null;
+            if (r.sentByUserId != null && guard(Number(r.sentByUserId))) id = Number(r.sentByUserId);
+            else {
+                const mapped = quoIdToSsId(r.quoUserId);
+                if (mapped != null && guard(mapped)) id = mapped;
+            }
+            if (id == null) continue;
+            const rec = ensureResp(id);
+            rec.quo += Number(r.c);
+            rec.threads += Number(r.threads || 0);
+        }
+        for (const r of quoCalls) {
+            const quoUid = r.direction === "outgoing" ? r.initiatedBy || r.quoUserId : r.answeredBy;
+            const mapped = quoIdToSsId(quoUid);
+            if (mapped == null || !guard(mapped)) continue;
+            const rec = ensureResp(mapped);
+            rec.calls += Number(r.c);
+            rec.callMinutes += Math.round(Number(r.totalSec || 0) / 60);
+        }
+
+        const replyRows = [...responses.values()]
+            .map((r) => ({ ...r, total: r.hostify + r.quo + r.calls }))
+            .filter((r) => r.total > 0)
             .sort((a, b) => b.total - a.total);
 
         // ---- reply quality ("who replied best") ------------------------------
-        const qualityRows = replyQuality.map((r) => ({
-            userId: r.userId != null ? Number(r.userId) : null,
-            name: (r.userId != null && nameOf(r.userId)) || r.name,
-            compared: Number(r.compared),
-            answers: Number(r.answers || 0),
-            offTopic: Number(r.offTopic || 0),
-            answerRate: Number(r.compared) ? Math.round((Number(r.answers || 0) / Number(r.compared)) * 100) : null,
-            avgCoverage: r.avgCoverage != null ? Math.round(Number(r.avgCoverage)) : null,
-        }));
+        const qualityRows = replyQuality
+            .filter((r: any) => guard(Number(r.userId)))
+            .map((r: any) => ({
+                userId: Number(r.userId),
+                name: nameOf(r.userId) || `user ${r.userId}`,
+                compared: Number(r.compared),
+                answers: Number(r.answers || 0),
+                offTopic: Number(r.offTopic || 0),
+                answerRate: Number(r.compared)
+                    ? Math.round((Number(r.answers || 0) / Number(r.compared)) * 100)
+                    : null,
+                avgCoverage: r.avgCoverage != null ? Math.round(Number(r.avgCoverage)) : null,
+            }));
         qualityRows.sort((a, b) => (b.answerRate ?? -1) - (a.answerRate ?? -1) || b.compared - a.compared);
 
         // ---- transparent time estimate (deterministic, per user) -------------
-        // 2 min per inbox reply, 1.5 per Quo SMS, 2 per learning answer,
-        // 1.5 per feedback, 3 per taught fact. The AI-graded hours (workload
-        // tab) are the richer number; this is a quick same-page reference.
-        const estimate = new Map<string, { name: string; minutes: number }>();
-        const addMin = (key: string, name: string, min: number) => {
-            if (!estimate.has(key)) estimate.set(key, { name, minutes: 0 });
-            estimate.get(key)!.minutes += min;
+        // 2 min per inbox reply, 1.5 per Quo SMS, add real Quo call talk-time,
+        // 2 per learning answer, 1.5 per feedback, 3 per taught fact.
+        const estimate = new Map<number, { name: string; minutes: number }>();
+        const addMin = (userId: number, name: string, min: number) => {
+            if (!estimate.has(userId)) estimate.set(userId, { name, minutes: 0 });
+            estimate.get(userId)!.minutes += min;
         };
-        for (const r of replyRows) addMin(repKey(r.userId, r.name), r.name, r.hostify * 2 + r.quo * 1.5);
+        for (const r of replyRows) {
+            addMin(r.userId, r.name, r.hostify * 2 + r.quo * 1.5 + r.callMinutes);
+        }
         for (const t of trainingRows) {
-            addMin(t.userId != null ? `u${t.userId}` : `n${t.name}`, t.name,
-                t.promptsAnswered * 2 + (t.thumbsUp + t.thumbsDown + t.textFeedback) * 1.5 + t.factsTaught * 3);
+            addMin(
+                t.userId,
+                t.name,
+                t.promptsAnswered * 2 + (t.thumbsUp + t.thumbsDown + t.textFeedback) * 1.5 + t.factsTaught * 3
+            );
         }
         const timeRows = [...estimate.values()]
             .map((e) => ({ name: e.name, estimatedHours: +(e.minutes / 60).toFixed(1) }))
@@ -237,8 +511,9 @@ export class AdminInsightsService {
             .sort((a, b) => b.estimatedHours - a.estimatedHours);
 
         return {
-            days,
-            since: since.toISOString(),
+            days: f.days || null,
+            since: start.toISOString(),
+            until: end.toISOString(),
             training: trainingRows,
             replies: replyRows,
             replyQuality: qualityRows,
@@ -247,19 +522,20 @@ export class AdminInsightsService {
     }
 
     // -------------------------------------------------------------------------
-    // Unified training-activity log: every way a person taught/steered the AI —
-    // thumbs & written feedback, taught facts, answered/dismissed bot questions,
-    // and resolved analytics misses — merged into one time-ordered feed (so the
-    // log matches the per-user counts on the overview tab).
+    // Unified training-activity log.
     // -------------------------------------------------------------------------
-    async feedbackLog(days: number, limit = 50, offset = 0): Promise<any> {
-        const since = this.sinceDate(days);
-        const names = await this.userNames();
-        const nameOf = (id: any) => (id != null && names.get(Number(id))) || "unknown";
+    async feedbackLog(f: InsightsFilters, limit = 50, offset = 0): Promise<any> {
+        const { start, end } = this.dateRange(f);
+        const users = await this.userDirectory();
+        const nameIndex = this.buildNameIndex(users);
+        const guard = this.makeUserGuard(f, users);
+        const nameOf = (id: any) => (id != null && users.get(Number(id))?.name) || "unknown";
         const lim = Math.min(Math.max(limit, 1), 200);
         const off = Math.max(offset, 0);
-        // Fetch up to offset+limit newest rows from each source, merge, sort, slice.
         const cap = off + lim;
+        const listingId = f.listingId != null && Number.isFinite(Number(f.listingId)) ? Number(f.listingId) : null;
+        const kinds = new Set((f.kinds || []).map((k) => String(k).toLowerCase()));
+        const wantKind = (k: string) => (kinds.size === 0 ? true : kinds.has(k));
 
         const safeParse = (s: any) => {
             try {
@@ -271,61 +547,84 @@ export class AdminInsightsService {
         const q = (sql: string, params: any[]): Promise<any[]> => appDatabase.query(sql, params).catch(() => []);
 
         const [feedback, facts, prompts, misses, counts] = await Promise.all([
-            q(
-                `SELECT f.id, f.userId, f.rating, f.categories, f.feedbackText, f.correctedResponse,
-                        f.createdAt, f.threadId, f.suggestionId,
-                        LEFT(s.suggestedReply, 300) AS suggestedReply, s.source AS src, s.quoConversationId
-                 FROM ai_message_feedback f
-                 LEFT JOIN ai_message_suggestions s ON s.id = f.suggestionId
-                 WHERE f.createdAt >= ?
-                 ORDER BY f.createdAt DESC LIMIT ${cap}`,
-                [since]
-            ),
-            // Taught facts. source='learning_prompt' rows are excluded — the
-            // prompt-answer entry below already shows that Q&A; 'nightly_audit'
-            // is self-learned (no human).
-            q(
-                `SELECT id, createdByUserId AS userId, question, answer, scope, listingId, source, createdAt
-                 FROM ai_learned_facts
-                 WHERE createdByUserId IS NOT NULL AND source NOT IN ('learning_prompt', 'nightly_audit') AND createdAt >= ?
-                 ORDER BY createdAt DESC LIMIT ${cap}`,
-                [since]
-            ),
-            q(
-                `SELECT id, answeredByUserId AS userId, question, answerText, answerScope, status,
-                        threadId, source AS src, listingName, resolvedAt
-                 FROM ai_learning_prompts
-                 WHERE answeredByUserId IS NOT NULL AND status IN ('answered', 'dismissed') AND resolvedAt >= ?
-                 ORDER BY resolvedAt DESC LIMIT ${cap}`,
-                [since]
-            ),
-            q(
-                `SELECT id, missResolvedBy, missResolvedAt, threadId, source AS src, quoConversationId,
-                        LEFT(suggestedReply, 300) AS suggestedReply
-                 FROM ai_message_suggestions
-                 WHERE missResolvedBy IS NOT NULL AND missResolvedAt >= ?
-                 ORDER BY missResolvedAt DESC LIMIT ${cap}`,
-                [since]
-            ),
+            wantKind("feedback")
+                ? q(
+                      `SELECT f.id, f.userId, f.rating, f.categories, f.feedbackText, f.correctedResponse,
+                              f.createdAt, f.threadId, f.suggestionId,
+                              LEFT(s.suggestedReply, 300) AS suggestedReply, s.source AS src, s.quoConversationId
+                       FROM ai_message_feedback f
+                       LEFT JOIN ai_message_suggestions s ON s.id = f.suggestionId
+                       WHERE f.createdAt >= ? AND f.createdAt < ?
+                         ${listingId != null ? "AND f.listingId = ?" : ""}
+                       ORDER BY f.createdAt DESC LIMIT ${cap}`,
+                      listingId != null ? [start, end, listingId] : [start, end]
+                  )
+                : Promise.resolve([]),
+            wantKind("fact_taught")
+                ? q(
+                      `SELECT id, createdByUserId AS userId, question, answer, scope, listingId, source, createdAt
+                       FROM ai_learned_facts
+                       WHERE createdByUserId IS NOT NULL AND source NOT IN ('learning_prompt', 'nightly_audit')
+                         AND createdAt >= ? AND createdAt < ?
+                         ${listingId != null ? "AND listingId = ?" : ""}
+                       ORDER BY createdAt DESC LIMIT ${cap}`,
+                      listingId != null ? [start, end, listingId] : [start, end]
+                  )
+                : Promise.resolve([]),
+            wantKind("prompt_answered") || wantKind("prompt_dismissed")
+                ? q(
+                      `SELECT id, answeredByUserId AS userId, question, answerText, answerScope, status,
+                              threadId, source AS src, listingName, listingId, resolvedAt
+                       FROM ai_learning_prompts
+                       WHERE answeredByUserId IS NOT NULL AND status IN ('answered', 'dismissed')
+                         AND resolvedAt >= ? AND resolvedAt < ?
+                         ${listingId != null ? "AND listingId = ?" : ""}
+                       ORDER BY resolvedAt DESC LIMIT ${cap}`,
+                      listingId != null ? [start, end, listingId] : [start, end]
+                  )
+                : Promise.resolve([]),
+            wantKind("miss_resolved")
+                ? q(
+                      `SELECT id, missResolvedBy, missResolvedAt, threadId, source AS src, quoConversationId,
+                              LEFT(suggestedReply, 300) AS suggestedReply
+                       FROM ai_message_suggestions
+                       WHERE missResolvedBy IS NOT NULL AND missResolvedAt >= ? AND missResolvedAt < ?
+                         ${listingId != null ? "AND listingId = ?" : ""}
+                       ORDER BY missResolvedAt DESC LIMIT ${cap}`,
+                      listingId != null ? [start, end, listingId] : [start, end]
+                  )
+                : Promise.resolve([]),
             q(
                 `SELECT
-                    (SELECT COUNT(*) FROM ai_message_feedback WHERE createdAt >= ?) fb,
+                    (SELECT COUNT(*) FROM ai_message_feedback WHERE createdAt >= ? AND createdAt < ?) fb,
                     (SELECT COUNT(*) FROM ai_learned_facts
-                       WHERE createdByUserId IS NOT NULL AND source NOT IN ('learning_prompt', 'nightly_audit') AND createdAt >= ?) facts,
+                       WHERE createdByUserId IS NOT NULL AND source NOT IN ('learning_prompt', 'nightly_audit')
+                         AND createdAt >= ? AND createdAt < ?
+                         ${listingId != null ? "AND listingId = ?" : ""}) facts,
                     (SELECT COUNT(*) FROM ai_learning_prompts
-                       WHERE answeredByUserId IS NOT NULL AND status IN ('answered', 'dismissed') AND resolvedAt >= ?) prompts,
-                    (SELECT COUNT(*) FROM ai_message_suggestions WHERE missResolvedBy IS NOT NULL AND missResolvedAt >= ?) misses`,
-                [since, since, since, since]
+                       WHERE answeredByUserId IS NOT NULL AND status IN ('answered', 'dismissed')
+                         AND resolvedAt >= ? AND resolvedAt < ?
+                         ${listingId != null ? "AND listingId = ?" : ""}) prompts,
+                    (SELECT COUNT(*) FROM ai_message_suggestions
+                       WHERE missResolvedBy IS NOT NULL AND missResolvedAt >= ? AND missResolvedAt < ?) misses`,
+                listingId != null
+                    ? [start, end, start, end, listingId, start, end, listingId, start, end]
+                    : [start, end, start, end, start, end, start, end]
             ),
         ]);
 
         const items: any[] = [];
+        const passUser = (uid: number | null) => (uid == null ? false : guard(uid));
+
         for (const r of feedback) {
+            const uid = r.userId != null ? Number(r.userId) : null;
+            if (!passUser(uid)) continue;
             items.push({
                 id: `fb-${r.id}`,
+                rawId: Number(r.id),
                 kind: "feedback",
-                userId: r.userId != null ? Number(r.userId) : null,
-                userName: nameOf(r.userId),
+                userId: uid,
+                userName: nameOf(uid),
                 rating: r.rating,
                 categories: safeParse(r.categories),
                 feedbackText: r.feedbackText,
@@ -338,11 +637,14 @@ export class AdminInsightsService {
             });
         }
         for (const r of facts) {
+            const uid = Number(r.userId);
+            if (!passUser(uid)) continue;
             items.push({
                 id: `fact-${r.id}`,
+                rawId: Number(r.id),
                 kind: "fact_taught",
-                userId: Number(r.userId),
-                userName: nameOf(r.userId),
+                userId: uid,
+                userName: nameOf(uid),
                 question: r.question,
                 answer: r.answer,
                 scope: r.scope,
@@ -352,14 +654,18 @@ export class AdminInsightsService {
             });
         }
         for (const r of prompts) {
+            const uid = Number(r.userId);
+            if (!passUser(uid)) continue;
             items.push({
                 id: `prompt-${r.id}`,
+                rawId: Number(r.id),
                 kind: r.status === "dismissed" ? "prompt_dismissed" : "prompt_answered",
-                userId: Number(r.userId),
-                userName: nameOf(r.userId),
+                userId: uid,
+                userName: nameOf(uid),
                 question: r.question,
                 answer: r.answerText,
                 scope: r.answerScope,
+                listingId: r.listingId != null ? Number(r.listingId) : null,
                 listingName: r.listingName,
                 source: r.src || "hostify",
                 threadId: r.src === "quo" ? null : r.threadId != null ? Number(r.threadId) : null,
@@ -367,11 +673,15 @@ export class AdminInsightsService {
             });
         }
         for (const r of misses) {
+            const key = String(r.missResolvedBy || "").trim().toLowerCase();
+            const uid = key ? nameIndex.get(key) : null;
+            if (uid == null || !guard(uid)) continue;
             items.push({
                 id: `miss-${r.id}`,
+                rawId: Number(r.id),
                 kind: "miss_resolved",
-                userId: null,
-                userName: r.missResolvedBy,
+                userId: uid,
+                userName: nameOf(uid),
                 suggestedReply: r.suggestedReply,
                 source: r.src || "hostify",
                 threadId: r.src === "quo" ? null : r.threadId != null ? Number(r.threadId) : null,
@@ -392,5 +702,424 @@ export class AdminInsightsService {
             },
             items: items.slice(off, off + lim),
         };
+    }
+
+    // -------------------------------------------------------------------------
+    // Drill-down: raw entries behind a "Who trains the AI" cell.
+    // metric names match TrainingRow keys.
+    // -------------------------------------------------------------------------
+    async trainingDetail(
+        userId: number,
+        metric: string,
+        f: InsightsFilters,
+        limit = 100,
+        offset = 0
+    ): Promise<any> {
+        const { start, end } = this.dateRange(f);
+        const lim = Math.min(Math.max(limit, 1), 500);
+        const off = Math.max(offset, 0);
+        const users = await this.userDirectory();
+        const user = users.get(Number(userId));
+        if (!user) return { total: 0, items: [] };
+        const q = (sql: string, params: any[]) => appDatabase.query(sql, params).catch(() => [] as any[]);
+
+        const safeParse = (s: any) => {
+            try {
+                return JSON.parse(s || "[]");
+            } catch {
+                return [];
+            }
+        };
+
+        let rows: any[] = [];
+        let total = 0;
+        switch (metric) {
+            case "thumbsUp":
+            case "thumbsDown": {
+                const rating = metric === "thumbsUp" ? "up" : "down";
+                const cnt = await q(
+                    `SELECT COUNT(*) c FROM ai_message_feedback
+                       WHERE userId = ? AND rating = ? AND createdAt >= ? AND createdAt < ?`,
+                    [user.id, rating, start, end]
+                );
+                total = Number(cnt[0]?.c || 0);
+                rows = await q(
+                    `SELECT f.id, f.rating, f.categories, f.feedbackText, f.correctedResponse,
+                            f.createdAt, f.threadId, f.suggestionId,
+                            LEFT(s.suggestedReply, 300) AS suggestedReply, s.source AS src, s.quoConversationId
+                     FROM ai_message_feedback f
+                     LEFT JOIN ai_message_suggestions s ON s.id = f.suggestionId
+                     WHERE f.userId = ? AND f.rating = ? AND f.createdAt >= ? AND f.createdAt < ?
+                     ORDER BY f.createdAt DESC LIMIT ? OFFSET ?`,
+                    [user.id, rating, start, end, lim, off]
+                );
+                return {
+                    total,
+                    items: rows.map((r) => ({
+                        id: `fb-${r.id}`,
+                        rawId: Number(r.id),
+                        table: "ai_message_feedback",
+                        kind: "feedback",
+                        userId: user.id,
+                        userName: user.name,
+                        rating: r.rating,
+                        categories: safeParse(r.categories),
+                        feedbackText: r.feedbackText,
+                        correctedResponse: r.correctedResponse,
+                        suggestedReply: r.suggestedReply,
+                        source: r.src || "hostify",
+                        threadId: r.threadId != null ? Number(r.threadId) : null,
+                        quoConversationId: r.quoConversationId || null,
+                        createdAt: r.createdAt,
+                    })),
+                };
+            }
+            case "textFeedback":
+            case "corrections": {
+                const col = metric === "textFeedback" ? "feedbackText" : "correctedResponse";
+                const cnt = await q(
+                    `SELECT COUNT(*) c FROM ai_message_feedback
+                       WHERE userId = ? AND ${col} IS NOT NULL AND ${col} <> ''
+                         AND createdAt >= ? AND createdAt < ?`,
+                    [user.id, start, end]
+                );
+                total = Number(cnt[0]?.c || 0);
+                rows = await q(
+                    `SELECT f.id, f.rating, f.categories, f.feedbackText, f.correctedResponse,
+                            f.createdAt, f.threadId, f.suggestionId,
+                            LEFT(s.suggestedReply, 300) AS suggestedReply, s.source AS src, s.quoConversationId
+                     FROM ai_message_feedback f
+                     LEFT JOIN ai_message_suggestions s ON s.id = f.suggestionId
+                     WHERE f.userId = ? AND f.${col} IS NOT NULL AND f.${col} <> ''
+                       AND f.createdAt >= ? AND f.createdAt < ?
+                     ORDER BY f.createdAt DESC LIMIT ? OFFSET ?`,
+                    [user.id, start, end, lim, off]
+                );
+                return {
+                    total,
+                    items: rows.map((r) => ({
+                        id: `fb-${r.id}`,
+                        rawId: Number(r.id),
+                        table: "ai_message_feedback",
+                        kind: "feedback",
+                        userId: user.id,
+                        userName: user.name,
+                        rating: r.rating,
+                        categories: safeParse(r.categories),
+                        feedbackText: r.feedbackText,
+                        correctedResponse: r.correctedResponse,
+                        suggestedReply: r.suggestedReply,
+                        source: r.src || "hostify",
+                        threadId: r.threadId != null ? Number(r.threadId) : null,
+                        quoConversationId: r.quoConversationId || null,
+                        createdAt: r.createdAt,
+                    })),
+                };
+            }
+            case "promptsAnswered":
+            case "promptsDismissed": {
+                const status = metric === "promptsAnswered" ? "answered" : "dismissed";
+                const cnt = await q(
+                    `SELECT COUNT(*) c FROM ai_learning_prompts
+                       WHERE answeredByUserId = ? AND status = ?
+                         AND resolvedAt >= ? AND resolvedAt < ?`,
+                    [user.id, status, start, end]
+                );
+                total = Number(cnt[0]?.c || 0);
+                rows = await q(
+                    `SELECT id, question, answerText, answerScope, status,
+                            threadId, source AS src, listingName, listingId, resolvedAt
+                     FROM ai_learning_prompts
+                     WHERE answeredByUserId = ? AND status = ?
+                       AND resolvedAt >= ? AND resolvedAt < ?
+                     ORDER BY resolvedAt DESC LIMIT ? OFFSET ?`,
+                    [user.id, status, start, end, lim, off]
+                );
+                return {
+                    total,
+                    items: rows.map((r) => ({
+                        id: `prompt-${r.id}`,
+                        rawId: Number(r.id),
+                        table: "ai_learning_prompts",
+                        kind: metric === "promptsAnswered" ? "prompt_answered" : "prompt_dismissed",
+                        userId: user.id,
+                        userName: user.name,
+                        question: r.question,
+                        answer: r.answerText,
+                        scope: r.answerScope,
+                        listingId: r.listingId != null ? Number(r.listingId) : null,
+                        listingName: r.listingName,
+                        source: r.src || "hostify",
+                        threadId: r.src === "quo" ? null : r.threadId != null ? Number(r.threadId) : null,
+                        createdAt: r.resolvedAt,
+                    })),
+                };
+            }
+            case "factsTaught": {
+                const cnt = await q(
+                    `SELECT COUNT(*) c FROM ai_learned_facts
+                       WHERE createdByUserId = ?
+                         AND source NOT IN ('learning_prompt', 'nightly_audit')
+                         AND createdAt >= ? AND createdAt < ?`,
+                    [user.id, start, end]
+                );
+                total = Number(cnt[0]?.c || 0);
+                rows = await q(
+                    `SELECT id, question, answer, scope, listingId, source, createdAt
+                     FROM ai_learned_facts
+                     WHERE createdByUserId = ?
+                       AND source NOT IN ('learning_prompt', 'nightly_audit')
+                       AND createdAt >= ? AND createdAt < ?
+                     ORDER BY createdAt DESC LIMIT ? OFFSET ?`,
+                    [user.id, start, end, lim, off]
+                );
+                return {
+                    total,
+                    items: rows.map((r) => ({
+                        id: `fact-${r.id}`,
+                        rawId: Number(r.id),
+                        table: "ai_learned_facts",
+                        kind: "fact_taught",
+                        userId: user.id,
+                        userName: user.name,
+                        question: r.question,
+                        answer: r.answer,
+                        scope: r.scope,
+                        listingId: r.listingId != null ? Number(r.listingId) : null,
+                        factSource: r.source,
+                        createdAt: r.createdAt,
+                    })),
+                };
+            }
+            case "factsReviewed": {
+                const cnt = await q(
+                    `SELECT COUNT(*) c FROM ai_learned_facts
+                       WHERE reviewedByUserId = ? AND updatedAt >= ? AND updatedAt < ?`,
+                    [user.id, start, end]
+                );
+                total = Number(cnt[0]?.c || 0);
+                rows = await q(
+                    `SELECT id, question, answer, scope, listingId, source, updatedAt
+                     FROM ai_learned_facts
+                     WHERE reviewedByUserId = ? AND updatedAt >= ? AND updatedAt < ?
+                     ORDER BY updatedAt DESC LIMIT ? OFFSET ?`,
+                    [user.id, start, end, lim, off]
+                );
+                return {
+                    total,
+                    items: rows.map((r) => ({
+                        id: `fact-${r.id}`,
+                        rawId: Number(r.id),
+                        table: "ai_learned_facts",
+                        kind: "fact_taught",
+                        userId: user.id,
+                        userName: user.name,
+                        question: r.question,
+                        answer: r.answer,
+                        scope: r.scope,
+                        listingId: r.listingId != null ? Number(r.listingId) : null,
+                        factSource: r.source,
+                        createdAt: r.updatedAt,
+                    })),
+                };
+            }
+            case "missesResolved": {
+                // Name-keyed source — resolve back to this user's rows only if
+                // the name maps uniquely. Otherwise there's nothing safe to show.
+                if (!user.name) return { total: 0, items: [] };
+                const nameForMatch = user.name;
+                // Ambiguity check: if another SS user has the same name, refuse.
+                const dupes: any[] = await q(
+                    `SELECT COUNT(*) c FROM users
+                       WHERE deletedAt IS NULL AND TRIM(CONCAT(COALESCE(firstName,''),' ',COALESCE(lastName,''))) = ?`,
+                    [nameForMatch]
+                );
+                if (Number(dupes[0]?.c || 0) > 1) return { total: 0, items: [], ambiguous: true };
+                const cnt = await q(
+                    `SELECT COUNT(*) c FROM ai_message_suggestions
+                       WHERE missResolvedBy = ? AND missResolvedAt >= ? AND missResolvedAt < ?`,
+                    [nameForMatch, start, end]
+                );
+                total = Number(cnt[0]?.c || 0);
+                rows = await q(
+                    `SELECT id, missResolvedAt, threadId, source AS src, quoConversationId,
+                            LEFT(suggestedReply, 300) AS suggestedReply
+                     FROM ai_message_suggestions
+                     WHERE missResolvedBy = ? AND missResolvedAt >= ? AND missResolvedAt < ?
+                     ORDER BY missResolvedAt DESC LIMIT ? OFFSET ?`,
+                    [nameForMatch, start, end, lim, off]
+                );
+                return {
+                    total,
+                    items: rows.map((r) => ({
+                        id: `miss-${r.id}`,
+                        rawId: Number(r.id),
+                        table: "ai_message_suggestions",
+                        kind: "miss_resolved",
+                        userId: user.id,
+                        userName: user.name,
+                        suggestedReply: r.suggestedReply,
+                        source: r.src || "hostify",
+                        threadId: r.src === "quo" ? null : r.threadId != null ? Number(r.threadId) : null,
+                        quoConversationId: r.quoConversationId || null,
+                        createdAt: r.missResolvedAt,
+                    })),
+                };
+            }
+            case "suggestionsAccepted":
+            case "suggestionsEdited":
+            case "suggestionsIgnored": {
+                const statuses =
+                    metric === "suggestionsAccepted"
+                        ? ["accepted", "auto_sent"]
+                        : metric === "suggestionsEdited"
+                        ? ["edited"]
+                        : ["ignored", "rejected"];
+                const placeholders = statuses.map(() => "?").join(",");
+                const cnt = await q(
+                    `SELECT COUNT(*) c FROM ai_message_suggestions
+                       WHERE acceptedByUserId = ? AND status IN (${placeholders})
+                         AND generatedAt >= ? AND generatedAt < ?`,
+                    [user.id, ...statuses, start, end]
+                );
+                total = Number(cnt[0]?.c || 0);
+                rows = await q(
+                    `SELECT id, threadId, source AS src, quoConversationId, generatedAt,
+                            LEFT(suggestedReply, 300) AS suggestedReply, status
+                     FROM ai_message_suggestions
+                     WHERE acceptedByUserId = ? AND status IN (${placeholders})
+                       AND generatedAt >= ? AND generatedAt < ?
+                     ORDER BY generatedAt DESC LIMIT ? OFFSET ?`,
+                    [user.id, ...statuses, start, end, lim, off]
+                );
+                return {
+                    total,
+                    items: rows.map((r) => ({
+                        id: `sugg-${r.id}`,
+                        rawId: Number(r.id),
+                        table: "ai_message_suggestions",
+                        kind: metric,
+                        userId: user.id,
+                        userName: user.name,
+                        suggestedReply: r.suggestedReply,
+                        source: r.src || "hostify",
+                        threadId: r.threadId != null ? Number(r.threadId) : null,
+                        quoConversationId: r.quoConversationId || null,
+                        status: r.status,
+                        createdAt: r.generatedAt,
+                    })),
+                };
+            }
+            default:
+                return { total: 0, items: [] };
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Corrections: update an entry originally created by another user.
+    // Writes an audit trail column so the correction is visible.
+    // -------------------------------------------------------------------------
+    async correctFeedback(
+        id: number,
+        correctorUserId: number,
+        patch: { feedbackText?: string | null; correctedResponse?: string | null }
+    ): Promise<boolean> {
+        const fields: string[] = [];
+        const params: any[] = [];
+        if (patch.feedbackText !== undefined) {
+            fields.push("feedbackText = ?");
+            params.push(patch.feedbackText);
+        }
+        if (patch.correctedResponse !== undefined) {
+            fields.push("correctedResponse = ?");
+            params.push(patch.correctedResponse);
+        }
+        if (!fields.length) return false;
+        fields.push("correctedByUserId = ?", "correctedAt = NOW()");
+        params.push(correctorUserId, id);
+        await appDatabase.query(`UPDATE ai_message_feedback SET ${fields.join(", ")} WHERE id = ?`, params);
+        return true;
+    }
+
+    async correctLearnedFact(
+        id: number,
+        correctorUserId: number,
+        patch: { question?: string; answer?: string; scope?: string }
+    ): Promise<boolean> {
+        const fields: string[] = [];
+        const params: any[] = [];
+        if (patch.question !== undefined) {
+            fields.push("question = ?");
+            params.push(patch.question);
+        }
+        if (patch.answer !== undefined) {
+            fields.push("answer = ?");
+            params.push(patch.answer);
+        }
+        if (patch.scope !== undefined) {
+            fields.push("scope = ?");
+            params.push(patch.scope);
+        }
+        if (!fields.length) return false;
+        fields.push("correctedByUserId = ?", "correctedAt = NOW()");
+        params.push(correctorUserId, id);
+        await appDatabase.query(`UPDATE ai_learned_facts SET ${fields.join(", ")} WHERE id = ?`, params);
+        return true;
+    }
+
+    async correctLearningPrompt(
+        id: number,
+        correctorUserId: number,
+        patch: { answerText?: string; answerScope?: string }
+    ): Promise<boolean> {
+        const fields: string[] = [];
+        const params: any[] = [];
+        if (patch.answerText !== undefined) {
+            fields.push("answerText = ?");
+            params.push(patch.answerText);
+        }
+        if (patch.answerScope !== undefined) {
+            fields.push("answerScope = ?");
+            params.push(patch.answerScope);
+        }
+        if (!fields.length) return false;
+        fields.push("correctedByUserId = ?", "correctedAt = NOW()");
+        params.push(correctorUserId, id);
+        await appDatabase.query(`UPDATE ai_learning_prompts SET ${fields.join(", ")} WHERE id = ?`, params);
+        return true;
+    }
+
+    // -------------------------------------------------------------------------
+    // Directory endpoints for filter UIs.
+    // -------------------------------------------------------------------------
+    async listUsers(): Promise<any[]> {
+        const rows: any[] = await appDatabase.query(
+            `SELECT id, firstName, lastName, email, userType, isActive
+             FROM users WHERE deletedAt IS NULL
+             ORDER BY firstName, lastName`
+        );
+        return rows.map((u) => ({
+            id: Number(u.id),
+            name: [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.email || `user ${u.id}`,
+            email: u.email,
+            userType: u.userType || "regular",
+            isActive: !!u.isActive,
+        }));
+    }
+
+    async listListings(): Promise<any[]> {
+        // Pull distinct properties that show up in any of our attribution
+        // tables, joining to a friendly name where possible.
+        try {
+            const rows: any[] = await appDatabase.query(
+                `SELECT DISTINCT ic.listingId AS id, ic.listingName AS name
+                 FROM inbox_conversations ic
+                 WHERE ic.listingId IS NOT NULL AND ic.listingName IS NOT NULL
+                 ORDER BY ic.listingName`
+            );
+            return rows.map((r) => ({ id: Number(r.id), name: String(r.name || "") }));
+        } catch {
+            return [];
+        }
     }
 }
