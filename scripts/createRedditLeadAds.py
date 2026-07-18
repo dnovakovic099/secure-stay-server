@@ -263,29 +263,46 @@ def create_ad_group(
     if communities:
         targeting["communities"] = communities
 
+    # LEAD_GENERATION campaigns currently accept click optimization in Ads API
+    # (not optimization_goal=LEAD). Bid is required for CPC.
+    bid_value = int(float(os.environ.get("REDDIT_CPC_BID", "1.50")) * 1_000_000)
     data: Dict[str, Any] = {
         "campaign_id": campaign_id,
         "name": name,
         "configured_status": "PAUSED",
         "bid_strategy": "MAXIMIZE_VOLUME",
         "bid_type": "CPC",
+        "bid_value": bid_value,
         "goal_type": "DAILY_SPEND",
         "goal_value": budget_micro,
         "start_time": start,
-        "optimization_goal": "LEAD",
+        "optimization_goal": "CLICKS",
         "targeting": targeting,
     }
     if pixel_id:
         data["conversion_pixel_id"] = pixel_id
 
-    created = client.post(f"/ad_accounts/{ad_account_id}/ad_groups", {"data": data})
-    ad_group_id = first_id(created)
-    if not ad_group_id:
-        # Retry without pixel / with looser fields if Reddit rejects
-        print(f"Ad group create first attempt failed: {created}", file=sys.stderr)
-        raise RuntimeError(f"Ad group create failed: {created}")
-    print(f"Created ad group: {ad_group_id} ({name})")
-    return ad_group_id
+    attempts = [
+        data,
+        {k: v for k, v in data.items() if k != "conversion_pixel_id"},
+        {
+            **{k: v for k, v in data.items() if k != "conversion_pixel_id"},
+            "targeting": {k: v for k, v in targeting.items() if k != "communities"},
+        },
+    ]
+    last_err: Optional[Exception] = None
+    for attempt in attempts:
+        try:
+            created = client.post(f"/ad_accounts/{ad_account_id}/ad_groups", {"data": attempt})
+            ad_group_id = first_id(created)
+            if ad_group_id:
+                print(f"Created ad group: {ad_group_id} ({name})")
+                return ad_group_id
+            last_err = RuntimeError(f"Ad group create failed: {created}")
+        except Exception as exc:
+            last_err = exc
+            print(f"Ad group attempt failed: {exc}", file=sys.stderr)
+    raise RuntimeError(f"Ad group create failed after retries: {last_err}")
 
 
 def create_image_post(
