@@ -67,9 +67,20 @@ export class RedditOAuthController {
    * Reports whether Reddit OAuth refresh token is configured (no secrets leaked).
    */
   status = async (_req: Request, res: Response) => {
+    // Prefer live process env, but also read .env because OAuth callback may
+    // persist a refresh token without a PM2 reload.
+    let envRefresh = "";
+    try {
+      const envPath = path.resolve(process.cwd(), ".env");
+      const text = fs.readFileSync(envPath, "utf8");
+      const match = text.match(/^REDDIT_REFRESH_TOKEN=(.+)$/m);
+      envRefresh = match?.[1]?.trim() || "";
+    } catch {
+      envRefresh = "";
+    }
     const hasClient = Boolean(String(process.env.REDDIT_CLIENT_ID || "").trim());
     const hasSecret = Boolean(String(process.env.REDDIT_CLIENT_SECRET || "").trim());
-    const hasRefresh = Boolean(String(process.env.REDDIT_REFRESH_TOKEN || "").trim());
+    const hasRefresh = Boolean(String(process.env.REDDIT_REFRESH_TOKEN || "").trim() || envRefresh);
     return res.json({
       configured: hasClient && hasSecret && hasRefresh,
       has_client_id: hasClient,
