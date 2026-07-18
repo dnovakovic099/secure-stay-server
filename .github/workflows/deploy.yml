@@ -78,6 +78,12 @@ jobs:
             echo ">>> Saving PM2 process list..."
             pm2 save || { echo "❌ PM2 save failed"; exit 1; }
 
+            echo ">>> Syncing Reddit ad creatives into public/..."
+            mkdir -p public/reddit-ads
+            if [ -d assets/reddit-ads ]; then
+              cp -f assets/reddit-ads/*.png public/reddit-ads/ 2>/dev/null || true
+            fi
+
             if grep -q '^REDDIT_REFRESH_TOKEN=.' .env 2>/dev/null && [ ! -f public/reddit-ads/last-create-summary.json ]; then
               echo ">>> Creating paused Reddit lead forms + ads (one-time)..."
               python3 scripts/createRedditLeadAds.py || { echo "⚠️ Reddit ad creation failed (non-fatal for deploy)"; }
