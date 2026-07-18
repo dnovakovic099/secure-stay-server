@@ -712,8 +712,15 @@ export class InboxAIService {
         listingId: number,
         turns: { role: "guest" | "host"; text: string }[],
         opts: {
-            /** Simulated reservation phase: inquiry | accepted | cancelled. */
+            /** Simulated reservation phase: inquiry | accepted | in_house | post_stay | cancelled. */
             reservationStatus?: string | null;
+            channel?: string | null;
+            guestName?: string | null;
+            checkin?: string | null;
+            checkout?: string | null;
+            guests?: number | null;
+            price?: number | null;
+            currency?: string | null;
         } = {}
     ): Promise<{
         reply: string;
@@ -729,25 +736,46 @@ export class InboxAIService {
             .findOne({ where: { id: Number(listingId) }, withDeleted: true })
             .catch(() => null);
 
+        const parseDate = (value?: string | null) =>
+            value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+        const checkin = parseDate(opts.checkin);
+        const checkout = parseDate(opts.checkout);
+        const nights = (() => {
+            if (!checkin || !checkout) return null;
+            const start = new Date(`${checkin}T00:00:00Z`).getTime();
+            const end = new Date(`${checkout}T00:00:00Z`).getTime();
+            const diff = Math.round((end - start) / 86_400_000);
+            return Number.isFinite(diff) && diff > 0 ? diff : null;
+        })();
+        const reservationStatus =
+            opts.reservationStatus === "inquiry"
+                ? "inquiry — the guest has NOT booked yet; this is a pre-booking question. Answer helpfully and encourage them to book, but never imply they have a confirmed reservation."
+                : opts.reservationStatus === "accepted"
+                ? "accepted — confirmed upcoming reservation."
+                : opts.reservationStatus === "in_house"
+                ? "accepted — guest is currently in-house during an active stay."
+                : opts.reservationStatus === "post_stay"
+                ? "checked out — this is a post-stay conversation."
+                : opts.reservationStatus === "cancelled"
+                ? "cancelled — this reservation was cancelled. Do not treat it as an upcoming stay; do not share check-in details or access info."
+                : null;
+
         const conversation = this.conversationRepo.create({
             threadId: 0,
             listingId: Number(listingId),
             listingName: (listing as any)?.internalListingName || (listing as any)?.name || null,
-            channel: "simulator",
-            guestName: "Guest (simulated)",
+            channel: opts.channel || "simulator",
+            guestName: opts.guestName || "Guest (simulated)",
+            checkin,
+            checkout,
+            nights,
+            guests: Number.isFinite(Number(opts.guests)) && Number(opts.guests) > 0 ? Number(opts.guests) : null,
+            price: Number.isFinite(Number(opts.price)) && Number(opts.price) > 0 ? Number(opts.price) : null,
+            currency: opts.currency || null,
             // Simulated phase flows into buildContext as "Reservation status: …"
-            // so the bot answers as it would for an inquiry / confirmed booking /
-            // cancelled reservation. Descriptive strings (prompt-only; this
-            // conversation is never persisted) steer the model more reliably
-            // than a bare status word.
-            reservationStatus:
-                opts.reservationStatus === "inquiry"
-                    ? "inquiry — the guest has NOT booked yet; this is a pre-booking question. Answer helpfully and encourage them to book, but never imply they have a confirmed reservation."
-                    : opts.reservationStatus === "accepted"
-                    ? "accepted — confirmed upcoming/active reservation."
-                    : opts.reservationStatus === "cancelled"
-                    ? "cancelled — this reservation was cancelled. Do not treat it as an upcoming stay; do not share check-in details or access info."
-                    : null,
+            // so the bot answers as it would for inquiry, active stay, post-stay,
+            // or cancelled context. This fake conversation is never persisted.
+            reservationStatus,
         }) as InboxConversationEntity;
 
         const base = Date.now();

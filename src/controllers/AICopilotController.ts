@@ -203,10 +203,27 @@ export class AICopilotController {
             if (!turns.some((t: any) => t.role === "guest")) {
                 return response.status(400).json({ status: false, message: "At least one guest message is required" });
             }
-            const phase = ["inquiry", "accepted", "cancelled"].includes(request.body?.reservationStatus)
+            const phase = ["inquiry", "accepted", "in_house", "post_stay", "cancelled"].includes(request.body?.reservationStatus)
                 ? (request.body.reservationStatus as string)
                 : null;
-            const data = await new InboxAIService().sandboxReply(listingId, turns, { reservationStatus: phase });
+            const textOrNull = (value: unknown, max = 255) =>
+                typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
+            const numberOrNull = (value: unknown) => {
+                const n = Number(value);
+                return Number.isFinite(n) ? n : null;
+            };
+            const dateOrNull = (value: unknown) =>
+                typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+            const data = await new InboxAIService().sandboxReply(listingId, turns, {
+                reservationStatus: phase,
+                channel: textOrNull(request.body?.channel, 64),
+                guestName: textOrNull(request.body?.guestName, 255),
+                checkin: dateOrNull(request.body?.checkin),
+                checkout: dateOrNull(request.body?.checkout),
+                guests: numberOrNull(request.body?.guests),
+                price: numberOrNull(request.body?.price),
+                currency: textOrNull(request.body?.currency, 8),
+            });
             return response.status(200).json({ status: true, data });
         } catch (error) {
             return next(error);
