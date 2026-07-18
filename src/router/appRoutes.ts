@@ -68,6 +68,7 @@ import utilityProviderRoutes from "./utilityProviderRoutes";
 import rentalAgreementRoutes from "./rentalAgreementRoutes";
 import rentalAgreementTemplateRoutes from "./rentalAgreementTemplateRoutes";
 import vendorProfileRoutes from "./vendorProfileRoutes";
+import oauthRoutes from "./oauthRoutes";
 
 import { roomifyListingsRouter, roomifyReviewsRouter, roomifyCleanerReportRouter } from "./roomifyRoutes";
 const router = Router();
@@ -75,6 +76,8 @@ const router = Router();
 // Health check endpoint (no authentication required)
 router.use('/health', healthRoutes);
 router.use('/slack', slackRoutes);
+// Public OAuth callbacks (Reddit Ads API, etc.)
+router.use('/oauth', oauthRoutes);
 
 router.use('/device', deviceRoutes);
 router.use('/messaging', messagingRoutes);
