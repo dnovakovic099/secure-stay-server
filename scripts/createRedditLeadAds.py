@@ -315,22 +315,27 @@ def create_image_post(
     image_url: str,
     cta: str = "Sign Up",
 ) -> str:
-    # Prefer classic posts API with content media
+    # IMAGE posts reject non-empty body; fold supporting copy into headline/caption.
+    title = headline if not body else f"{headline} — {body}"
+    title = title[:300]
     payload = {
         "data": {
             "type": "IMAGE",
-            "headline": headline,
-            "body": body,
+            "headline": title,
             "allow_comments": True,
             "content": [
                 {
                     "media_url": image_url,
                     "destination_url": "https://luxurylodgingpm.com",
                     "call_to_action": cta,
+                    "caption": (body or "")[:180] or None,
                 }
             ],
         }
     }
+    # Remove null caption
+    if payload["data"]["content"][0].get("caption") is None:
+        payload["data"]["content"][0].pop("caption", None)
     created = client.post(f"/profiles/{profile_id}/posts", payload)
     post_id = first_id(created)
     if not post_id:
