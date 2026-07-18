@@ -826,11 +826,11 @@ export class InboxService {
             //  • c.listingId IS NULL → inquiry with no listing yet, show.
             //  • service_pms = 0 → mirror listing, always hide.
             //  • service_pms IS NULL (unknown) → show UNLESS a sibling thread
-            //    exists with a confirmed service_pms = 1 listing that matches
-            //    on ANY of: same guestId, same listing group, same guest
-            //    name+phone, or same reservation. Hostify assigns different
-            //    guestIds per channel listing for the same real guest, so
-            //    matching on guestId alone under-counts duplicates.
+            //    exists with a confirmed service_pms = 1 listing for the SAME
+            //    guest (guestId, reservationId, or name+phone/email). Do NOT
+            //    match on listing group alone — that hid every Booking.com /
+            //    channel-only guest whenever ANY other guest had a PMS thread
+            //    on the same property (Anj / Jean Kozlowski, Jul 2026).
             .andWhere(
                 `(
                     lgm.service_pms = 1
@@ -846,7 +846,6 @@ export class InboxService {
                               AND lgm2.service_pms = 1
                               AND (
                                   (c.guestId IS NOT NULL AND c2.guestId = c.guestId)
-                                  OR (lgm.groupId IS NOT NULL AND lgm2.groupId IS NOT NULL AND lgm2.groupId = lgm.groupId)
                                   OR (c.reservationId IS NOT NULL AND c2.reservationId = c.reservationId)
                                   OR (
                                       c.guestName IS NOT NULL AND c.guestName <> ''
