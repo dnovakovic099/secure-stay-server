@@ -11,7 +11,33 @@ import { ExemplarService } from "../services/ExemplarService";
 import { RetrievalService } from "../services/RetrievalService";
 import { QuoInboxService } from "../services/QuoInboxService";
 import { OpsRadarService } from "../services/OpsRadarService";
+import { DETECTOR_INSTRUCTION_DEFAULTS } from "../services/AIDetectorInstructions";
+import { appDatabase } from "../utils/database.util";
+import { UsersEntity } from "../entity/Users";
 import logger from "../utils/logger.utils";
+
+/** Field-level admin check: only these keys may be edited by SS admins. */
+const INSTRUCTION_FIELDS = [
+    "detectorSystemPersona",
+    "detectionExclusionRules",
+    "detectionConfidenceFloor",
+    "quoDetectorSystemPrompt",
+    "betaDetectorSystemPrompt",
+] as const;
+
+const isAdminUser = async (user: any): Promise<boolean> => {
+    const uid = user?.id;
+    if (!uid) return false;
+    try {
+        const row = await appDatabase.getRepository(UsersEntity).findOne({
+            where: { uid, deletedAt: null as any },
+        });
+        if (!row) return false;
+        return row.userType === "admin" || row.userType === "super admin" || Boolean(row.isSuperAdmin);
+    } catch {
+        return false;
+    }
+};
 
 interface CustomRequest extends Request {
     user?: any;
@@ -33,7 +59,7 @@ const userId = (user: any): number | null => toNum(user?.secureStayUserId ?? use
  */
 export class AICopilotController {
     /** Combined config: env enablement + editable global settings. */
-    async getSettings(request: Request, response: Response, next: NextFunction) {
+    async getSettings(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const settingsService = new AIMessagingSettingsService();
             const settings = await settingsService.getGlobal();
@@ -45,6 +71,7 @@ export class AICopilotController {
                 }
             }
             const quoLines = await settingsService.listQuoAutoRespondLines();
+            const isAdmin = await isAdminUser(request.user);
             return response.status(200).json({
                 status: true,
                 data: {
@@ -55,6 +82,11 @@ export class AICopilotController {
                         lines: quoLines,
                     },
                     settings,
+                    // Front-end uses these to power the "Ticket Creation
+                    // Instructions" section: read-only preview for non-admins,
+                    // editable + "Restore defaults" for admins.
+                    instructionDefaults: DETECTOR_INSTRUCTION_DEFAULTS,
+                    isAdmin,
                 },
             });
         } catch (error) {
@@ -65,6 +97,24 @@ export class AICopilotController {
     async updateSettings(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const b = request.body || {};
+
+            // Field-level admin gate: instruction fields are the raw prompts
+            // the detector sends to the model, so only SS admins may edit them.
+            // Regular settings (tone, categories, autosend, etc.) remain open
+            // to any authenticated user.
+            const instructionKeys = INSTRUCTION_FIELDS.filter((k) => b[k] !== undefined);
+            if (instructionKeys.length > 0) {
+                const admin = await isAdminUser(request.user);
+                if (!admin) {
+                    return response.status(403).json({
+                        status: false,
+                        code: "ADMIN_REQUIRED",
+                        message: "Only SecureStay admins can edit ticket-creation instructions.",
+                        fields: instructionKeys,
+                    });
+                }
+            }
+
             const saved = await new AIMessagingSettingsService().update({
                 tone: b.tone,
                 communicationRules: b.communicationRules,
@@ -98,7 +148,17 @@ export class AICopilotController {
                 actionItemCategories: Array.isArray(b.actionItemCategories) ? b.actionItemCategories : undefined,
                 guestIssueRules: b.guestIssueRules,
                 guestIssueCategories: Array.isArray(b.guestIssueCategories) ? b.guestIssueCategories : undefined,
+                ticketCategories: Array.isArray(b.ticketCategories) ? b.ticketCategories : undefined,
                 detectionFeedback: b.detectionFeedback,
+                detectorSystemPersona: b.detectorSystemPersona,
+                detectionExclusionRules: b.detectionExclusionRules,
+                detectionConfidenceFloor:
+                    b.detectionConfidenceFloor === undefined
+                        ? undefined
+                        : toNum(b.detectionConfidenceFloor),
+                quoDetectorSystemPrompt: b.quoDetectorSystemPrompt,
+                betaDetectorSystemPrompt: b.betaDetectorSystemPrompt,
+                instructionsEdited: instructionKeys.length > 0,
                 userId: userId(request.user),
                 userName: userName(request.user),
             });

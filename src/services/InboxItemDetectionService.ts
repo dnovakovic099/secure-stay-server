@@ -6,6 +6,7 @@ import { InboxMessageEntity } from "../entity/InboxMessage";
 import { AIDetectedItemEntity } from "../entity/AIDetectedItem";
 import { AIDiscardFeedbackEntity } from "../entity/AIDiscardFeedback";
 import { AIMessagingSettingsService } from "./AIMessagingSettingsService";
+import { resolveDetectorInstructions, collectCategoryNames } from "./AIDetectorInstructions";
 
 // Mini is plenty for "extract tasks from a conversation" and keeps the
 // per-message cost at pennies; override with AI_ITEM_DETECTION_MODEL if needed.
@@ -251,9 +252,11 @@ export class InboxItemDetectionService {
             if (!rows.length) return { detected: 0, reason: "nothing_detected" };
 
             // Confidence floor: the prompt asks the model to omit anything below
-            // 0.6, but enforce it here too (audit: low-confidence items were
-            // overwhelmingly noise).
-            const confident = rows.filter((r) => r.confidence == null || Number(r.confidence) >= 60);
+            // the configured floor, but enforce it here too (audit: low-confidence
+            // items were overwhelmingly noise). Floor is admin-editable via
+            // AIMessagingSettings.detectionConfidenceFloor.
+            const floorPct = Math.round(resolveDetectorInstructions(settings).confidenceFloor * 100);
+            const confident = rows.filter((r) => r.confidence == null || Number(r.confidence) >= floorPct);
             if (!confident.length) return { detected: 0, reason: "below_confidence_floor" };
 
             // Dedup: never re-raise a task we already proposed for this thread
@@ -333,6 +336,7 @@ export class InboxItemDetectionService {
     }
 
     private systemPrompt(settings?: any, discardExamples: string[] = []): string {
+        const instructions = resolveDetectorInstructions(settings);
         const actionRules = (settings?.actionItemRules || "").trim();
         const issueRules = (settings?.guestIssueRules || "").trim();
         const feedback = (settings?.detectionFeedback || "").trim();
@@ -350,36 +354,25 @@ export class InboxItemDetectionService {
             );
         }
 
+        // Unified category list (Task 2). Prefer the merged column; fall back
+        // to the union of the legacy split columns for backward compatibility.
+        const categoryNames = collectCategoryNames(settings);
+        const categoryLine = categoryNames.length
+            ? `category MUST be one of (name-match, case-insensitive): ${categoryNames
+                  .map((c) => JSON.stringify(c))
+                  .join(", ")}.`
+            : "category is a short slug describing the item type.";
+
         return [
-            "You analyze a short-term-rental guest conversation and extract structured operational items.",
-            "You produce two lists: action_items (offline tasks a HUMAN team member must do) and guest_issues (physical/service problems at the property).",
-            "BE SELECTIVE. These become tracked tasks a manager reviews — a July audit found 55% of extracted items were noise. Fewer, higher-quality items beat completeness. If nothing TRULY needs a human, return empty arrays; that is the most common correct answer.",
+            instructions.persona,
             "",
-            "THE ONE TEST: would a competent operations manager, reading this conversation, assign this to a person as work that happens OUTSIDE the chat? Only then is it an item.",
+            instructions.exclusionRules,
             "",
-            "WHAT COUNTS AS AN ACTION ITEM:",
-            "- Reservation changes a human must execute: extension, date change, cancellation intent, adding guests/pets (fee handling), early check-in / late checkout that needs confirming.",
-            "- Access problems mid-arrival: codes not working, lockbox confusion, can't find the unit — urgent.",
-            "- Listing errors the guest points out (wrong amenity/bathroom count/photos) — task to fix the listing.",
-            "- Payment/refund matters requiring human action (failed payment, refund request).",
-            "- Genuine special arrangements needing human coordination or approval.",
+            `CONFIDENCE: score how certain you are a manager would assign this task. OMIT anything you would score below ${instructions.confidenceFloor.toFixed(
+                2
+            )}.`,
             "",
-            "ESCALATION: if the guest is frustrated, angry, or reports being ignored AND the conversation shows it is not already being handled, create ONE urgent action item describing what they're upset about.",
-            "",
-            "WHAT TO EXCLUDE (each rule below killed real noise in the audit):",
-            "1. RESOLVED: anything the conversation shows was already handled, answered, confirmed done, or that the team said is in motion. Read the WHOLE thread before proposing.",
-            "2. A CHAT REPLY IS THE FIX: if answering the guest's question fully resolves the matter (pricing clarification, policy question, information request), there is NO task. Answering is the messaging AI's job, not an item.",
-            "3. NO REAL ASK: pleasantries, musings, hypotheticals ('we might stay longer'), observations without a request, or anything the guest explicitly declined or dropped.",
-            "4. AUTOMATED FLOWS: check-in instructions, access codes before arrival, pre-check-in reminders, payment-link reminders are all SENT AUTOMATICALLY. Never create 'send check-in instructions/details' tasks.",
-            "5. TRIVIA: phone number / contact info updates, 'verify guest count' with no consequence, 'monitor' or 'follow up' filler with no concrete act.",
-            "6. ONE ITEM PER FACT: a property problem is ONE guest_issue — do NOT also emit an action_item that restates it ('Fix X' for issue X). Only add a separate action_item when the human work goes beyond fixing the reported problem.",
-            "7. ALREADY TRACKED: if the context lists items already tracked for this conversation, NEVER re-emit them or reworded/split/merged variations of them. On a re-scan of an ongoing conversation, only emit facts that are genuinely NEW since those items were created. If everything is already tracked, return empty arrays.",
-            "",
-            "GUEST ISSUES are ONLY physical or service defects at the property (broken, missing, dirty, not working). Not questions, not requests, not reservation matters.",
-            "",
-            "CONFIDENCE: score how certain you are a manager would assign this task. OMIT anything you would score below 0.6.",
-            "",
-            'category MUST be one of: "reservation_change", "guest_request", "property_access", "maintenance", "cleanliness", "hvac", "pest_control", "pool_spa", "landscaping", "listing_error", "escalation", "other".',
+            categoryLine,
             "",
             ...(extra.length ? [...extra, ""] : []),
             "OUTPUT: STRICT JSON only, exactly this shape:",

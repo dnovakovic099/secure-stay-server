@@ -16,4 +16,10 @@ router.use((request, response, next) => {
 // List action items proposed by the new inbox-v2 AI chatbot (testing).
 router.get("/", verifySession, controller.list);
 
+// Promote a detected proposal into a real Guest Issue row. Returns the created
+// (or already-linked) Issue so the frontend can hand it to IssueEditModal —
+// which unlocks vendor threads, expenses, Slack integration, activity timeline,
+// etc., with zero UI duplication.
+router.post("/:id/convert-to-issue", verifySession, controller.convertToIssue);
+
 export default router;

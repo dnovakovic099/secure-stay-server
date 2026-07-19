@@ -73,6 +73,14 @@ export class AIDetectedItemEntity {
     @Column({ type: "int", nullable: true })
     reviewedByUserId: number | null;
 
+    // Set when the Action Items (Testing) page converts this proposal into a
+    // real Issue row via POST /ai-action-items-testing/:id/convert-to-issue.
+    // Used to (a) dedupe repeated Convert clicks and (b) route the UI to open
+    // the existing ticket in IssueEditModal instead of creating a new one.
+    @Index()
+    @Column({ type: "int", nullable: true })
+    convertedIssueId: number | null;
+
     @CreateDateColumn({ type: "timestamp" })
     createdAt: Date;
 

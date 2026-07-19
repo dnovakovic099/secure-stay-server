@@ -224,4 +224,27 @@ export class Issue {
     @Index()
     @Column({ nullable: true })
     due_date: string;
+
+    // ---- Origin metadata (Action Items (Testing) rollout) ----
+    // Where this ticket came from. Values in use today:
+    //   'manual'     — user created via the Guest Issues form
+    //   'hostbuddy'  — legacy HostBuddy handoff (deprecated: SS is unsubscribing)
+    //   'ai_inbox'   — auto-created by InboxItemDetectionService from a guest thread
+    //   'ai_quo'     — auto-created by QuoItemDetectionService from an SMS thread
+    //   'ai_beta'    — auto-created by the ActionItemsBeta detector
+    // Kept nullable so existing rows don't need a backfill; readers should
+    // treat NULL as 'manual'.
+    @Index()
+    @Column({ nullable: true })
+    source: string;
+
+    // 0.000–1.000; AI-detector confidence for the proposal this issue came from.
+    // Set by the detector on insert, unused for manually created tickets.
+    @Column({ type: "decimal", precision: 4, scale: 3, nullable: true })
+    aiConfidence: string;
+
+    // Free-form pointer back to the detector artifact (e.g. suggestion id,
+    // thread id). Used by the Action Items (Testing) view to dedupe on convert.
+    @Column({ nullable: true })
+    aiSourceRef: string;
 }

@@ -140,10 +140,46 @@ export class AIMessagingSettingsEntity {
     @Column({ type: "mediumtext", nullable: true })
     guestIssueCategories: string | null;
 
+    // Unified ticket categories: SecureStay now handles GR and Maintenance in
+    // one hybrid workflow, so a single category list feeds both detectors.
+    // When populated this is the authoritative list; the legacy split columns
+    // above are kept as a rollback safety net and are no longer written to.
+    @Column({ type: "mediumtext", nullable: true })
+    ticketCategories: string | null;
+
     // Free-form guidance on how to improve detection/creation quality; fed into
     // the detection prompt so the team can iteratively tune it.
     @Column({ type: "text", nullable: true })
     detectionFeedback: string | null;
+
+    // ---- Admin-editable ticket-creation instructions ----
+    // Previously hardcoded inside each detector service; surfaced here so SS
+    // admins can iterate without a redeploy. NULL => fall back to the compiled
+    // defaults in AIDetectorInstructions.ts (identical to the pre-migration
+    // hardcoded strings, so seeding is a no-op behavior-wise).
+    @Column({ type: "text", nullable: true })
+    detectorSystemPersona: string | null;
+
+    @Column({ type: "text", nullable: true })
+    detectionExclusionRules: string | null;
+
+    // 0.00–1.00; the detector omits proposals scoring below this.
+    @Column({ type: "decimal", precision: 3, scale: 2, nullable: true })
+    detectionConfidenceFloor: string | null;
+
+    @Column({ type: "text", nullable: true })
+    quoDetectorSystemPrompt: string | null;
+
+    @Column({ type: "text", nullable: true })
+    betaDetectorSystemPrompt: string | null;
+
+    // Separate audit trail for the admin-only instruction edits so we can tell
+    // who last touched a hard prompt vs who tweaked a regular category.
+    @Column({ type: "timestamp", nullable: true })
+    instructionsUpdatedAt: Date | null;
+
+    @Column({ length: 255, nullable: true })
+    instructionsUpdatedByName: string | null;
 
     @Column({ type: "int", nullable: true })
     updatedByUserId: number | null;

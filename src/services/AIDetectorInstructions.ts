@@ -1,0 +1,171 @@
+import type { AIMessagingSettingsEntity } from "../entity/AIMessagingSettings";
+
+/**
+ * Single source of truth for the AI ticket-creation instructions.
+ *
+ * These strings used to be hardcoded inside each detector service. They are now
+ * exposed in the Settings UI so SS admins can edit them without a redeploy —
+ * see AIMessagingSettingsEntity.detectorSystemPersona / detectionExclusionRules /
+ * detectionConfidenceFloor / quoDetectorSystemPrompt / betaDetectorSystemPrompt.
+ *
+ * The defaults below are the fallback used when a setting is null (fresh install
+ * or admin explicitly cleared the field). Behavior is identical to pre-migration
+ * as long as the defaults match the original hardcoded prompts.
+ */
+
+export const DEFAULT_DETECTOR_SYSTEM_PERSONA = [
+    "You analyze a short-term-rental guest conversation and extract structured operational items.",
+    "You produce two lists: action_items (offline tasks a HUMAN team member must do) and guest_issues (physical/service problems at the property).",
+    "BE SELECTIVE. These become tracked tasks a manager reviews — a July audit found 55% of extracted items were noise. Fewer, higher-quality items beat completeness. If nothing TRULY needs a human, return empty arrays; that is the most common correct answer.",
+    "",
+    "THE ONE TEST: would a competent operations manager, reading this conversation, assign this to a person as work that happens OUTSIDE the chat? Only then is it an item.",
+    "",
+    "WHAT COUNTS AS AN ACTION ITEM:",
+    "- Reservation changes a human must execute: extension, date change, cancellation intent, adding guests/pets (fee handling), early check-in / late checkout that needs confirming.",
+    "- Access problems mid-arrival: codes not working, lockbox confusion, can't find the unit — urgent.",
+    "- Listing errors the guest points out (wrong amenity/bathroom count/photos) — task to fix the listing.",
+    "- Payment/refund matters requiring human action (failed payment, refund request).",
+    "- Genuine special arrangements needing human coordination or approval.",
+    "",
+    "ESCALATION: if the guest is frustrated, angry, or reports being ignored AND the conversation shows it is not already being handled, create ONE urgent action item describing what they're upset about.",
+    "",
+    "GUEST ISSUES are ONLY physical or service defects at the property (broken, missing, dirty, not working). Not questions, not requests, not reservation matters.",
+].join("\n");
+
+export const DEFAULT_DETECTION_EXCLUSION_RULES = [
+    "WHAT TO EXCLUDE (each rule below killed real noise in the audit):",
+    "1. RESOLVED: anything the conversation shows was already handled, answered, confirmed done, or that the team said is in motion. Read the WHOLE thread before proposing.",
+    "2. A CHAT REPLY IS THE FIX: if answering the guest's question fully resolves the matter (pricing clarification, policy question, information request), there is NO task. Answering is the messaging AI's job, not an item.",
+    "3. NO REAL ASK: pleasantries, musings, hypotheticals ('we might stay longer'), observations without a request, or anything the guest explicitly declined or dropped.",
+    "4. AUTOMATED FLOWS: check-in instructions, access codes before arrival, pre-check-in reminders, payment-link reminders are all SENT AUTOMATICALLY. Never create 'send check-in instructions/details' tasks.",
+    "5. TRIVIA: phone number / contact info updates, 'verify guest count' with no consequence, 'monitor' or 'follow up' filler with no concrete act.",
+    "6. ONE ITEM PER FACT: a property problem is ONE guest_issue — do NOT also emit an action_item that restates it ('Fix X' for issue X). Only add a separate action_item when the human work goes beyond fixing the reported problem.",
+    "7. ALREADY TRACKED: if the context lists items already tracked for this conversation, NEVER re-emit them or reworded/split/merged variations of them. On a re-scan of an ongoing conversation, only emit facts that are genuinely NEW since those items were created. If everything is already tracked, return empty arrays.",
+].join("\n");
+
+export const DEFAULT_DETECTION_CONFIDENCE_FLOOR = 0.6;
+
+export const DEFAULT_QUO_DETECTOR_SYSTEM_PROMPT = [
+    "You extract actionable follow-up tasks for a short-term-rental property management team from SMS conversations.",
+    "These conversations happen on Property Management (PM) and Guest Relations (GR) phone lines — the contact may be a guest, a property owner, or a vendor.",
+    "Only extract items that require the TEAM to do something (fix, send, schedule, follow up, escalate, refund, check). Never extract items for things the contact will do themselves, marketing/sales chatter, or anything already resolved in the conversation.",
+    "urgency: 1 = low, 2 = normal, 3 = urgent (guest blocked / active stay problem).",
+    'Respond with JSON: {"items": [{"item": "...", "category": "...", "urgency": 1}]}. Return {"items": []} when there is nothing actionable.',
+].join("\n");
+
+export const DEFAULT_BETA_DETECTOR_SYSTEM_PROMPT = [
+    "You are evaluating guest conversations for SecureStay Action Items (Beta).",
+    "Flag issues, guest requests, missed follow-ups, overdue replies, or communication-quality coaching opportunities that clearly require team attention.",
+    "Be conservative. Prefer no result over false positives.",
+    "Return compact JSON with a top-level key called candidates.",
+    "Each candidate must include title, description, proposedResolution, categoryName, priority, confidence, reason, source, messageIds, and highlightTerms.",
+    "Confidence must be a number from 0 to 1.",
+    "For quality coaching, use Communication Quality when the response is incomplete, too robotic, lacks empathy, misses the guest concern, lacks ownership, or has no clear next step.",
+].join("\n");
+
+export interface EffectiveDetectorInstructions {
+    persona: string;
+    exclusionRules: string;
+    confidenceFloor: number;
+    quoSystemPrompt: string;
+    betaSystemPrompt: string;
+}
+
+/** Compact snapshot of the current defaults, returned to the Settings UI. */
+export interface DetectorInstructionDefaults {
+    detectorSystemPersona: string;
+    detectionExclusionRules: string;
+    detectionConfidenceFloor: number;
+    quoDetectorSystemPrompt: string;
+    betaDetectorSystemPrompt: string;
+}
+
+export const DETECTOR_INSTRUCTION_DEFAULTS: DetectorInstructionDefaults = {
+    detectorSystemPersona: DEFAULT_DETECTOR_SYSTEM_PERSONA,
+    detectionExclusionRules: DEFAULT_DETECTION_EXCLUSION_RULES,
+    detectionConfidenceFloor: DEFAULT_DETECTION_CONFIDENCE_FLOOR,
+    quoDetectorSystemPrompt: DEFAULT_QUO_DETECTOR_SYSTEM_PROMPT,
+    betaDetectorSystemPrompt: DEFAULT_BETA_DETECTOR_SYSTEM_PROMPT,
+};
+
+interface StoredCategory {
+    id?: string;
+    name?: string;
+    description?: string | null;
+    examples?: string | null;
+    autoCreate?: boolean;
+}
+
+const parseCategoryColumn = (raw: string | null | undefined): StoredCategory[] => {
+    if (!raw) return [];
+    try {
+        const v = JSON.parse(raw);
+        return Array.isArray(v) ? (v as StoredCategory[]) : [];
+    } catch {
+        return [];
+    }
+};
+
+/**
+ * Resolve the effective category list, preferring the unified `ticketCategories`
+ * column and falling back to the union of the legacy split columns. Detectors
+ * call this so a single admin edit in Settings governs every pipeline.
+ */
+export const resolveTicketCategories = (
+    settings: Partial<AIMessagingSettingsEntity> | null | undefined
+): StoredCategory[] => {
+    const unified = parseCategoryColumn((settings?.ticketCategories as string | undefined) ?? null);
+    if (unified.length) return unified;
+    const actionList = parseCategoryColumn(
+        (settings?.actionItemCategories as string | undefined) ?? null
+    );
+    const issueList = parseCategoryColumn(
+        (settings?.guestIssueCategories as string | undefined) ?? null
+    );
+    const seen = new Set<string>();
+    const merged: StoredCategory[] = [];
+    for (const c of [...actionList, ...issueList]) {
+        const key = (c?.name || "").trim().toLowerCase();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        merged.push(c);
+    }
+    return merged;
+};
+
+/** Just the display names, in resolved order. Used by detector prompts. */
+export const collectCategoryNames = (
+    settings: Partial<AIMessagingSettingsEntity> | null | undefined
+): string[] => resolveTicketCategories(settings)
+    .map((c) => (c?.name || "").trim())
+    .filter(Boolean);
+
+const clampFloor = (n: number): number => {
+    if (!Number.isFinite(n)) return DEFAULT_DETECTION_CONFIDENCE_FLOOR;
+    if (n <= 0) return 0;
+    if (n >= 1) return 1;
+    return n;
+};
+
+/**
+ * Resolve the runtime instruction values: prefer the admin-edited setting when
+ * present and non-empty, otherwise fall back to the hardcoded default. Callers
+ * (detectors) never need to worry about which is which.
+ */
+export const resolveDetectorInstructions = (
+    settings: Partial<AIMessagingSettingsEntity> | null | undefined
+): EffectiveDetectorInstructions => {
+    const persona = (settings?.detectorSystemPersona || "").trim() || DEFAULT_DETECTOR_SYSTEM_PERSONA;
+    const exclusionRules =
+        (settings?.detectionExclusionRules || "").trim() || DEFAULT_DETECTION_EXCLUSION_RULES;
+    const rawFloor = settings?.detectionConfidenceFloor;
+    const floor =
+        rawFloor === null || rawFloor === undefined || rawFloor === (undefined as any)
+            ? DEFAULT_DETECTION_CONFIDENCE_FLOOR
+            : clampFloor(Number(rawFloor));
+    const quoSystemPrompt =
+        (settings?.quoDetectorSystemPrompt || "").trim() || DEFAULT_QUO_DETECTOR_SYSTEM_PROMPT;
+    const betaSystemPrompt =
+        (settings?.betaDetectorSystemPrompt || "").trim() || DEFAULT_BETA_DETECTOR_SYSTEM_PROMPT;
+    return { persona, exclusionRules, confidenceFloor: floor, quoSystemPrompt, betaSystemPrompt };
+};

@@ -1,4 +1,9 @@
 import { appDatabase } from "../utils/database.util";
+import { AIDetectedItemEntity } from "../entity/AIDetectedItem";
+import { Issue } from "../entity/Issue";
+import { InboxConversationEntity } from "../entity/InboxConversation";
+import { IssuesService } from "./IssuesService";
+import logger from "../utils/logger.utils";
 
 /**
  * AIActionItemsTestingService
@@ -32,6 +37,10 @@ export interface TestingActionItem {
     priority: string | null;
     /** Detector rows only: "action_item" | "guest_issue". */
     itemType: string | null;
+    /** Detector rows only: raw detected_item id, used for the Convert action. */
+    detectedItemId: number | null;
+    /** Set when this proposal has already been promoted to a Guest Issue row. */
+    convertedIssueId: number | null;
 }
 
 export class AIActionItemsTestingService {
@@ -49,10 +58,13 @@ export class AIActionItemsTestingService {
         const offset = Math.max(Number(opts.offset) || 0, 0);
 
         // (a) Items from the dedicated whole-conversation detector (rich:
-        // title/description/category/priority), newest first.
+        // title/description/category/priority), newest first. Also carries
+        // convertedIssueId so the UI knows whether to offer "Open ticket" or
+        // "Convert & open".
         const detectorRows: any[] = await appDatabase.query(
             `SELECT d.id, d.type, d.threadId, d.listingId, d.title, d.description,
                     d.category, d.priority, d.confidence, d.status, d.createdAt,
+                    d.convertedIssueId,
                     c.listingName, c.guestName, c.channel, c.checkin, c.checkout
              FROM ai_detected_items d
              LEFT JOIN inbox_conversations c ON c.threadId = d.threadId
@@ -113,6 +125,8 @@ export class AIActionItemsTestingService {
                 category: d.category ?? null,
                 priority: d.priority ?? null,
                 itemType: d.type ?? null,
+                detectedItemId: Number(d.id),
+                convertedIssueId: d.convertedIssueId != null ? Number(d.convertedIssueId) : null,
             });
         }
 
@@ -151,6 +165,8 @@ export class AIActionItemsTestingService {
                     category: null,
                     priority: null,
                     itemType: null,
+                    detectedItemId: null,
+                    convertedIssueId: null,
                 });
             });
         }
@@ -196,5 +212,83 @@ export class AIActionItemsTestingService {
         if (startDate && value < startDate) return false;
         if (endDate && value > endDate) return false;
         return true;
+    }
+
+    /**
+     * Promote a detected proposal into a real Guest Issue row so the Action
+     * Items (Testing) UI can hand the user off to the standard IssueEditModal
+     * — that modal already provides vendor threads, expenses, hyperlinks,
+     * Slack, activity timeline, etc., so a single conversion unlocks feature
+     * parity without duplicating the modal.
+     *
+     * Idempotent: repeated calls return the same Issue.
+     */
+    async convertToIssue(detectedItemId: number, userId: string): Promise<Issue> {
+        const detectedRepo = appDatabase.getRepository(AIDetectedItemEntity);
+        const issueRepo = appDatabase.getRepository(Issue);
+        const conversationRepo = appDatabase.getRepository(InboxConversationEntity);
+
+        const detected = await detectedRepo.findOne({ where: { id: detectedItemId } });
+        if (!detected) {
+            throw Object.assign(new Error("Detected item not found"), { status: 404 });
+        }
+
+        // Already promoted — return the existing Issue.
+        if (detected.convertedIssueId) {
+            const existing = await issueRepo.findOne({ where: { id: detected.convertedIssueId } });
+            if (existing) return existing;
+        }
+
+        const conversation = detected.threadId
+            ? await conversationRepo.findOne({ where: { threadId: detected.threadId } })
+            : null;
+
+        // Map detector priority ("urgent" | "high" | "medium" | "low") to the
+        // Issue urgency numeric scale (higher = more urgent, matches other flows).
+        const urgencyMap: Record<string, number> = {
+            urgent: 5,
+            critical: 5,
+            high: 4,
+            medium: 3,
+            normal: 3,
+            low: 2,
+        };
+        const priorityKey = String(detected.priority || "").toLowerCase();
+        const urgency = urgencyMap[priorityKey] ?? null;
+
+        const issueData: Partial<Issue> = {
+            status: "New",
+            gr_status: "New",
+            listing_id: conversation?.listingId ? String(conversation.listingId) : "0",
+            listing_name: conversation?.listingName || null as any,
+            reservation_id: conversation?.reservationId
+                ? String(conversation.reservationId)
+                : (null as any),
+            channel: conversation?.channel || (null as any),
+            guest_name: conversation?.guestName || (null as any),
+            issue_description: [detected.title, detected.description].filter(Boolean).join(" — "),
+            category: detected.category || (null as any),
+            urgency: urgency as any,
+            creator: userId || "ai-testing",
+            date_time_reported: new Date(),
+            source: detected.type === "guest_issue" ? "ai_inbox" : "ai_inbox",
+            aiConfidence:
+                detected.confidence != null ? (Number(detected.confidence) / 100).toFixed(3) : (null as any),
+            aiSourceRef: `ai_detected_items:${detected.id}`,
+        };
+
+        const savedIssue = await new IssuesService().createIssue(
+            issueData,
+            userId || "ai-testing"
+        );
+
+        detected.convertedIssueId = savedIssue.id;
+        detected.status = "created";
+        await detectedRepo.save(detected);
+
+        logger.info(
+            `[AIActionItemsTesting] converted detected #${detected.id} -> issue #${savedIssue.id}`
+        );
+        return savedIssue;
     }
 }

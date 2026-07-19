@@ -4,6 +4,8 @@ import logger from "../utils/logger.utils";
 import { QuoConversationEntity } from "../entity/QuoConversation";
 import { QuoMessageEntity } from "../entity/QuoMessage";
 import { ActionItems } from "../entity/ActionItems";
+import { AIMessagingSettingsService } from "./AIMessagingSettingsService";
+import { resolveDetectorInstructions, collectCategoryNames } from "./AIDetectorInstructions";
 
 const DETECTION_MODEL = process.env.AI_ITEM_DETECTION_MODEL || "gpt-4.1-mini";
 
@@ -116,14 +118,17 @@ export class QuoItemDetectionService {
                 : "No items tracked yet for this conversation.",
         ].join("\n");
 
-        const system = [
-            "You extract actionable follow-up tasks for a short-term-rental property management team from SMS conversations.",
-            "These conversations happen on Property Management (PM) and Guest Relations (GR) phone lines — the contact may be a guest, a property owner, or a vendor.",
-            "Only extract items that require the TEAM to do something (fix, send, schedule, follow up, escalate, refund, check). Never extract items for things the contact will do themselves, marketing/sales chatter, or anything already resolved in the conversation.",
-            "Categories: Maintenance, Cleaning, Guest Request, Owner Request, Access/Check-in, Billing/Refund, Escalation, Other.",
-            "urgency: 1 = low, 2 = normal, 3 = urgent (guest blocked / active stay problem).",
-            'Respond with JSON: {"items": [{"item": "...", "category": "...", "urgency": 1}]}. Return {"items": []} when there is nothing actionable.',
-        ].join("\n");
+        // Admin-editable prompt + unified category list (falls back to the
+        // built-in defaults when the setting is null).
+        const settings = await new AIMessagingSettingsService()
+            .getGlobalCached()
+            .catch(() => null);
+        const { quoSystemPrompt } = resolveDetectorInstructions(settings);
+        const categoryNames = collectCategoryNames(settings);
+        const categoryLine = categoryNames.length
+            ? `Categories: ${categoryNames.join(", ")}.`
+            : "Categories: Maintenance, Cleaning, Guest Request, Owner Request, Access/Check-in, Billing/Refund, Escalation, Other.";
+        const system = [quoSystemPrompt, categoryLine].join("\n");
 
         const client = this.getClient();
         const completion = await client.chat.completions.create({

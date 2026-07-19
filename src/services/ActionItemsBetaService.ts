@@ -10,6 +10,8 @@ import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { MessagingService } from "./MessagingServices";
 import { OpenPhoneService } from "./OpenPhoneService";
 import { Hostify } from "../client/Hostify";
+import { AIMessagingSettingsService } from "./AIMessagingSettingsService";
+import { resolveDetectorInstructions } from "./AIDetectorInstructions";
 import logger from "../utils/logger.utils";
 
 export interface ActionItemsBetaFilters {
@@ -1009,14 +1011,13 @@ export class ActionItemsBetaService {
             content: (message.content || "").slice(0, 1200),
         }));
 
+        // Admin-editable base prompt (falls back to built-in default).
+        const settings = await new AIMessagingSettingsService()
+            .getGlobalCached()
+            .catch(() => null);
+        const { betaSystemPrompt } = resolveDetectorInstructions(settings);
         const systemPrompt = [
-            "You are evaluating guest conversations for SecureStay Action Items (Beta).",
-            "Flag issues, guest requests, missed follow-ups, overdue replies, or communication-quality coaching opportunities that clearly require team attention.",
-            "Be conservative. Prefer no result over false positives.",
-            "Return compact JSON with a top-level key called candidates.",
-            "Each candidate must include title, description, proposedResolution, categoryName, priority, confidence, reason, source, messageIds, and highlightTerms.",
-            "Confidence must be a number from 0 to 1.",
-            "For quality coaching, use Communication Quality when the response is incomplete, too robotic, lacks empathy, misses the guest concern, lacks ownership, or has no clear next step.",
+            betaSystemPrompt,
             "Use only these categories when possible:",
             JSON.stringify(categoryGuide),
         ].join("\n");

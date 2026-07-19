@@ -45,7 +45,17 @@ export interface AIMessagingSettingsPatch {
     actionItemCategories?: ActionItemCategoryEntry[] | null;
     guestIssueRules?: string | null;
     guestIssueCategories?: ActionItemCategoryEntry[] | null;
+    /** Unified list that replaces the actionItem/guestIssue split. */
+    ticketCategories?: ActionItemCategoryEntry[] | null;
     detectionFeedback?: string | null;
+    /** Admin-only ticket-creation instruction overrides. */
+    detectorSystemPersona?: string | null;
+    detectionExclusionRules?: string | null;
+    detectionConfidenceFloor?: number | null;
+    quoDetectorSystemPrompt?: string | null;
+    betaDetectorSystemPrompt?: string | null;
+    /** True when any of the instruction override fields are present in the patch. */
+    instructionsEdited?: boolean;
     userId?: number | null;
     userName?: string | null;
 }
@@ -147,7 +157,53 @@ export class AIMessagingSettingsService {
         if (patch.guestIssueCategories !== undefined) {
             row.guestIssueCategories = stringifyList(patch.guestIssueCategories);
         }
+        if (patch.ticketCategories !== undefined) {
+            row.ticketCategories = stringifyList(patch.ticketCategories);
+        }
         if (patch.detectionFeedback !== undefined) row.detectionFeedback = patch.detectionFeedback ?? null;
+
+        // Admin-only instruction overrides. `instructionsEdited` is set by the
+        // controller *only* after verifyAdmin has passed; the audit stamp is
+        // written only when at least one of these fields actually changed.
+        let instructionTouched = false;
+        if (patch.detectorSystemPersona !== undefined) {
+            row.detectorSystemPersona = patch.detectorSystemPersona
+                ? String(patch.detectorSystemPersona)
+                : null;
+            instructionTouched = true;
+        }
+        if (patch.detectionExclusionRules !== undefined) {
+            row.detectionExclusionRules = patch.detectionExclusionRules
+                ? String(patch.detectionExclusionRules)
+                : null;
+            instructionTouched = true;
+        }
+        if (patch.detectionConfidenceFloor !== undefined) {
+            if (patch.detectionConfidenceFloor === null || !Number.isFinite(patch.detectionConfidenceFloor)) {
+                row.detectionConfidenceFloor = null;
+            } else {
+                const clamped = Math.max(0, Math.min(1, Number(patch.detectionConfidenceFloor)));
+                row.detectionConfidenceFloor = clamped.toFixed(2);
+            }
+            instructionTouched = true;
+        }
+        if (patch.quoDetectorSystemPrompt !== undefined) {
+            row.quoDetectorSystemPrompt = patch.quoDetectorSystemPrompt
+                ? String(patch.quoDetectorSystemPrompt)
+                : null;
+            instructionTouched = true;
+        }
+        if (patch.betaDetectorSystemPrompt !== undefined) {
+            row.betaDetectorSystemPrompt = patch.betaDetectorSystemPrompt
+                ? String(patch.betaDetectorSystemPrompt)
+                : null;
+            instructionTouched = true;
+        }
+        if (instructionTouched && patch.instructionsEdited) {
+            row.instructionsUpdatedAt = new Date();
+            if (patch.userName != null) row.instructionsUpdatedByName = patch.userName;
+        }
+
         if (patch.userId != null) row.updatedByUserId = patch.userId;
         if (patch.userName != null) row.updatedByName = patch.userName;
         const saved = await this.repo.save(row);
