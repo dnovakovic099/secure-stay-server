@@ -13,6 +13,8 @@ import {
 } from "./AIDetectorInstructions";
 import { IssuesService } from "./IssuesService";
 import { Issue } from "../entity/Issue";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
+import { Listing } from "../entity/Listing";
 
 // Mini is plenty for "extract tasks from a conversation" and keeps the
 // per-message cost at pennies; override with AI_ITEM_DETECTION_MODEL if needed.
@@ -455,6 +457,36 @@ export class InboxItemDetectionService {
         };
 
         const issuesService = new IssuesService();
+        const reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
+        const listingRepo = appDatabase.getRepository(Listing);
+
+        // Enrich once per batch: the whole thread shares one reservation +
+        // listing, so we look them up ahead of the loop instead of per-row.
+        // Property, stay dates and guest phone all need these to render.
+        let reservation: ReservationInfoEntity | null = null;
+        if (conversation?.reservationId) {
+            reservation = await reservationRepo
+                .findOne({ where: { id: Number(conversation.reservationId) } })
+                .catch(() => null);
+        }
+        const resolvedListingId =
+            conversation?.listingId ??
+            (reservation?.listingMapId != null ? Number(reservation.listingMapId) : null);
+        let listing: Listing | null = null;
+        if (resolvedListingId) {
+            listing = await listingRepo
+                .findOne({ where: { id: Number(resolvedListingId) }, withDeleted: true })
+                .catch(() => null);
+        }
+        const resolvedListingName =
+            conversation?.listingName ||
+            (listing as any)?.internalListingName ||
+            (listing as any)?.name ||
+            null;
+        const resolvedGuestName = conversation?.guestName || reservation?.guestName || null;
+        const resolvedGuestPhone = (reservation as any)?.phone || null;
+        const resolvedCheckIn = (reservation as any)?.arrivalDate || null;
+
         let promoted = 0;
 
         for (const row of detected) {
@@ -470,17 +502,19 @@ export class InboxItemDetectionService {
             const issueData: Partial<Issue> = {
                 status: "New",
                 gr_status: "New",
-                listing_id: conversation?.listingId ? String(conversation.listingId) : "0",
-                listing_name: (conversation?.listingName || null) as any,
+                listing_id: resolvedListingId ? String(resolvedListingId) : "0",
+                listing_name: (resolvedListingName || null) as any,
                 reservation_id: conversation?.reservationId
                     ? String(conversation.reservationId)
                     : (null as any),
                 channel: (conversation?.channel || null) as any,
-                guest_name: (conversation?.guestName || null) as any,
+                guest_name: (resolvedGuestName || null) as any,
+                guest_contact_number: (resolvedGuestPhone || null) as any,
+                check_in_date: (resolvedCheckIn || null) as any,
                 issue_description: [row.title, row.description].filter(Boolean).join(" — "),
                 category: row.category || (null as any),
                 urgency: urgency as any,
-                creator: "ai-detector",
+                creator: "AI Assistant",
                 date_time_reported: new Date(),
                 source: "ai_inbox",
                 aiConfidence:
@@ -489,7 +523,7 @@ export class InboxItemDetectionService {
             };
 
             try {
-                const saved = await issuesService.createIssue(issueData, "ai-detector");
+                const saved = await issuesService.createIssue(issueData, "AI Assistant");
                 row.convertedIssueId = saved.id;
                 row.status = "created";
                 await this.detectedRepo.save(row);
