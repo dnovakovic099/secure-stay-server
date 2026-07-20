@@ -24,6 +24,8 @@ interface NormalizedPropertyConfig {
   source: string | null;
   sdto: string | null;
   internalNotes: string | null;
+  description: string | null;
+  image: string | null;
 }
 
 type PropertyConfigHistoryAction = "CREATE" | "UPDATE" | "DELETE" | "SYNC" | "UNSYNC";
@@ -92,6 +94,8 @@ export class UpSellServices {
         source: this.normalizeSource(item?.source),
         sdto: this.normalizeNullableString(item?.sdto),
         internalNotes: this.normalizeNullableString(item?.internalNotes),
+        description: this.normalizeNullableString(item?.description),
+        image: this.normalizeNullableString(item?.image),
       }))
       .filter((item) => Number.isFinite(item.listingId) && item.listingId > 0);
 
@@ -185,6 +189,8 @@ export class UpSellServices {
       source: config.source ?? null,
       sdto: config.sdto ?? null,
       internalNotes: config.internalNotes ?? null,
+      description: config.description ?? null,
+      image: config.image ?? null,
     };
   }
 
@@ -203,6 +209,8 @@ export class UpSellServices {
       "source",
       "sdto",
       "internalNotes",
+      "description",
+      "image",
     ];
   }
 
@@ -328,6 +336,8 @@ export class UpSellServices {
           source: this.normalizeSource(nextConfig.source),
           sdto: nextConfig.sdto,
           internalNotes: nextConfig.internalNotes,
+          description: nextConfig.description,
+          image: nextConfig.image,
         }]
       : [];
 
@@ -348,6 +358,8 @@ export class UpSellServices {
     propertyConfig.source = config.source;
     propertyConfig.sdto = config.sdto;
     propertyConfig.internalNotes = config.internalNotes;
+    propertyConfig.description = config.description;
+    propertyConfig.image = config.image;
   }
 
   private async syncPairedPropertyConfigs(
@@ -449,11 +461,15 @@ export class UpSellServices {
           ? transactionalEntityManager.create(UpSellPropertyConfig, existingConfig)
           : null;
         const propertyConfig = existingConfig || new UpSellPropertyConfig();
+        const preservedDescription = propertyConfig.description ?? null;
+        const preservedImage = propertyConfig.image ?? null;
         propertyConfig.upSellId = pairedUpSellId;
         propertyConfig.listingId = listingId;
         this.applyPropertyConfigValues(propertyConfig, {
           ...config,
           pairSyncStatus: "synced",
+          description: preservedDescription,
+          image: preservedImage,
         });
         await transactionalEntityManager.save(propertyConfig);
         await this.recordSinglePropertyConfigDiff(
@@ -544,6 +560,8 @@ export class UpSellServices {
               propertyConfig.source = config.source;
               propertyConfig.sdto = config.sdto;
               propertyConfig.internalNotes = config.internalNotes;
+              propertyConfig.description = config.description;
+              propertyConfig.image = config.image;
               await transactionalEntityManager.save(propertyConfig);
             })
           );
@@ -676,6 +694,8 @@ export class UpSellServices {
                 propertyConfig.source = config.source;
                 propertyConfig.sdto = config.sdto;
                 propertyConfig.internalNotes = config.internalNotes;
+                propertyConfig.description = config.description;
+                propertyConfig.image = config.image;
                 await transactionalEntityManager.save(propertyConfig);
               })
             );
@@ -1057,6 +1077,8 @@ export class UpSellServices {
             listingInfo.source = propertyConfig?.source ?? null;
             listingInfo.sdto = propertyConfig?.sdto ?? null;
             listingInfo.internalNotes = propertyConfig?.internalNotes ?? null;
+            listingInfo.description = propertyConfig?.description ?? null;
+            listingInfo.image = propertyConfig?.image ?? null;
             listingInfo.createdAt = propertyConfig?.createdAt ?? null;
             listingInfo.updatedAt = propertyConfig?.updatedAt ?? null;
             upSellListing.push(listingInfo);
