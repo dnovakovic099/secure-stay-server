@@ -25,6 +25,7 @@ import { prefixUnlistedListingMarker } from "./listingListedStatus.util";
 const REFUND_REQUEST_CHANNEL = "#resolutions-team";
 const AIRBNB_RESOLUTIONS_CENTER_PAYMENT_METHOD = "airbnb resolutions center";
 const FERDY_SLACK_USER_ID = "U07P974D65P";
+const JADE_SLACK_USER_ID = "U08EUTR1H9A";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
 const CLIENT_RELATIONS = "#client-relations";
 const GUEST_RELATIONS = "#guest-relations";
@@ -74,6 +75,13 @@ const isPaidAirbnbResolutionsCenterRefund = (refundRequest: RefundRequestEntity)
 const buildPaidRcTransactionNote = (refundRequest: RefundRequestEntity) => (
     isPaidAirbnbResolutionsCenterRefund(refundRequest)
         ? `\n<@${FERDY_SLACK_USER_ID}> Please take note of the Paid RC transaction`
+        : ""
+);
+
+const buildMissingApprovedByPaidNote = (refundRequest: RefundRequestEntity) => (
+    String(refundRequest.status || "").trim().toLowerCase() === "paid"
+    && !String(refundRequest.approvedBy || "").trim()
+        ? `\n<@${JADE_SLACK_USER_ID}> Please add the Approved By value.`
         : ""
 );
 
@@ -754,6 +762,7 @@ export const buildUpdatedRefundRequestMessage = (refundRequest: RefundRequestEnt
 export const buildUpdatedStatusRefundRequestMessage = (refundRequest: RefundRequestEntity, user: string) => {
     const issueLink = buildRefundIssueLink(refundRequest);
     const paidRcTransactionNote = buildPaidRcTransactionNote(refundRequest);
+    const missingApprovedByPaidNote = buildMissingApprovedByPaidNote(refundRequest);
     const slackMessage = {
         channel: REFUND_REQUEST_CHANNEL,
         text: `${user} updated the status of refund request for ${refundRequest.guestName}`,
@@ -762,7 +771,7 @@ export const buildUpdatedStatusRefundRequestMessage = (refundRequest: RefundRequ
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `${refundRequest.status.toLowerCase() == "approved" ? "✅" : refundRequest.status.toLowerCase() == "for processing" ? "🔄" : refundRequest.status.toLowerCase() == "denied" ? "❌" : refundRequest.status.toLowerCase() == "cancelled" ? "🚫" : refundRequest.status.toLowerCase() == "paid" ? "💰" : "⏳"} *${user}* ${refundRequest.status.toLowerCase()} *${formatCurrency(refundRequest.refundAmount)}* refund request for *${refundRequest.guestName}*.${issueLink ? ` ${issueLink}` : ""}${paidRcTransactionNote}`
+                    text: `${refundRequest.status.toLowerCase() == "approved" ? "✅" : refundRequest.status.toLowerCase() == "for processing" ? "🔄" : refundRequest.status.toLowerCase() == "denied" ? "❌" : refundRequest.status.toLowerCase() == "cancelled" ? "🚫" : refundRequest.status.toLowerCase() == "paid" ? "💰" : "⏳"} *${user}* ${refundRequest.status.toLowerCase()} *${formatCurrency(refundRequest.refundAmount)}* refund request for *${refundRequest.guestName}*.${issueLink ? ` ${issueLink}` : ""}${paidRcTransactionNote}${missingApprovedByPaidNote}`
                 }
             },
         ]
