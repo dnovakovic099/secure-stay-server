@@ -517,8 +517,14 @@ export class InboxItemDetectionService {
                 .findOne({ where: { id: Number(resolvedListingId) }, withDeleted: true })
                 .catch(() => null);
         }
+        // Listing name resolution — some Listing rows have an empty
+        // internalListingName (older Hostify syncs), so we also fall back to
+        // reservation.listingName (which is the reservation-scoped display name
+        // — e.g. the street address like "3373 N Oakland"). Matches the
+        // fallback chain the Guest Issues detail view uses.
         const resolvedListingName =
             conversation?.listingName ||
+            reservation?.listingName ||
             (listing as any)?.internalListingName ||
             (listing as any)?.name ||
             null;
@@ -563,6 +569,23 @@ export class InboxItemDetectionService {
 
             try {
                 const saved = await issuesService.createIssue(issueData, "AI Assistant");
+
+                // IssuesService.createIssue does its own Listing lookup and
+                // overwrites listing_name with Listing.internalListingName ||
+                // "" — so if the Listing row has an empty internalListingName
+                // (older Hostify sync), our resolved value gets discarded and
+                // the Guest Issues list shows "-" in the Property column even
+                // though the detail view can still fall back to the reservation.
+                // Patch it back if the shared service wiped it.
+                if (!saved.listing_name && resolvedListingName) {
+                    saved.listing_name = resolvedListingName;
+                    await appDatabase.getRepository(Issue).save(saved).catch((err) => {
+                        logger.warn(
+                            `[ItemDetection] patch listing_name on issue #${saved.id} failed: ${err?.message}`
+                        );
+                    });
+                }
+
                 row.convertedIssueId = saved.id;
                 row.status = "created";
                 await this.detectedRepo.save(row);
