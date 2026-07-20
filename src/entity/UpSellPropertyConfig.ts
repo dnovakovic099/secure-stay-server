@@ -50,6 +50,12 @@ export class UpSellPropertyConfig {
   @Column({ type: "text", nullable: true })
   internalNotes: string | null;
 
+  @Column({ type: "text", nullable: true })
+  description: string | null;
+
+  @Column({ type: "varchar", length: 200, nullable: true })
+  image: string | null;
+
   @CreateDateColumn({ type: "timestamp" })
   createdAt: Date;
 
