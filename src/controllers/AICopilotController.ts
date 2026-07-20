@@ -11,7 +11,11 @@ import { ExemplarService } from "../services/ExemplarService";
 import { RetrievalService } from "../services/RetrievalService";
 import { QuoInboxService } from "../services/QuoInboxService";
 import { OpsRadarService } from "../services/OpsRadarService";
-import { DETECTOR_INSTRUCTION_DEFAULTS } from "../services/AIDetectorInstructions";
+import {
+    DETECTOR_INSTRUCTION_DEFAULTS,
+    resolveTicketCategories,
+    DEFAULT_ISSUE_CATEGORIES,
+} from "../services/AIDetectorInstructions";
 import { appDatabase } from "../utils/database.util";
 import { UsersEntity } from "../entity/Users";
 import logger from "../utils/logger.utils";
@@ -89,6 +93,34 @@ export class AICopilotController {
                     isAdmin,
                 },
             });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * Ticket categories resolved from AI settings, shaped for the Guest Issues
+     * page (`{id, name}`). Falls back to the legacy hardcoded list when the
+     * AI-configured list is empty so a fresh install still has a usable dropdown.
+     */
+    async issueCategories(_request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const settings = await new AIMessagingSettingsService().getGlobal();
+            const resolved = resolveTicketCategories(settings);
+            const shaped = resolved
+                .map((c) => ({
+                    id: (c?.name || "").trim(),
+                    name: (c?.name || "").trim(),
+                    description: c?.description || null,
+                    autoCreate: c?.autoCreate === false ? false : true,
+                }))
+                .filter((c) => c.id);
+            const data = shaped.length ? shaped : DEFAULT_ISSUE_CATEGORIES.map((c) => ({
+                ...c,
+                description: null,
+                autoCreate: true,
+            }));
+            return response.status(200).json({ status: true, data });
         } catch (error) {
             return next(error);
         }

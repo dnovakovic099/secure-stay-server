@@ -20,6 +20,11 @@ router.use((request, response, next) => {
 router.get("/settings", verifySession, controller.getSettings);
 router.put("/settings", verifySession, controller.updateSettings);
 
+// Ticket categories resolved from ai_messaging_settings.ticketCategories (falls
+// back to hardcoded defaults). Consumed by the Guest Issues page so its
+// category dropdown always mirrors what the AI detector is configured to use.
+router.get("/issue-categories", verifySession, controller.issueCategories);
+
 // AI Copilot review: recent suggestions across all threads.
 router.get("/suggestions", verifySession, controller.listSuggestions);
 

@@ -14,33 +14,42 @@ import type { AIMessagingSettingsEntity } from "../entity/AIMessagingSettings";
  */
 
 export const DEFAULT_DETECTOR_SYSTEM_PERSONA = [
-    "You analyze a short-term-rental guest conversation and extract structured operational items.",
-    "You produce two lists: action_items (offline tasks a HUMAN team member must do) and guest_issues (physical/service problems at the property).",
-    "BE SELECTIVE. These become tracked tasks a manager reviews — a July audit found 55% of extracted items were noise. Fewer, higher-quality items beat completeness. If nothing TRULY needs a human, return empty arrays; that is the most common correct answer.",
+    "You analyze a short-term-rental guest conversation and extract Guest Issues tickets.",
+    "Every item you output is a ticket that will be created automatically on the Guest Issues page — there is no separate Action Items list anymore.",
+    "BE SELECTIVE. These become live tickets the team must work — a July audit found more than half of extracted items were noise. Fewer, higher-quality tickets beat completeness. If nothing TRULY needs a ticket, return an empty array; that is the most common correct answer.",
     "",
-    "THE ONE TEST: would a competent operations manager, reading this conversation, assign this to a person as work that happens OUTSIDE the chat? Only then is it an item.",
+    "THE ONE TEST: would a competent operations manager, reading this conversation, open a ticket for this on the Guest Issues page as work that happens OUTSIDE the chat? Only then is it a ticket.",
     "",
-    "WHAT COUNTS AS AN ACTION ITEM:",
-    "- Reservation changes a human must execute: extension, date change, cancellation intent, adding guests/pets (fee handling), early check-in / late checkout that needs confirming.",
+    "WHAT COUNTS AS A TICKET:",
+    "- Physical or service defects at the property (broken, missing, dirty, not working, no hot water, HVAC failure, pest sighting, cleanliness on arrival).",
     "- Access problems mid-arrival: codes not working, lockbox confusion, can't find the unit — urgent.",
-    "- Listing errors the guest points out (wrong amenity/bathroom count/photos) — task to fix the listing.",
-    "- Payment/refund matters requiring human action (failed payment, refund request).",
+    "- Reservation changes a human must execute: extension, date change, cancellation intent, adding guests/pets (fee handling), early check-in / late checkout that needs confirming.",
+    "- Listing errors the guest points out (wrong amenity / bathroom count / photos) — ticket to fix the listing.",
+    "- Payment / refund matters requiring human action (failed payment, refund request).",
     "- Genuine special arrangements needing human coordination or approval.",
     "",
-    "ESCALATION: if the guest is frustrated, angry, or reports being ignored AND the conversation shows it is not already being handled, create ONE urgent action item describing what they're upset about.",
+    "ESCALATION: if the guest is frustrated, angry, or reports being ignored AND the conversation shows it is not already being handled, create ONE urgent ticket describing what they're upset about.",
     "",
-    "GUEST ISSUES are ONLY physical or service defects at the property (broken, missing, dirty, not working). Not questions, not requests, not reservation matters.",
+    "DESCRIPTION STYLE (mandatory): every `description` MUST begin with one of these narrators, matching the guest's stance:",
+    "- \"The guest reported …\"        (problem / defect)",
+    "- \"The guest clarified …\"       (correction / follow-up detail)",
+    "- \"The guest requested …\"       (change / favour / arrangement)",
+    "- \"The guest complained …\"      (dissatisfaction with team or property)",
+    "- \"The guest asked …\"           (question requiring human action)",
+    "- \"The guest confirmed …\"       (confirmation of a prior arrangement that requires a follow-up task)",
+    "Pick the phrasing that best fits the message. Do not omit this opening — the Guest Issues review UI relies on it.",
 ].join("\n");
 
 export const DEFAULT_DETECTION_EXCLUSION_RULES = [
     "WHAT TO EXCLUDE (each rule below killed real noise in the audit):",
     "1. RESOLVED: anything the conversation shows was already handled, answered, confirmed done, or that the team said is in motion. Read the WHOLE thread before proposing.",
-    "2. A CHAT REPLY IS THE FIX: if answering the guest's question fully resolves the matter (pricing clarification, policy question, information request), there is NO task. Answering is the messaging AI's job, not an item.",
+    "2. A CHAT REPLY IS THE FIX: if answering the guest's question fully resolves the matter (pricing clarification, policy question, information request), there is NO ticket. Answering is the messaging AI's job, not a ticket.",
     "3. NO REAL ASK: pleasantries, musings, hypotheticals ('we might stay longer'), observations without a request, or anything the guest explicitly declined or dropped.",
-    "4. AUTOMATED FLOWS: check-in instructions, access codes before arrival, pre-check-in reminders, payment-link reminders are all SENT AUTOMATICALLY. Never create 'send check-in instructions/details' tasks.",
+    "4. AUTOMATED FLOWS: check-in instructions, access codes before arrival, pre-check-in reminders, payment-link reminders are all SENT AUTOMATICALLY. Never create 'send check-in instructions/details' tickets.",
     "5. TRIVIA: phone number / contact info updates, 'verify guest count' with no consequence, 'monitor' or 'follow up' filler with no concrete act.",
-    "6. ONE ITEM PER FACT: a property problem is ONE guest_issue — do NOT also emit an action_item that restates it ('Fix X' for issue X). Only add a separate action_item when the human work goes beyond fixing the reported problem.",
-    "7. ALREADY TRACKED: if the context lists items already tracked for this conversation, NEVER re-emit them or reworded/split/merged variations of them. On a re-scan of an ongoing conversation, only emit facts that are genuinely NEW since those items were created. If everything is already tracked, return empty arrays.",
+    "6. ONE TICKET PER FACT: never emit two tickets that restate the same underlying problem. Consolidate into a single ticket.",
+    "7. ALREADY TRACKED: if the context lists tickets already tracked for this conversation, NEVER re-emit them or reworded / split / merged variations of them. On a re-scan of an ongoing conversation, only emit facts that are genuinely NEW since those tickets were created. If everything is already tracked, return an empty array.",
+    "8. CATEGORY MATCH: every ticket must fit one of the configured Ticket Categories. If nothing fits, do not force a ticket — return an empty array instead.",
 ].join("\n");
 
 export const DEFAULT_DETECTION_CONFIDENCE_FLOOR = 0.6;
@@ -87,6 +96,20 @@ export const DETECTOR_INSTRUCTION_DEFAULTS: DetectorInstructionDefaults = {
     quoDetectorSystemPrompt: DEFAULT_QUO_DETECTOR_SYSTEM_PROMPT,
     betaDetectorSystemPrompt: DEFAULT_BETA_DETECTOR_SYSTEM_PROMPT,
 };
+
+/**
+ * Fallback ticket categories used when `ai_messaging_settings.ticketCategories`
+ * is empty. Kept in sync with the Guest Issues page's legacy hardcoded list so
+ * the dropdown never renders empty on a fresh install.
+ */
+export const DEFAULT_ISSUE_CATEGORIES: { id: string; name: string }[] = [
+    { id: "MAINTENANCE", name: "Maintenance" },
+    { id: "CLEANLINESS", name: "Cleanliness" },
+    { id: "HVAC", name: "HVAC" },
+    { id: "LANDSCAPING", name: "Landscaping" },
+    { id: "PEST CONTROL", name: "Pest Control" },
+    { id: "POOL AND SPA", name: "Pool and Spa" },
+];
 
 interface StoredCategory {
     id?: string;

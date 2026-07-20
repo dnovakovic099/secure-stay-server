@@ -6,35 +6,41 @@ import { InboxMessageEntity } from "../entity/InboxMessage";
 import { AIDetectedItemEntity } from "../entity/AIDetectedItem";
 import { AIDiscardFeedbackEntity } from "../entity/AIDiscardFeedback";
 import { AIMessagingSettingsService } from "./AIMessagingSettingsService";
-import { resolveDetectorInstructions, collectCategoryNames } from "./AIDetectorInstructions";
+import {
+    resolveDetectorInstructions,
+    collectCategoryNames,
+    resolveTicketCategories,
+} from "./AIDetectorInstructions";
+import { IssuesService } from "./IssuesService";
+import { Issue } from "../entity/Issue";
 
 // Mini is plenty for "extract tasks from a conversation" and keeps the
 // per-message cost at pennies; override with AI_ITEM_DETECTION_MODEL if needed.
 const DETECTION_MODEL = process.env.AI_ITEM_DETECTION_MODEL || "gpt-4.1-mini";
-const DETECTION_PROMPT_VERSION = "inbox-detect-v4";
+const DETECTION_PROMPT_VERSION = "inbox-detect-v5";
 
 // Guests send messages in bursts. Instead of scanning per message we wait for
 // the burst to settle and scan the thread once — fewer calls, better context,
 // and far fewer near-duplicate items.
 const BURST_DELAY_MS = Number(process.env.AI_ITEM_DETECTION_DEBOUNCE_MS || 4 * 60 * 1000);
 
-interface DetectedActionItem {
+// Every detected item is now a ticket destined for the Guest Issues page.
+// The Action Items concept is retired — see AIDetectorInstructions.ts for the
+// updated persona / exclusion rules.
+interface DetectedTicket {
     title: string;
     description?: string;
     category?: string;
     priority?: string; // low | medium | high | urgent
     confidence?: number; // 0..1
 }
-interface DetectedGuestIssue {
-    title: string;
-    description?: string;
-    category?: string;
-    severity?: string; // low | medium | high | critical
-    confidence?: number; // 0..1
-}
 interface DetectionOutput {
-    action_items: DetectedActionItem[];
-    guest_issues: DetectedGuestIssue[];
+    // New shape emitted by the current prompt.
+    tickets?: DetectedTicket[];
+    // Backward-compat: older cached prompts may still emit these; we merge them
+    // in as tickets so no live traffic drops between rollouts.
+    action_items?: DetectedTicket[];
+    guest_issues?: DetectedTicket[];
 }
 
 /**
@@ -205,44 +211,34 @@ export class InboxItemDetectionService {
                 return { detected: 0, reason: "generation_failed" };
             }
 
+            // Unified ticket list: prefer the new `tickets[]` shape; fold in the
+            // legacy split arrays if the model still emits them (rolling prompt
+            // upgrades, cached responses).
+            const modelTickets: DetectedTicket[] = [
+                ...(output.tickets || []),
+                ...(output.guest_issues || []),
+                ...(output.action_items || []),
+            ];
+
             const rows: AIDetectedItemEntity[] = [];
-            for (const ai of output.action_items || []) {
-                if (!ai?.title) continue;
+            for (const t of modelTickets) {
+                if (!t?.title) continue;
                 rows.push(
                     this.detectedRepo.create({
-                        type: "action_item",
-                        threadId,
-                        messageId: messageId ?? null,
-                        reservationId: (conversation.reservationId as any) ?? null,
-                        listingId: (conversation.listingId as any) ?? null,
-                        title: String(ai.title).slice(0, 255),
-                        description: ai.description || null,
-                        category: ai.category ? String(ai.category).slice(0, 120) : null,
-                        priority: ai.priority ? String(ai.priority).slice(0, 20) : null,
-                        confidence: ai.confidence != null ? Math.round(ai.confidence * 100) : null,
-                        status: "proposed",
-                        payload: JSON.stringify(ai),
-                        modelName: DETECTION_MODEL,
-                        promptVersion: DETECTION_PROMPT_VERSION,
-                    })
-                );
-            }
-            for (const gi of output.guest_issues || []) {
-                if (!gi?.title) continue;
-                rows.push(
-                    this.detectedRepo.create({
+                        // Every detection is now a Guest Issues ticket. The
+                        // legacy 'action_item' type is retired.
                         type: "guest_issue",
                         threadId,
                         messageId: messageId ?? null,
                         reservationId: (conversation.reservationId as any) ?? null,
                         listingId: (conversation.listingId as any) ?? null,
-                        title: String(gi.title).slice(0, 255),
-                        description: gi.description || null,
-                        category: gi.category ? String(gi.category).slice(0, 120) : null,
-                        priority: gi.severity ? String(gi.severity).slice(0, 20) : null,
-                        confidence: gi.confidence != null ? Math.round(gi.confidence * 100) : null,
+                        title: String(t.title).slice(0, 255),
+                        description: t.description || null,
+                        category: t.category ? String(t.category).slice(0, 120) : null,
+                        priority: t.priority ? String(t.priority).slice(0, 20) : null,
+                        confidence: t.confidence != null ? Math.round(t.confidence * 100) : null,
                         status: "proposed",
-                        payload: JSON.stringify(gi),
+                        payload: JSON.stringify(t),
                         modelName: DETECTION_MODEL,
                         promptVersion: DETECTION_PROMPT_VERSION,
                     })
@@ -266,13 +262,12 @@ export class InboxItemDetectionService {
                 .where("d.threadId = :tid", { tid: threadId })
                 .andWhere("d.createdAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)")
                 .getMany();
-            const isDupOf = (r: AIDetectedItemEntity, e: { type?: string; title?: string | null; description?: string | null }) =>
-                e.type === r.type &&
-                (InboxItemDetectionService.similar(e.title || "", r.title || "") ||
-                    InboxItemDetectionService.similar(
-                        `${e.title || ""} ${e.description || ""}`,
-                        `${r.title || ""} ${r.description || ""}`
-                    ));
+            const isDupOf = (r: AIDetectedItemEntity, e: { title?: string | null; description?: string | null }) =>
+                InboxItemDetectionService.similar(e.title || "", r.title || "") ||
+                InboxItemDetectionService.similar(
+                    `${e.title || ""} ${e.description || ""}`,
+                    `${r.title || ""} ${r.description || ""}`
+                );
             const fresh: AIDetectedItemEntity[] = [];
             for (const r of confident) {
                 // Compare against recent DB rows AND items accepted earlier in this batch.
@@ -282,8 +277,14 @@ export class InboxItemDetectionService {
             }
             if (!fresh.length) return { detected: 0, reason: "all_duplicates" };
             await this.detectedRepo.save(fresh);
+
+            // Auto-promote to real Guest Issues tickets. Categories may opt out
+            // via `autoCreate: false` in Settings — those rows stay as 'proposed'
+            // for manual review in the Action Items (Testing) surface.
+            const promoted = await this.autoCreateIssues(fresh, conversation, settings);
+
             logger.info(
-                `[ItemDetection] thread ${threadId}: proposed ${fresh.length} item(s)` +
+                `[ItemDetection] thread ${threadId}: detected ${fresh.length} ticket(s), auto-created ${promoted}` +
                     (rows.length - fresh.length ? ` (${rows.length - fresh.length} duplicate(s) suppressed)` : "")
             );
             return { detected: fresh.length };
@@ -337,38 +338,38 @@ export class InboxItemDetectionService {
 
     private systemPrompt(settings?: any, discardExamples: string[] = []): string {
         const instructions = resolveDetectorInstructions(settings);
-        const actionRules = (settings?.actionItemRules || "").trim();
-        const issueRules = (settings?.guestIssueRules || "").trim();
+        const ticketRules = (settings?.guestIssueRules || "").trim();
         const feedback = (settings?.detectionFeedback || "").trim();
         const extra: string[] = [];
-        if (actionRules) extra.push(`ACTION ITEM RULES:\n${actionRules}`);
-        if (issueRules) extra.push(`GUEST ISSUE RULES:\n${issueRules}`);
+        if (ticketRules) extra.push(`TICKET RULES:\n${ticketRules}`);
         if (feedback) extra.push(`TEAM FEEDBACK ON HOW TO IMPROVE DETECTION:\n${feedback}`);
         if (discardExamples.length) {
             extra.push(
                 [
-                    "ITEMS THE TEAM DISCARDED AS NOT NEEDED (real examples with the team's reason).",
-                    "Learn from these: do NOT create items of the same kind, and generalize the reasons to similar situations:",
+                    "TICKETS THE TEAM DISCARDED AS NOT NEEDED (real examples with the team's reason).",
+                    "Learn from these: do NOT create tickets of the same kind, and generalize the reasons to similar situations:",
                     ...discardExamples,
                 ].join("\n")
             );
         }
 
-        // Unified category list (Task 2). Prefer the merged column; fall back
-        // to the union of the legacy split columns for backward compatibility.
+        // Unified ticket category list. Prefer the merged `ticketCategories`
+        // column; fall back to the union of the legacy split columns for
+        // backward compatibility. The same list is exposed on the Guest Issues
+        // page — anything the model picks here must be a valid ticket category.
         const categoryNames = collectCategoryNames(settings);
         const categoryLine = categoryNames.length
             ? `category MUST be one of (name-match, case-insensitive): ${categoryNames
                   .map((c) => JSON.stringify(c))
                   .join(", ")}.`
-            : "category is a short slug describing the item type.";
+            : "category is a short slug describing the ticket type.";
 
         return [
             instructions.persona,
             "",
             instructions.exclusionRules,
             "",
-            `CONFIDENCE: score how certain you are a manager would assign this task. OMIT anything you would score below ${instructions.confidenceFloor.toFixed(
+            `CONFIDENCE: score how certain you are a manager would open a ticket for this. OMIT anything you would score below ${instructions.confidenceFloor.toFixed(
                 2
             )}.`,
             "",
@@ -377,9 +378,9 @@ export class InboxItemDetectionService {
             ...(extra.length ? [...extra, ""] : []),
             "OUTPUT: STRICT JSON only, exactly this shape:",
             "{",
-            '  "action_items": [ { "title": "string", "description": "string", "category": "string", "priority": "low|medium|high|urgent", "confidence": 0.0 } ],',
-            '  "guest_issues": [ { "title": "string", "description": "string", "category": "string", "severity": "low|medium|high|critical", "confidence": 0.0 } ]',
+            '  "tickets": [ { "title": "string", "description": "string", "category": "string", "priority": "low|medium|high|urgent", "confidence": 0.0 } ]',
             "}",
+            'Each `description` MUST begin with one of: "The guest reported ", "The guest clarified ", "The guest requested ", "The guest complained ", "The guest asked ", "The guest confirmed ".',
             "confidence is 0..1. No text outside the JSON.",
         ].join("\n");
     }
@@ -407,11 +408,99 @@ export class InboxItemDetectionService {
                     "only emit facts that are genuinely NEW or have materially changed since):"
             );
             for (const t of alreadyTracked) {
-                lines.push(`- [${t.type}] ${(t.title || "").slice(0, 160)}`);
+                lines.push(`- ${(t.title || "").slice(0, 160)}`);
             }
         }
         lines.push("");
-        lines.push("Extract action_items and guest_issues as STRICT JSON per the schema.");
+        lines.push("Extract tickets as STRICT JSON per the schema.");
         return lines.join("\n");
+    }
+
+    /**
+     * Promote fresh detections into real Guest Issues rows so they show up on
+     * the Guest Issues page immediately — no manual "Open ticket" click. Each
+     * detected row is stamped with `convertedIssueId` + `status='created'`,
+     * matching the invariants used by `AIActionItemsTestingService.convertToIssue`
+     * so the review UI keeps working for anything auto-created here.
+     *
+     * Rows tied to a category with `autoCreate: false` are intentionally left
+     * as 'proposed' so admins can gate risky categories behind a manual review.
+     * Returns the count actually promoted.
+     */
+    private async autoCreateIssues(
+        detected: AIDetectedItemEntity[],
+        conversation: InboxConversationEntity,
+        settings: any
+    ): Promise<number> {
+        if (!detected.length) return 0;
+
+        // Build a case-insensitive lookup of category → autoCreate flag from
+        // the same list the prompt is constrained to. Missing/unknown categories
+        // default to auto-create — the safety valve is the confidence floor.
+        const autoCreateByName = new Map<string, boolean>();
+        for (const c of resolveTicketCategories(settings)) {
+            const key = (c?.name || "").trim().toLowerCase();
+            if (!key) continue;
+            const flag = c?.autoCreate === false ? false : true;
+            autoCreateByName.set(key, flag);
+        }
+
+        const urgencyMap: Record<string, number> = {
+            urgent: 5,
+            critical: 5,
+            high: 4,
+            medium: 3,
+            normal: 3,
+            low: 2,
+        };
+
+        const issuesService = new IssuesService();
+        let promoted = 0;
+
+        for (const row of detected) {
+            const catKey = (row.category || "").trim().toLowerCase();
+            if (catKey && autoCreateByName.has(catKey) && autoCreateByName.get(catKey) === false) {
+                // Admin gated this category — leave as 'proposed' for review.
+                continue;
+            }
+
+            const priorityKey = String(row.priority || "").toLowerCase();
+            const urgency = urgencyMap[priorityKey] ?? null;
+
+            const issueData: Partial<Issue> = {
+                status: "New",
+                gr_status: "New",
+                listing_id: conversation?.listingId ? String(conversation.listingId) : "0",
+                listing_name: (conversation?.listingName || null) as any,
+                reservation_id: conversation?.reservationId
+                    ? String(conversation.reservationId)
+                    : (null as any),
+                channel: (conversation?.channel || null) as any,
+                guest_name: (conversation?.guestName || null) as any,
+                issue_description: [row.title, row.description].filter(Boolean).join(" — "),
+                category: row.category || (null as any),
+                urgency: urgency as any,
+                creator: "ai-detector",
+                date_time_reported: new Date(),
+                source: "ai_inbox",
+                aiConfidence:
+                    row.confidence != null ? (Number(row.confidence) / 100).toFixed(3) : (null as any),
+                aiSourceRef: `ai_detected_items:${row.id}`,
+            };
+
+            try {
+                const saved = await issuesService.createIssue(issueData, "ai-detector");
+                row.convertedIssueId = saved.id;
+                row.status = "created";
+                await this.detectedRepo.save(row);
+                promoted++;
+            } catch (err: any) {
+                logger.error(
+                    `[ItemDetection] auto-create failed for detected #${row.id}: ${err?.message}`
+                );
+            }
+        }
+
+        return promoted;
     }
 }
