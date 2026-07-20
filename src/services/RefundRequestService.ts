@@ -75,6 +75,32 @@ export class RefundRequestService {
     return [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || user.uid || null;
   }
 
+  private async getRefundActorDisplayName(userId: string) {
+    const rawUserId = String(userId || "").trim();
+    if (!rawUserId) return "Unknown User";
+
+    const user = await this.usersRepo.findOne({ where: { uid: rawUserId } });
+    if (user) return this.getUserDisplayName(user) || rawUserId;
+
+    const employee = await this.employeeRepo.findOne({
+      where: [
+        { slackUserId: rawUserId, deletedAt: null as any },
+        { slackId: rawUserId, deletedAt: null as any },
+      ],
+      select: ["userId", "preferredName", "slackUserId", "slackId"],
+    });
+    if (!employee) return rawUserId;
+
+    const employeeUser = await this.usersRepo.findOne({ where: { id: employee.userId } });
+    const preferredName = String(employee.preferredName || "").trim();
+    const userDisplayName = this.getUserDisplayName(employeeUser);
+    return preferredName || userDisplayName || rawUserId;
+  }
+
+  private shouldAutoAssignApprovedBy(status?: string | null, approvedBy?: string | null) {
+    return String(status || "").trim() === "Approved" && !String(approvedBy || "").trim();
+  }
+
   private formatRefundUpdateValue(value: unknown, field?: string) {
     if (value === null || value === undefined || value === "") return "—";
     if (field === "amount") return formatCurrency(Number(value) || 0);
@@ -411,6 +437,10 @@ export class RefundRequestService {
             checkIn: refundRequest.checkIn ?? null,
             checkOut: refundRequest.checkOut ?? null,
         };
+        const statusChangedToApproved = previousState.status !== body.status && this.shouldAutoAssignApprovedBy(body.status, previousState.approvedBy);
+        const autoApprovedBy = statusChangedToApproved
+            ? await this.getRefundActorDisplayName(userId)
+            : null;
         refundRequest.reservationId = body.reservationId;
         refundRequest.listingId = body.listingId;
         refundRequest.guestName = body.guestName;
@@ -423,7 +453,7 @@ export class RefundRequestService {
         refundRequest.refundAmount = body.refundAmount;
         refundRequest.requestedBy = body.requestedBy;
         refundRequest.status = body.status;
-        refundRequest.approvedBy = body.approvedBy || null;
+        refundRequest.approvedBy = body.approvedBy || autoApprovedBy || null;
         refundRequest.paymentMethod = body.paymentMethod;
         refundRequest.paymentDetails = body.paymentDetails;
         refundRequest.chargeToClient = this.normalizeChargeToClient((body as any).chargeToClient);
@@ -1273,22 +1303,29 @@ export class RefundRequestService {
           entityId: id
         }
       })
-      const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
-      const user = userInfo ? userInfo.firstName + " " + userInfo.lastName : userId;
+      const user = await this.getRefundActorDisplayName(userId);
 
         const previousStatus = refundRequest.status;
+        const previousApprovedBy = refundRequest.approvedBy;
         const isStatusChanged = refundRequest && refundRequest.status !== status;
         if (isStatusChanged) {
             refundRequest.status = status;
+            if (this.shouldAutoAssignApprovedBy(status, refundRequest.approvedBy)) {
+                refundRequest.approvedBy = user;
+            }
             refundRequest.updatedBy = userId;
             await this.handleExpense(status, refundRequest, userId, appDatabase.manager, refundRequest.id);
         }
 
       await this.refundRequestRepo.save(refundRequest);
       if (isStatusChanged) {
-        await this.logRefundRequestChanges(refundRequest.reservationId, userId, {
+        const diff: ReservationHistoryDiff = {
           refundStatus: { old: previousStatus, new: status },
-        });
+        };
+        if (previousApprovedBy !== refundRequest.approvedBy) {
+          diff.refundApprovedBy = { old: previousApprovedBy, new: refundRequest.approvedBy ?? null };
+        }
+        await this.logRefundRequestChanges(refundRequest.reservationId, userId, diff);
       }
       if (!isRequestFromSlack) {
         const mitigationThreadHandled = await this.postOrUpdateMitigationRefundCard(
