@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { AIMessagingSettingsService } from "../services/AIMessagingSettingsService";
 import { AICopilotService } from "../services/AICopilotService";
-import { InboxAIService } from "../services/InboxAIService";
+import { InboxAIService, AI_REPLY_RULE_DEFAULTS } from "../services/InboxAIService";
 import { InboxItemDetectionService } from "../services/InboxItemDetectionService";
 import { AILearnedFactsService, checkInstructionSupport } from "../services/AILearnedFactsService";
 import { InboxAIAuditService } from "../services/InboxAIAuditService";
@@ -11,6 +11,7 @@ import { ExemplarService } from "../services/ExemplarService";
 import { RetrievalService } from "../services/RetrievalService";
 import { QuoInboxService } from "../services/QuoInboxService";
 import { OpsRadarService } from "../services/OpsRadarService";
+import { PROPOSED_ACTION_DEFAULTS } from "../services/AIProposedActionService";
 import {
     DETECTOR_INSTRUCTION_DEFAULTS,
     resolveTicketCategories,
@@ -27,6 +28,13 @@ const INSTRUCTION_FIELDS = [
     "detectionConfidenceFloor",
     "quoDetectorSystemPrompt",
     "betaDetectorSystemPrompt",
+    "baseReplyStyleRules",
+    "airbnbSupportBaseRules",
+    "inquirySalesBaseRules",
+    "selfServiceTroubleshootingRules",
+    "quoSmsRules",
+    "quoPmClientRules",
+    "quoUnlinkedThreadRules",
 ] as const;
 
 const isAdminUser = async (user: any): Promise<boolean> => {
@@ -90,6 +98,8 @@ export class AICopilotController {
                     // Instructions" section: read-only preview for non-admins,
                     // editable + "Restore defaults" for admins.
                     instructionDefaults: DETECTOR_INSTRUCTION_DEFAULTS,
+                    proposedActionDefaults: PROPOSED_ACTION_DEFAULTS,
+                    replyRuleDefaults: AI_REPLY_RULE_DEFAULTS,
                     isAdmin,
                 },
             });
@@ -159,6 +169,13 @@ export class AICopilotController {
                     ? b.useListingDataForTopics.map(String)
                     : undefined,
                 airbnbSupportRules: b.airbnbSupportRules,
+                baseReplyStyleRules: b.baseReplyStyleRules,
+                airbnbSupportBaseRules: b.airbnbSupportBaseRules,
+                inquirySalesBaseRules: b.inquirySalesBaseRules,
+                selfServiceTroubleshootingRules: b.selfServiceTroubleshootingRules,
+                quoSmsRules: b.quoSmsRules,
+                quoPmClientRules: b.quoPmClientRules,
+                quoUnlinkedThreadRules: b.quoUnlinkedThreadRules,
                 autoRespondEnabled: typeof b.autoRespondEnabled === "boolean" ? b.autoRespondEnabled : undefined,
                 quoAutoRespondEnabled: typeof b.quoAutoRespondEnabled === "boolean" ? b.quoAutoRespondEnabled : undefined,
                 quoLineAutoRespond: Array.isArray(b.quoLineAutoRespond) ? b.quoLineAutoRespond : undefined,
@@ -182,6 +199,11 @@ export class AICopilotController {
                 guestIssueCategories: Array.isArray(b.guestIssueCategories) ? b.guestIssueCategories : undefined,
                 ticketCategories: Array.isArray(b.ticketCategories) ? b.ticketCategories : undefined,
                 detectionFeedback: b.detectionFeedback,
+                proposedActionsEnabled:
+                    typeof b.proposedActionsEnabled === "boolean" ? b.proposedActionsEnabled : undefined,
+                proposedActionInstructions: b.proposedActionInstructions,
+                proposedActionApproveInstructions: b.proposedActionApproveInstructions,
+                proposedActionApproveSendInstructions: b.proposedActionApproveSendInstructions,
                 detectorSystemPersona: b.detectorSystemPersona,
                 detectionExclusionRules: b.detectionExclusionRules,
                 detectionConfidenceFloor:

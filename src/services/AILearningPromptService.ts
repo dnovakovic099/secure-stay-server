@@ -1,5 +1,6 @@
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
+import OpenAI from "openai";
 import { AILearningPromptEntity } from "../entity/AILearningPrompt";
 import { AILearnedFactsService } from "./AILearnedFactsService";
 import { InboxAIAuditService } from "./InboxAIAuditService";
@@ -48,6 +49,20 @@ async function setLearnedFactPhases(factId: number, phases: string[]): Promise<v
 export class AILearningPromptService {
     private repo = appDatabase.getRepository(AILearningPromptEntity);
     private learned = new AILearnedFactsService();
+
+    private safeJson(raw: string): any {
+        try {
+            return JSON.parse(raw);
+        } catch {
+            const match = raw.match(/\{[\s\S]*\}/);
+            if (!match) return null;
+            try {
+                return JSON.parse(match[0]);
+            } catch {
+                return null;
+            }
+        }
+    }
 
     /**
      * Raise (or refresh) the single active prompt for a thread. Called during
@@ -118,6 +133,94 @@ export class AILearningPromptService {
             where: { threadId: threadId as any, source, status: "pending" },
             order: { createdAt: "DESC" },
         });
+    }
+
+    async recommendAnswer(id: number): Promise<{ answer: string | null; reason: string | null; source: string }> {
+        const prompt = await this.repo.findOne({ where: { id } });
+        if (!prompt) return { answer: null, reason: "Prompt not found", source: "none" };
+
+        const suggestionRows: any[] = prompt.sampleSuggestionId
+            ? await appDatabase.query(
+                  `SELECT suggestedReply, actualReplyText, internalSummary, warnings, sourcesUsed
+                   FROM ai_message_suggestions
+                   WHERE id = ?
+                   LIMIT 1`,
+                  [prompt.sampleSuggestionId]
+              )
+            : [];
+        const suggestion = suggestionRows[0] || null;
+
+        const messageRows: any[] = await appDatabase.query(
+            `SELECT direction, senderName, sentByName, body, note, sentAt
+             FROM inbox_messages
+             WHERE threadId = ?
+             ORDER BY sentAt DESC, id DESC
+             LIMIT 12`,
+            [prompt.threadId]
+        );
+        const transcript = messageRows
+            .reverse()
+            .map((m) => {
+                const who =
+                    m.direction === "incoming"
+                        ? "Guest"
+                        : m.direction === "outgoing"
+                          ? m.sentByName || m.senderName || "Host"
+                          : "System";
+                const text = String(m.body || m.note || "").replace(/\s+/g, " ").trim();
+                if (!text) return null;
+                return `${who}: ${text}`;
+            })
+            .filter(Boolean)
+            .join("\n");
+
+        const directTeamAnswer = String(suggestion?.actualReplyText || "").trim();
+        if (!process.env.OPENAI_API_KEY) {
+            return directTeamAnswer
+                ? { answer: directTeamAnswer.slice(0, 4000), reason: "Based on the linked team reply.", source: "team_reply" }
+                : {
+                      answer: null,
+                      reason: "OpenAI is not configured, and there is no linked team reply to use.",
+                      source: "none",
+                  };
+        }
+
+        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        const model = process.env.OPENAI_MODEL || process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini";
+        const completion = await openai.chat.completions.create({
+            model,
+            temperature: 0.2,
+            response_format: { type: "json_object" },
+            messages: [
+                {
+                    role: "system",
+                    content:
+                        "You draft staff-only answers to AI learning prompts. The answer may become an internal learned fact. Do not write a guest-facing reply. Use only the provided context. If the context does not contain enough information, return an empty answer and explain why.",
+                },
+                {
+                    role: "user",
+                    content: [
+                        `Learning question: ${prompt.question}`,
+                        prompt.topic ? `Topic: ${prompt.topic}` : null,
+                        prompt.listingName ? `Listing: ${prompt.listingName}` : null,
+                        suggestion?.actualReplyText ? `Team reply already sent:\n${suggestion.actualReplyText}` : null,
+                        suggestion?.suggestedReply ? `AI drafted reply:\n${suggestion.suggestedReply}` : null,
+                        transcript ? `Recent conversation:\n${transcript}` : null,
+                        "Return JSON only: {\"answer\":\"concise reusable answer or empty string\",\"reason\":\"short explanation\"}.",
+                    ]
+                        .filter(Boolean)
+                        .join("\n\n"),
+                },
+            ],
+        });
+        const parsed = this.safeJson(completion.choices[0]?.message?.content?.trim() || "{}") || {};
+        const answer = String(parsed.answer || "").trim();
+        const reason = String(parsed.reason || "").trim() || null;
+        return {
+            answer: answer ? answer.slice(0, 4000) : null,
+            reason: reason || (answer ? "Recommended from conversation context." : "Not enough context to recommend an answer."),
+            source: "ai_recommendation",
+        };
     }
 
     /**

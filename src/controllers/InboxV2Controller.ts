@@ -204,6 +204,22 @@ export class InboxV2Controller {
         }
     }
 
+    async recommendLearningPromptAnswer(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const id = Number(request.params.id);
+            if (!Number.isFinite(id)) {
+                return response.status(400).json({ status: false, message: "Invalid id" });
+            }
+            const data = await new AILearningPromptService().recommendAnswer(id);
+            if (!data.answer && data.reason === "Prompt not found") {
+                return response.status(404).json({ status: false, message: data.reason });
+            }
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async dismissLearningPrompt(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const id = Number(request.params.id);
@@ -354,6 +370,7 @@ export class InboxV2Controller {
             const saved = await new AIProposedActionService().execute(id, request.user, {
                 replyOverride: typeof b.reply === "string" ? b.reply : null,
                 taskOverride: typeof b.task === "string" ? b.task : null,
+                sendReply: typeof b.sendReply === "boolean" ? b.sendReply : undefined,
             });
             return response.status(200).json({ status: true, data: saved });
         } catch (error) {

@@ -7,6 +7,7 @@ import { InboxConversationEntity } from "../entity/InboxConversation";
 import { InboxMessageEntity } from "../entity/InboxMessage";
 import { ActionItems } from "../entity/ActionItems";
 import { Hostify } from "../client/Hostify";
+import { AIMessagingSettingsService } from "./AIMessagingSettingsService";
 
 /**
  * AIProposedActionService
@@ -28,6 +29,15 @@ const LOCKOUT_RE =
     /\block(ed)?\s*out\b|\b(code|keypad|lock|door)\b[^.!?\n]{0,40}\b(not|isn'?t|doesn'?t|won'?t|wont|stopped)\s*work|\bcan'?t\s+(get|figure)\s+(in|inside|the door)|\bunable\s+to\s+(get|enter)\b|\bdoor\s+(won'?t|wont|will not)\s+open\b|\bwrong\s+code\b|\bcode\s+(is\s+)?(invalid|incorrect|wrong)\b/i;
 const OPS_ISSUE_RE =
     /\b(broken?|not working|doesn'?t work|stopped working|leak(ing|s)?|clog(ged)?|no hot water|no water|no power|no electricity|won'?t turn on|wifi.{0,20}(down|out|not)|internet.{0,20}(down|out|not)|a\/?c.{0,20}(not|broken|out)|heat(er|ing)?.{0,20}(not|broken|out)|dirty|wasn'?t clean|not clean|smell|stain(ed)?|bugs?|roach|mice|mold|out of (toilet paper|towels|soap|paper towels|coffee)|ran out of|missing)\b/i;
+
+export const PROPOSED_ACTION_DEFAULTS = {
+    proposedActionInstructions:
+        "Proposed Actions are generated after an AI suggestion is saved for an incoming guest message. The detector looks for early check-in, late checkout, access-code/lockout, and operational issue requests. Existing open proposals of the same action type on the thread block duplicates.",
+    proposedActionApproveInstructions:
+        "Approve creates the internal task/action tied to the proposal and marks the proposal executed. It does not send the proposed guest reply.",
+    proposedActionApproveSendInstructions:
+        "Approve & send sends the editable proposed reply to the guest, creates any tied internal task/action, cancels queued delayed auto-send for that thread, and marks the proposal executed.",
+};
 
 export interface ProposedActionInput {
     conversation: InboxConversationEntity;
@@ -52,6 +62,16 @@ export class AIProposedActionService {
     // Detection
     // ------------------------------------------------------------------
 
+    private settingsReference(settings: any): string | null {
+        const value = String(settings?.proposedActionInstructions || "").trim();
+        if (!value) return null;
+        return `Settings reference: ${value.slice(0, 1000)}`;
+    }
+
+    private withSettingsReference(evidence: string, reference: string | null): string {
+        return reference ? `${evidence}\n\n${reference}` : evidence;
+    }
+
     /**
      * Detect and persist proposals for an inbound guest message. Idempotent per
      * (thread, actionType): an existing open proposal of the same type blocks a
@@ -60,6 +80,10 @@ export class AIProposedActionService {
     async detectForMessage(input: ProposedActionInput): Promise<AIProposedActionEntity[]> {
         const created: AIProposedActionEntity[] = [];
         try {
+            const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
+            if (settings && settings.proposedActionsEnabled === 0) return created;
+            const reference = this.settingsReference(settings);
+
             const text = String(input.guestMessage?.body || "").trim();
             if (!text) return created;
 
@@ -77,19 +101,19 @@ export class AIProposedActionService {
             const hasOpen = (type: string) => open.some((a) => a.actionType === type);
 
             if (LATE_CHECKOUT_RE.test(text) && !hasOpen("late_checkout")) {
-                const a = await this.proposeScheduleChange(input, "late_checkout", text);
+                const a = await this.proposeScheduleChange(input, "late_checkout", text, reference);
                 if (a) created.push(a);
             }
             if (EARLY_CHECKIN_RE.test(text) && !hasOpen("early_check_in")) {
-                const a = await this.proposeScheduleChange(input, "early_check_in", text);
+                const a = await this.proposeScheduleChange(input, "early_check_in", text, reference);
                 if (a) created.push(a);
             }
             if (LOCKOUT_RE.test(text) && !hasOpen("resend_access_code")) {
-                const a = await this.proposeAccessCodeResend(input, text);
+                const a = await this.proposeAccessCodeResend(input, text, reference);
                 if (a) created.push(a);
             }
             if (OPS_ISSUE_RE.test(text) && !hasOpen("create_ops_ticket")) {
-                const a = await this.proposeOpsTicket(input, text);
+                const a = await this.proposeOpsTicket(input, text, reference);
                 if (a) created.push(a);
             }
         } catch (err: any) {
@@ -106,7 +130,8 @@ export class AIProposedActionService {
     private async proposeScheduleChange(
         input: ProposedActionInput,
         type: "late_checkout" | "early_check_in",
-        guestText: string
+        guestText: string,
+        settingsReference: string | null
     ): Promise<AIProposedActionEntity | null> {
         const conv = input.conversation;
         if (!conv.listingId) return null;
@@ -164,7 +189,7 @@ export class AIProposedActionService {
                     nightOpen === true
                         ? `Approve ${label}? The ${key} night is open.`
                         : `Guest asked for ${label} (${key} night ${nightOpen === false ? "NOT open" : "unverified"}).`,
-                evidence: `${evidence}\nGuest said: "${guestText.slice(0, 200)}"`,
+                evidence: this.withSettingsReference(`${evidence}\nGuest said: "${guestText.slice(0, 200)}"`, settingsReference),
                 proposedReply,
                 taskDescription: `${type === "late_checkout" ? "Late checkout" : "Early check-in"} approved for ${conv.guestName || "guest"} (${conv.listingName || "listing " + conv.listingId}) — update the cleaning schedule.`,
                 payload: JSON.stringify({ nightDate: key, nightOpen, guestQuote: guestText.slice(0, 500) }),
@@ -176,7 +201,8 @@ export class AIProposedActionService {
     /** Lockout: attach the live programmed code as evidence and offer a one-click resend. */
     private async proposeAccessCodeResend(
         input: ProposedActionInput,
-        guestText: string
+        guestText: string,
+        settingsReference: string | null
     ): Promise<AIProposedActionEntity | null> {
         const conv = input.conversation;
         const resvId = conv.reservationId ? Number(conv.reservationId) : null;
@@ -212,7 +238,10 @@ export class AIProposedActionService {
                 listingId: conv.listingId ? Number(conv.listingId) : null,
                 actionType: "resend_access_code",
                 title: "Guest may be locked out — resend the live door code?",
-                evidence: `Live code programmed on the smart lock: ${code}${where ? ` (${where})` : ""}.\nGuest said: "${guestText.slice(0, 200)}"`,
+                evidence: this.withSettingsReference(
+                    `Live code programmed on the smart lock: ${code}${where ? ` (${where})` : ""}.\nGuest said: "${guestText.slice(0, 200)}"`,
+                    settingsReference
+                ),
                 proposedReply,
                 payload: JSON.stringify({ code, device: where || null, guestQuote: guestText.slice(0, 500) }),
                 status: "proposed",
@@ -227,7 +256,8 @@ export class AIProposedActionService {
      */
     private async proposeOpsTicket(
         input: ProposedActionInput,
-        guestText: string
+        guestText: string,
+        settingsReference: string | null
     ): Promise<AIProposedActionEntity | null> {
         const conv = input.conversation;
         let taskText: string | null = null;
@@ -251,7 +281,7 @@ export class AIProposedActionService {
                 listingId: conv.listingId ? Number(conv.listingId) : null,
                 actionType: "create_ops_ticket",
                 title: "Guest reported a problem — create a maintenance/ops task?",
-                evidence: `Guest said: "${guestText.slice(0, 300)}"`,
+                evidence: this.withSettingsReference(`Guest said: "${guestText.slice(0, 300)}"`, settingsReference),
                 proposedReply: null,
                 taskDescription: taskText,
                 payload: JSON.stringify({ guestQuote: guestText.slice(0, 500) }),
@@ -285,7 +315,7 @@ export class AIProposedActionService {
     async execute(
         id: number,
         user: any,
-        opts: { replyOverride?: string | null; taskOverride?: string | null } = {}
+        opts: { replyOverride?: string | null; taskOverride?: string | null; sendReply?: boolean } = {}
     ): Promise<AIProposedActionEntity> {
         const action = await this.repo.findOne({ where: { id } });
         if (!action) throw new Error(`Proposed action ${id} not found`);
@@ -294,7 +324,7 @@ export class AIProposedActionService {
         const results: string[] = [];
 
         // 1) Guest-facing reply (schedule changes + code resend).
-        const reply = (opts.replyOverride ?? action.proposedReply ?? "").trim();
+        const reply = opts.sendReply === false ? "" : (opts.replyOverride ?? action.proposedReply ?? "").trim();
         if (reply) {
             const { InboxService } = await import("./InboxService");
             await new InboxService().sendReply(Number(action.threadId), reply, user);

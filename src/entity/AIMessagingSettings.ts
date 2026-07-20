@@ -60,6 +60,29 @@ export class AIMessagingSettingsEntity {
     @Column({ type: "text", nullable: true })
     airbnbSupportRules: string | null;
 
+    // Prompt/rule overrides for guest-reply drafting. NULL means use the
+    // compiled default rule block so existing behavior is preserved.
+    @Column({ type: "mediumtext", nullable: true })
+    baseReplyStyleRules: string | null;
+
+    @Column({ type: "mediumtext", nullable: true })
+    airbnbSupportBaseRules: string | null;
+
+    @Column({ type: "mediumtext", nullable: true })
+    inquirySalesBaseRules: string | null;
+
+    @Column({ type: "mediumtext", nullable: true })
+    selfServiceTroubleshootingRules: string | null;
+
+    @Column({ type: "mediumtext", nullable: true })
+    quoSmsRules: string | null;
+
+    @Column({ type: "mediumtext", nullable: true })
+    quoPmClientRules: string | null;
+
+    @Column({ type: "mediumtext", nullable: true })
+    quoUnlinkedThreadRules: string | null;
+
     @Column({ type: "tinyint", default: 0 })
     autoRespondEnabled: number;
 
@@ -151,6 +174,21 @@ export class AIMessagingSettingsEntity {
     // the detection prompt so the team can iteratively tune it.
     @Column({ type: "text", nullable: true })
     detectionFeedback: string | null;
+
+    // ---- Inbox V2 proposed actions ----
+    // Human-approved operation cards shown inside Inbox V2 when a guest message
+    // looks like an early check-in, late checkout, access-code, or ops request.
+    @Column({ type: "tinyint", default: 1 })
+    proposedActionsEnabled: number;
+
+    @Column({ type: "text", nullable: true })
+    proposedActionInstructions: string | null;
+
+    @Column({ type: "text", nullable: true })
+    proposedActionApproveInstructions: string | null;
+
+    @Column({ type: "text", nullable: true })
+    proposedActionApproveSendInstructions: string | null;
 
     // ---- Admin-editable ticket-creation instructions ----
     // Previously hardcoded inside each detector service; surfaced here so SS

@@ -26,6 +26,13 @@ export interface AIMessagingSettingsPatch {
     capabilityLimits?: string | null;
     useListingDataForTopics?: string[] | null;
     airbnbSupportRules?: string | null;
+    baseReplyStyleRules?: string | null;
+    airbnbSupportBaseRules?: string | null;
+    inquirySalesBaseRules?: string | null;
+    selfServiceTroubleshootingRules?: string | null;
+    quoSmsRules?: string | null;
+    quoPmClientRules?: string | null;
+    quoUnlinkedThreadRules?: string | null;
     autoRespondEnabled?: boolean;
     quoAutoRespondEnabled?: boolean;
     quoLineAutoRespond?: { phoneNumberId: string; enabled: boolean }[];
@@ -48,6 +55,10 @@ export interface AIMessagingSettingsPatch {
     /** Unified list that replaces the actionItem/guestIssue split. */
     ticketCategories?: ActionItemCategoryEntry[] | null;
     detectionFeedback?: string | null;
+    proposedActionsEnabled?: boolean;
+    proposedActionInstructions?: string | null;
+    proposedActionApproveInstructions?: string | null;
+    proposedActionApproveSendInstructions?: string | null;
     /** Admin-only ticket-creation instruction overrides. */
     detectorSystemPersona?: string | null;
     detectionExclusionRules?: string | null;
@@ -127,6 +138,15 @@ export class AIMessagingSettingsService {
             row.useListingDataForTopics = stringifyList(patch.useListingDataForTopics);
         }
         if (patch.airbnbSupportRules !== undefined) row.airbnbSupportRules = patch.airbnbSupportRules ?? null;
+        if (patch.baseReplyStyleRules !== undefined) row.baseReplyStyleRules = patch.baseReplyStyleRules ?? null;
+        if (patch.airbnbSupportBaseRules !== undefined) row.airbnbSupportBaseRules = patch.airbnbSupportBaseRules ?? null;
+        if (patch.inquirySalesBaseRules !== undefined) row.inquirySalesBaseRules = patch.inquirySalesBaseRules ?? null;
+        if (patch.selfServiceTroubleshootingRules !== undefined) {
+            row.selfServiceTroubleshootingRules = patch.selfServiceTroubleshootingRules ?? null;
+        }
+        if (patch.quoSmsRules !== undefined) row.quoSmsRules = patch.quoSmsRules ?? null;
+        if (patch.quoPmClientRules !== undefined) row.quoPmClientRules = patch.quoPmClientRules ?? null;
+        if (patch.quoUnlinkedThreadRules !== undefined) row.quoUnlinkedThreadRules = patch.quoUnlinkedThreadRules ?? null;
         if (patch.autoRespondEnabled !== undefined) row.autoRespondEnabled = patch.autoRespondEnabled ? 1 : 0;
         if (patch.quoAutoRespondEnabled !== undefined) row.quoAutoRespondEnabled = patch.quoAutoRespondEnabled ? 1 : 0;
         if (patch.autosendMinConfidence !== undefined && Number.isFinite(patch.autosendMinConfidence)) {
@@ -161,6 +181,14 @@ export class AIMessagingSettingsService {
             row.ticketCategories = stringifyList(patch.ticketCategories);
         }
         if (patch.detectionFeedback !== undefined) row.detectionFeedback = patch.detectionFeedback ?? null;
+        if (patch.proposedActionsEnabled !== undefined) row.proposedActionsEnabled = patch.proposedActionsEnabled ? 1 : 0;
+        if (patch.proposedActionInstructions !== undefined) row.proposedActionInstructions = patch.proposedActionInstructions ?? null;
+        if (patch.proposedActionApproveInstructions !== undefined) {
+            row.proposedActionApproveInstructions = patch.proposedActionApproveInstructions ?? null;
+        }
+        if (patch.proposedActionApproveSendInstructions !== undefined) {
+            row.proposedActionApproveSendInstructions = patch.proposedActionApproveSendInstructions ?? null;
+        }
 
         // Admin-only instruction overrides. `instructionsEdited` is set by the
         // controller *only* after verifyAdmin has passed; the audit stamp is

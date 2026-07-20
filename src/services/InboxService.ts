@@ -157,6 +157,83 @@ const tagTokens = (...values: (string | null | undefined)[]): Set<string> => {
     return bag;
 };
 
+const DEFAULT_LOCAL_TIME_ZONE = "America/New_York";
+const COMMON_TIME_ZONE_ALIASES = [
+    "US/Eastern",
+    "US/Central",
+    "US/Mountain",
+    "US/Pacific",
+    "US/Arizona",
+    "US/Alaska",
+    "US/Hawaii",
+];
+
+const formatDateInTimeZone = (date: Date, timeZone: string): string => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).formatToParts(date);
+    const year = parts.find((part) => part.type === "year")?.value || "1970";
+    const month = parts.find((part) => part.type === "month")?.value || "01";
+    const day = parts.find((part) => part.type === "day")?.value || "01";
+    return `${year}-${month}-${day}`;
+};
+
+const supportedTimeZones = (): string[] => {
+    const fromRuntime = typeof (Intl as any).supportedValuesOf === "function"
+        ? (Intl as any).supportedValuesOf("timeZone")
+        : [];
+    const zones = new Set<string>([...fromRuntime, ...COMMON_TIME_ZONE_ALIASES]);
+    return Array.from(zones).filter((timeZone) => {
+        try {
+            formatDateInTimeZone(new Date(), timeZone);
+            return true;
+        } catch {
+            return false;
+        }
+    });
+};
+
+const buildLocalTodayDateFilter = (dateColumn: string, timeZoneColumn: string, prefix: string) => {
+    const now = new Date();
+    const fallbackTimeZone = DEFAULT_LOCAL_TIME_ZONE;
+    const knownTimeZones = supportedTimeZones();
+    const groups = new Map<string, string[]>();
+    for (const timeZone of knownTimeZones) {
+        const dateKey = formatDateInTimeZone(now, timeZone);
+        const zones = groups.get(dateKey) || [];
+        zones.push(timeZone);
+        groups.set(dateKey, zones);
+    }
+
+    const params: Record<string, any> = {
+        [`${prefix}KnownTimeZones`]: knownTimeZones,
+        [`${prefix}FallbackDate`]: formatDateInTimeZone(now, fallbackTimeZone),
+    };
+    const clauses: string[] = [];
+    let index = 0;
+    for (const [dateKey, zones] of groups.entries()) {
+        const dateParam = `${prefix}Date${index}`;
+        const zonesParam = `${prefix}Zones${index}`;
+        params[dateParam] = dateKey;
+        params[zonesParam] = zones;
+        clauses.push(`(${timeZoneColumn} IN (:...${zonesParam}) AND ${dateColumn} = :${dateParam})`);
+        index += 1;
+    }
+
+    if (!knownTimeZones.length) {
+        return { condition: `${dateColumn} = :${prefix}FallbackDate`, params };
+    }
+
+    clauses.push(
+        `((NULLIF(${timeZoneColumn}, '') IS NULL OR ${timeZoneColumn} NOT IN (:...${prefix}KnownTimeZones)) AND ${dateColumn} = :${prefix}FallbackDate)`
+    );
+
+    return { condition: `(${clauses.join(" OR ")})`, params };
+};
+
 export class InboxService {
     /** 5-minute cache for the filter dropdown options (see getFilterOptions). */
     private static filterOptionsCache: { at: number; channels: string[]; repliedByUsers: string[] } | null = null;
@@ -869,15 +946,12 @@ export class InboxService {
             qb.andWhere("c.unread = 1");
         }
 
-        // Day filters. "Today" is the portfolio's local day (guests check in on
-        // Chicago time), not UTC — otherwise the filter flips a day early each evening.
-        const today = new Intl.DateTimeFormat("en-CA", {
-            timeZone: process.env.PORTFOLIO_TIMEZONE || "America/Chicago",
-        }).format(new Date());
         if (options.arrival === "checkin_today") {
-            qb.andWhere("c.checkin = :today", { today });
+            const localToday = buildLocalTodayDateFilter("c.checkin", "l.timeZoneName", "checkinToday");
+            qb.andWhere(localToday.condition, localToday.params);
         } else if (options.arrival === "checkout_today") {
-            qb.andWhere("c.checkout = :today", { today });
+            const localToday = buildLocalTodayDateFilter("c.checkout", "l.timeZoneName", "checkoutToday");
+            qb.andWhere(localToday.condition, localToday.params);
         }
         if (options.checkinFrom) qb.andWhere("c.checkin >= :cf", { cf: options.checkinFrom });
         if (options.checkinTo) qb.andWhere("c.checkin <= :ct", { ct: options.checkinTo });
@@ -911,6 +985,9 @@ export class InboxService {
         }
 
         const stayTiming = String(options.stayTiming || "").toLowerCase();
+        const today = new Intl.DateTimeFormat("en-CA", {
+            timeZone: process.env.PORTFOLIO_TIMEZONE || "America/Chicago",
+        }).format(new Date());
         if (stayTiming === "future") {
             qb.andWhere("c.checkin > :today", { today });
         } else if (stayTiming === "ongoing") {

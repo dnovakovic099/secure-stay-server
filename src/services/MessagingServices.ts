@@ -156,21 +156,22 @@ export class MessagingService {
         return "Ongoing";
     }
 
-    // CI Today / CO Today are intentionally evaluated in New York time, regardless of
-    // the property's local timezone. This gives a single, consistent "today" reference
-    // for the operations team.
-    private isCheckInToday(arrivalDate?: any) {
+    // CI Today / CO Today are evaluated in the reservation property's local
+    // timezone so relative day chips match the guest/stay calendar.
+    private isCheckInToday(arrivalDate?: any, timeZone?: string | null) {
         const arrival = this.normalizeDateKey(arrivalDate);
         if (!arrival) return false;
-        const todayNy = this.getTimeZoneParts(new Date(), "America/New_York").dateKey;
-        return todayNy === arrival;
+        const tz = this.isValidTimeZone(timeZone) ? String(timeZone) : "America/New_York";
+        const todayLocal = this.getTimeZoneParts(new Date(), tz).dateKey;
+        return todayLocal === arrival;
     }
 
-    private isCheckOutToday(departureDate?: any) {
+    private isCheckOutToday(departureDate?: any, timeZone?: string | null) {
         const departure = this.normalizeDateKey(departureDate);
         if (!departure) return false;
-        const todayNy = this.getTimeZoneParts(new Date(), "America/New_York").dateKey;
-        return todayNy === departure;
+        const tz = this.isValidTimeZone(timeZone) ? String(timeZone) : "America/New_York";
+        const todayLocal = this.getTimeZoneParts(new Date(), tz).dateKey;
+        return todayLocal === departure;
     }
 
     private getLastMessageFrom(thread: any) {
@@ -479,8 +480,8 @@ export class MessagingService {
                     reservation?.checkInTime ?? listing?.checkInTimeStart ?? checkInTimeLocal,
                     reservation?.checkOutTime ?? listing?.checkOutTime ?? checkOutTimeLocal,
                 ),
-                ci_today: this.isCheckInToday(arrivalDate),
-                co_today: this.isCheckOutToday(departureDate),
+                ci_today: this.isCheckInToday(arrivalDate, timeZoneIdentifier),
+                co_today: this.isCheckOutToday(departureDate, timeZoneIdentifier),
                 last_message_from: this.getLastMessageFrom(thread),
                 currently_hosting: this.isCurrentlyHosting({
                     arrivalDate,
@@ -1313,6 +1314,8 @@ export class MessagingService {
             arrivalDate,
             departureDate,
             stayTiming: this.getStayTiming(arrivalDate, departureDate, timeZoneIdentifier),
+            ciToday: this.isCheckInToday(arrivalDate, timeZoneIdentifier),
+            coToday: this.isCheckOutToday(departureDate, timeZoneIdentifier),
             // Confirmation code lands on the reservation row once the booking
             // is confirmed and our nightly sync runs; last-minute bookings
             // usually predate the sync — surface Hostify's copy in the meantime.
@@ -1343,6 +1346,7 @@ export class MessagingService {
                 reservation.owner_revenue ??
                 null,
             nightRate: liveReservation?.price_per_night ?? liveReservation?.base_price ?? null,
+            price_per_night: liveReservation?.price_per_night ?? null,
             // reservation.base_price only gets populated on records synced *after* the
             // 20260705_add_base_price_to_reservation_info migration; for older rows the
             // column is still NULL in the DB. Fall back to the live Hostify value so the
@@ -1350,6 +1354,13 @@ export class MessagingService {
             base_price: reservation.base_price ?? liveReservation?.base_price ?? null,
             cleaningFee: liveReservation?.cleaning_fee ?? reservation.cleaningFee ?? null,
             channelCommission: liveReservation?.channel_commission ?? reservation.channelCommissionAmount ?? null,
+            cleaning_fee: liveReservation?.cleaning_fee ?? reservation.cleaningFee ?? null,
+            channel_commission: liveReservation?.channel_commission ?? reservation.channelCommissionAmount ?? null,
+            service_charge: liveReservation?.service_charge ?? null,
+            tax_amount: liveReservation?.tax_amount ?? reservation.taxAmount ?? null,
+            transaction_fee: liveReservation?.transaction_fee ?? null,
+            subtotal: liveReservation?.subtotal ?? null,
+            payout_price: liveReservation?.payout_price ?? reservation.payoutPrice ?? null,
             confirmedAt: liveReservation?.confirmed_at ?? (reservation as any).confirmedAt ?? (reservation as any).reservationDate ?? null,
             plannedArrival: liveReservation?.planned_arrival ?? null,
             plannedDeparture: liveReservation?.planned_departure ?? null,

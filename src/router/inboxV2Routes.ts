@@ -79,6 +79,7 @@ router.post("/auto-messages/run", verifySession, autoMessageController.runNow);
 // Learning prompts (bot-raised knowledge-gap questions for staff to answer)
 router.get("/conversations/:threadId/learning-prompt", verifySession, inboxV2Controller.getLearningPrompt);
 router.post("/learning-prompt/:id/answer", verifySession, inboxV2Controller.answerLearningPrompt);
+router.post("/learning-prompt/:id/recommend-answer", verifySession, inboxV2Controller.recommendLearningPromptAnswer);
 router.post("/learning-prompt/:id/dismiss", verifySession, inboxV2Controller.dismissLearningPrompt);
 
 export default router;
