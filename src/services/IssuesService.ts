@@ -27,6 +27,8 @@ import logger from "../utils/logger.utils";
 import { format } from "date-fns";
 import axios from "axios";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
+import { AIDetectedItemEntity } from "../entity/AIDetectedItem";
+import { InboxConversationEntity } from "../entity/InboxConversation";
 import OpenAI from "openai";
 import { Employee } from "../entity/Employee";
 import updateSlackMessage from "../utils/updateSlackMsg";
@@ -1359,6 +1361,7 @@ export class IssuesService {
     }
 
     const [issues, total] = await this.issueRepo.findAndCount(queryOptions);
+    await this.enrichHostifyReservationIds(issues);
 
     return {
       data: issues,
@@ -1369,6 +1372,70 @@ export class IssuesService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  /**
+   * AI-created tickets store the `reservation_id` value that was current on
+   * the inbox conversation at ticket-creation time. Hostify can later update
+   * that thread's `reservationId` — e.g. when a cohost integration is replaced
+   * by the main host account — and the ticket's stored id becomes stale. That
+   * causes the "Guest" hyperlink on the Guest Issues page to open the wrong
+   * (cohost) reservation while the Inbox v2 side panel, which reads the
+   * conversation live, opens the correct (main-host) one.
+   *
+   * This helper enriches each AI-linked issue with a `hostifyReservationId`
+   * that reflects the current, live conversation value. Frontend prefers this
+   * over the stored `reservation_id` for external Hostify links. Two batched
+   * DB queries regardless of issue count. No-op for issues without an
+   * `aiSourceRef` pointing at ai_detected_items.
+   */
+  private async enrichHostifyReservationIds(issues: Issue[]): Promise<void> {
+    if (!issues?.length) return;
+
+    const detectedIdByIssue = new Map<number, number>();
+    for (const issue of issues) {
+      const ref = String((issue as any).aiSourceRef || "");
+      if (!ref.startsWith("ai_detected_items:")) continue;
+      const id = Number(ref.split(":")[1]);
+      if (Number.isFinite(id)) detectedIdByIssue.set(issue.id, id);
+    }
+    if (!detectedIdByIssue.size) return;
+
+    const detectedIds = Array.from(new Set(detectedIdByIssue.values()));
+    const detectedItems = await appDatabase
+      .getRepository(AIDetectedItemEntity)
+      .find({ where: { id: In(detectedIds) } })
+      .catch(() => [] as AIDetectedItemEntity[]);
+
+    const threadIdByDetected = new Map<number, number>();
+    for (const d of detectedItems) {
+      if (d.threadId != null) threadIdByDetected.set(d.id, Number(d.threadId));
+    }
+    const threadIds = Array.from(new Set(threadIdByDetected.values()));
+    if (!threadIds.length) return;
+
+    const conversations = await appDatabase
+      .getRepository(InboxConversationEntity)
+      .find({ where: { threadId: In(threadIds) } })
+      .catch(() => [] as InboxConversationEntity[]);
+
+    const reservationIdByThread = new Map<number, number>();
+    for (const c of conversations) {
+      if (c.reservationId != null) {
+        reservationIdByThread.set(Number(c.threadId), Number(c.reservationId));
+      }
+    }
+
+    for (const issue of issues) {
+      const detectedId = detectedIdByIssue.get(issue.id);
+      if (detectedId == null) continue;
+      const threadId = threadIdByDetected.get(detectedId);
+      if (threadId == null) continue;
+      const currentResId = reservationIdByThread.get(threadId);
+      if (currentResId != null) {
+        (issue as any).hostifyReservationId = String(currentResId);
+      }
+    }
   }
 
   async updateIssue(
@@ -1891,6 +1958,7 @@ export class IssuesService {
     if (!issue) {
       throw new Error("Issue not found");
     }
+    await this.enrichHostifyReservationIds([issue]);
     return issue;
   }
 
