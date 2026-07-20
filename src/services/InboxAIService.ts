@@ -23,6 +23,19 @@ import { ExemplarService } from "./ExemplarService";
 import { RetrievalService } from "./RetrievalService";
 import { Hostify } from "../client/Hostify";
 import sendSlackMessage from "../utils/sendSlackMsg";
+import {
+    FactLedger,
+    hardFactSystemAddendum,
+    restructureContextForHardFacts,
+    ungroundedClaims,
+} from "./InboxAIFactLedger";
+import {
+    detectUnsafeAsserts,
+    guestReportsLockout,
+    resolveContestedFacts,
+    stayAllowsAccessCodes,
+} from "./InboxAIContestedFacts";
+import { ListingOpsOverrideService } from "./ListingOpsOverrideService";
 
 /**
  * InboxAIService
@@ -47,7 +60,7 @@ import sendSlackMessage from "../utils/sendSlackMsg";
  * human via the escalation keyword safety net.
  */
 
-export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v6"; // v6: stop portfolio/sibling contamination, deposit+agreement truth, amenity soft claims, calendar price ranges
+export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v7"; // v7: contested-field authority ladder, code/discretionary assert gates, ops overrides — hard-fact ledger still eval-only
 const INBOX_AI_MODEL = process.env.AI_MESSAGING_MODEL || "gpt-4.1";
 
 /** Topics that must always route to a human, regardless of model confidence. */
@@ -407,6 +420,38 @@ export class InboxAIService {
                     .join("; ")}. Confirm it actually happened or rephrase as a commitment.`
             );
         }
+
+        // (b3) Discretionary approval / pre-arrival code asserts — facts may exist
+        //      in systems but must not be stated as decided/shared yet.
+        const stageLine = this.stayStageLine(conversation.checkin, conversation.checkout);
+        const codesAllowed =
+            stayAllowsAccessCodes(stageLine) || guestReportsLockout(targetMessage?.body || "");
+        const unsafeAsserts = detectUnsafeAsserts(reply, { codesAllowed });
+        if (unsafeAsserts.length) {
+            warnings.push(
+                `Reply asserts something that must not be stated yet: ${unsafeAsserts.join(", ")}. ` +
+                    `Defer to the team (fee OK for upsells; never approve; never share codes pre-arrival).`
+            );
+            output.escalation_required = true;
+            output.escalation_reason = output.escalation_reason
+                ? `${output.escalation_reason}; unsafe_assert:${unsafeAsserts.join("|")}`
+                : `unsafe_assert:${unsafeAsserts.join("|")}`;
+        }
+        // Contested-field conflict in context + guest asking about those topics.
+        if (
+            /CONFLICT/i.test(context) &&
+            /\b(check[\s-]*out|check[\s-]*in|how many guests|max(?:imum)? guests|sleeps|occupancy)\b/i.test(
+                targetMessage?.body || conversation.lastMessageText || ""
+            )
+        ) {
+            output.escalation_required = true;
+            output.escalation_reason = output.escalation_reason
+                ? `${output.escalation_reason}; contested_field_conflict`
+                : "contested_field_conflict";
+            warnings.push(
+                "Contested listing fact conflict in context — do not assert check-in/out time or capacity; team must confirm."
+            );
+        }
         output.warnings = warnings;
 
         // (c) Calibrate confidence down when the reply is risky or under-informed.
@@ -417,6 +462,7 @@ export class InboxAIService {
         if (confidencePct != null) {
             if (leaks.length) confidencePct = Math.min(confidencePct, 30);
             if (actionClaims.length) confidencePct = Math.min(confidencePct, 35);
+            if (unsafeAsserts.length) confidencePct = Math.min(confidencePct, 30);
             if (output.escalation_required) confidencePct = Math.min(confidencePct, 45);
             else if (warnings.length) confidencePct = Math.min(confidencePct, 60);
             if (noPendingQuestion && !instructions) confidencePct = Math.min(confidencePct, 30);
@@ -699,6 +745,115 @@ export class InboxAIService {
             if (num && !haystack.includes(num)) leaks.push(tok);
         }
         return { output, context, leaks };
+    }
+
+    /**
+     * Offline replay: generate a draft for a historical wrong_info case WITHOUT
+     * persisting. Caller must pass messages already cut at the target guest ask
+     * (nothing after). mode=baseline uses current production context; mode=hard_fact
+     * restructures into HARD/SOFT + claim-gates + HARD-only verifier context.
+     */
+    async generateReplayDraft(params: {
+        conversation: InboxConversationEntity;
+        messagesThroughTarget: InboxMessageEntity[];
+        targetMessage: InboxMessageEntity | null;
+        mode: "baseline" | "hard_fact";
+    }): Promise<{
+        reply: string;
+        confidence: number | null;
+        verifierConfidence: number | null;
+        escalationRequired: boolean;
+        escalationReason: string | null;
+        warnings: string[];
+        ungrounded: string[];
+        mode: "baseline" | "hard_fact";
+        promptVersion: string;
+    }> {
+        const { conversation, messagesThroughTarget: messages, targetMessage, mode } = params;
+        const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
+        let flatContext = await this.buildContext(conversation, messages, targetMessage, {});
+        let ledger = new FactLedger();
+        let verifierContext = flatContext;
+        let context = flatContext;
+        if (mode === "hard_fact") {
+            const rebuilt = restructureContextForHardFacts(flatContext);
+            context = rebuilt.prompt;
+            ledger = rebuilt.ledger;
+            verifierContext = rebuilt.verifierContext;
+        }
+
+        const keywordEscalation = this.scanForEscalation(targetMessage?.body || conversation.lastMessageText || "");
+        const inquirySales =
+            InboxAIService.isInquiryStatus(conversation.reservationStatus) &&
+            !this.isAirbnbSupportThread(conversation, messages);
+
+        let system = this.systemPrompt(settings, {
+            airbnbSupport: this.isAirbnbSupportThread(conversation, messages),
+            inquirySales,
+        });
+        if (mode === "hard_fact") system += hardFactSystemAddendum();
+
+        const client = this.getClient();
+        const completion = await client.chat.completions.create({
+            model: INBOX_AI_MODEL,
+            temperature: 0.4,
+            response_format: { type: "json_object" },
+            messages: [
+                { role: "system", content: system },
+                { role: "user", content: context },
+            ],
+        });
+        const raw = completion.choices[0]?.message?.content?.trim() || "";
+        const output = this.parseModelOutput(raw);
+
+        if (keywordEscalation) {
+            output.escalation_required = true;
+            output.escalation_reason = output.escalation_reason
+                ? `${output.escalation_reason}; ${keywordEscalation}`
+                : keywordEscalation;
+        }
+
+        const warnings: string[] = Array.isArray(output.warnings) ? [...output.warnings] : [];
+        const reply = output.suggested_reply || "";
+        const ungrounded =
+            mode === "hard_fact" ? ungroundedClaims(reply, ledger).map((c) => `${c.type}:${c.raw}`) : [];
+        if (ungrounded.length) {
+            warnings.push(`Ungrounded HARD-fact claims: ${ungrounded.join("; ")}`);
+            output.escalation_required = true;
+            output.escalation_reason = output.escalation_reason
+                ? `${output.escalation_reason}; ungrounded_claim`
+                : `ungrounded_claim: ${ungrounded.slice(0, 3).join("; ")}`;
+        }
+
+        let confidencePct =
+            typeof output.confidence === "number" && Number.isFinite(output.confidence)
+                ? Math.max(0, Math.min(100, Math.round(output.confidence * 100)))
+                : null;
+        if (confidencePct != null) {
+            if (ungrounded.length) confidencePct = Math.min(confidencePct, 30);
+            if (output.escalation_required) confidencePct = Math.min(confidencePct, 45);
+            else if (warnings.length) confidencePct = Math.min(confidencePct, 60);
+        }
+
+        let verifier: { confidence: number; note: string | null } | null = null;
+        if (process.env.AI_REPLAY_SKIP_VERIFIER !== "1") {
+            verifier = await Promise.race([
+                this.runReplyVerifier({ context: verifierContext, reply }),
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
+            ]);
+        }
+
+        return {
+            reply,
+            confidence: confidencePct,
+            verifierConfidence: verifier?.confidence ?? null,
+            escalationRequired: !!output.escalation_required,
+            escalationReason: output.escalation_reason ? String(output.escalation_reason).slice(0, 500) : null,
+            warnings,
+            ungrounded,
+            mode,
+            promptVersion: mode === "hard_fact" ? "inbox-ai-hard-fact-eval" : INBOX_AI_PROMPT_VERSION,
+        };
     }
 
     /**
@@ -1373,6 +1528,16 @@ export class InboxAIService {
                     .join("; ")}. Confirm it actually happened or rephrase as a commitment.`
             );
         }
+        // Quo rows lack stay dates here — only allow codes on explicit lockout reports.
+        const quoCodesAllowed = guestReportsLockout(target.body || "");
+        const quoUnsafe = detectUnsafeAsserts(reply, { codesAllowed: quoCodesAllowed });
+        if (quoUnsafe.length) {
+            warnings.push(`Reply asserts something that must not be stated yet: ${quoUnsafe.join(", ")}.`);
+            output.escalation_required = true;
+            output.escalation_reason = output.escalation_reason
+                ? `${output.escalation_reason}; unsafe_assert:${quoUnsafe.join("|")}`
+                : `unsafe_assert:${quoUnsafe.join("|")}`;
+        }
 
         let confidencePct =
             typeof output.confidence === "number" && Number.isFinite(output.confidence)
@@ -1381,6 +1546,7 @@ export class InboxAIService {
         if (confidencePct != null) {
             if (leaks.length) confidencePct = Math.min(confidencePct, 30);
             if (actionClaims.length) confidencePct = Math.min(confidencePct, 35);
+            if (quoUnsafe.length) confidencePct = Math.min(confidencePct, 30);
             if (output.escalation_required) confidencePct = Math.min(confidencePct, 45);
             else if (warnings.length) confidencePct = Math.min(confidencePct, 60);
         }
@@ -2374,7 +2540,9 @@ export class InboxAIService {
             "- NEVER claim an action has already been completed, approved, scheduled, blocked, or refunded unless the provided context or an earlier TEAM message explicitly confirms it happened. When someone asks you to change something, acknowledge and COMMIT ('I'll have the team get that blocked and confirm shortly') — never pretend it's done. 'I've blocked those dates' or 'you're all set' with no confirmation is the most damaging mistake you can make.",
             "- NEVER quote a specific fee or price that does not appear in the provided context — not even a plausible-sounding one. If the amount isn't in context, say the team will confirm the exact cost.",
             "- NEVER promise to send a phone number, email address, or any personal contact info — you don't have one. Keep the conversation in this thread.",
-            "- DISCRETIONARY REQUESTS — late checkout, early check-in, group-size changes, fee waivers: these are decided per-situation by the team based on same-day cleaning and occupancy YOU CANNOT SEE. Never approve, decline, or say 'that should be fine' yourself. If the context shows a documented fee/policy you may state it ('early check-in is available for $X when the schedule allows'), but the final yes/no always comes from the team: acknowledge warmly, say you'll check with the team and confirm, and set escalation_required=true. Only skip escalation when a TEAM message in THIS thread already decided this exact request.",
+            "- DISCRETIONARY REQUESTS — late checkout, early check-in, extensions, group-size changes, fee waivers: decided per-situation by the team. You MAY quote a listed FEE from Available paid services. You must NEVER say it is possible/approved/arranged/'should be fine'. Always: acknowledge → fee if listed → team must confirm → escalation_required=true. Only skip when a TEAM message in THIS thread already decided this exact request.",
+            "- ACCESS CODES: only share when the Door access block contains live codes (check-in day / mid-stay / lockout). If the policy block says codes go out on arrival day, do NOT share or invent any code.",
+            "- CONTESTED FACTS: when the Contested listing facts section marks CONFLICT for checkout/check-in/capacity, do NOT pick a time or max-guest number — escalate for the team to confirm.",
             "- Do NOT invent physical features or capacities. In particular, never name a parking type (garage, driveway, carport, lot) or a specific number of cars/vehicles unless that detail appears in the provided context. If parking specifics are not in context, describe only what IS known and offer to confirm the rest — do not guess.",
             "- AMENITIES: A platform 'Amenities' checklist is marketing/listed-on-site data, NOT confirmed on-site inventory. You may say an item is listed for the property, but NEVER invent where it is stored/located (cabinet, drawer, under sink, etc.). If the guest needs to find something and location isn't in a staff-written KB entry, say the team will confirm. Prefer house rules / staff-written KB over amenity checklists when they conflict.",
             "- DEPOSITS & MONEY: Prefer live 'Reservation billing' fields (security_price / deposit_paid) over any learned/portfolio answer. Never assert 'no deposit was collected' from a portfolio/Airbnb rule when this booking's channel or billing block does not clearly support it — if unclear, say the team will check the deposit status and escalate.",
@@ -2957,51 +3125,52 @@ export class InboxAIService {
                 const r = data?.reservation || {};
                 const l = data?.listing || {};
                 if (r && (r.checkIn || r.confirmation_code || r.status)) {
-                    const fmtTime = (t: any): string | null => {
-                        const m = String(t || "").match(/^(\d{1,2}):(\d{2})/);
-                        if (!m) return null;
-                        let h = Number(m[1]);
-                        const ampm = h >= 12 ? "PM" : "AM";
-                        h = h % 12 === 0 ? 12 : h % 12;
-                        return `${h}:${m[2]} ${ampm}`;
-                    };
-                    const shareable: string[] = [];
-                    if (r.confirmation_code) shareable.push(`- Confirmation code: ${r.confirmation_code}`);
-                    if (r.checkIn)
-                        shareable.push(
-                            `- Check-in date: ${r.checkIn}${fmtTime(l.checkin_start) ? ` (from ${fmtTime(l.checkin_start)})` : ""}`
-                        );
-                    if (r.checkOut)
-                        shareable.push(
-                            `- Check-out date: ${r.checkOut}${fmtTime(l.checkout) ? ` (by ${fmtTime(l.checkout)})` : ""}`
-                        );
-                    const stay: string[] = [];
-                    if (r.nights != null) stay.push(`${r.nights} night(s)`);
-                    if (r.guests != null) stay.push(`${r.guests} guest(s)`);
-                    if (stay.length) shareable.push(`- Length of stay: ${stay.join(", ")}`);
-                    const party: string[] = [];
-                    if (r.adults != null && Number(r.adults) > 0) party.push(`${r.adults} adult(s)`);
-                    if (r.children != null && Number(r.children) > 0) party.push(`${r.children} child(ren)`);
-                    if (r.infants != null && Number(r.infants) > 0) party.push(`${r.infants} infant(s)`);
-                    if (r.pets != null) party.push(Number(r.pets) > 0 ? `${r.pets} pet(s)` : "no pets registered");
-                    if (party.length) shareable.push(`- Party details: ${party.join(", ")}`);
-                    if (r.status_description || r.status)
-                        shareable.push(`- Reservation status: ${r.status_description || r.status}`);
-                    const cancelPolicyName =
-                        r.cancellation_policy || l.cancellation_policy || l.cancel_policy || null;
-                    if (cancelPolicyName) shareable.push(`- Cancellation policy: ${cancelPolicyName}`);
-                    // Hostify pre-check-in is NOT the rental agreement. Label it
-                    // explicitly so the model stops substituting it for CA links.
-                    if (r.hostify_checkin_form_link && String(r.hostify_checkin_form_link).startsWith("http")) {
-                        shareable.push(
-                            Number(r.pre_check_in_completed) === 1 || Number(r.hostify_checkin_form_completed) === 1
-                                ? "- Hostify pre-check-in form: already completed by the guest."
-                                : `- Hostify pre-check-in form link (arrival questionnaire ONLY — NOT the rental agreement / deposit authorization; do NOT send this when the guest asks for the rental agreement): ${r.hostify_checkin_form_link}`
-                        );
-                    }
+                const shareable: string[] = [];
+                if (r.confirmation_code) shareable.push(`- Confirmation code: ${r.confirmation_code}`);
+                // Dates only here — check-in/out CLOCK times come from the contested
+                // authority ladder (staff/ops beat Hostify listing times).
+                if (r.checkIn) shareable.push(`- Check-in date: ${r.checkIn}`);
+                if (r.checkOut) shareable.push(`- Check-out date: ${r.checkOut}`);
+                const stay: string[] = [];
+                if (r.nights != null) stay.push(`${r.nights} night(s)`);
+                if (r.guests != null) stay.push(`${r.guests} guest(s)`);
+                if (stay.length) shareable.push(`- Length of stay: ${stay.join(", ")}`);
+                const party: string[] = [];
+                if (r.adults != null && Number(r.adults) > 0) party.push(`${r.adults} adult(s)`);
+                if (r.children != null && Number(r.children) > 0) party.push(`${r.children} child(ren)`);
+                if (r.infants != null && Number(r.infants) > 0) party.push(`${r.infants} infant(s)`);
+                if (r.pets != null) party.push(Number(r.pets) > 0 ? `${r.pets} pet(s)` : "no pets registered");
+                if (party.length) shareable.push(`- Party details: ${party.join(", ")}`);
+                if (r.status_description || r.status)
+                    shareable.push(`- Reservation status: ${r.status_description || r.status}`);
+                const cancelPolicyName =
+                    r.cancellation_policy || l.cancellation_policy || l.cancel_policy || null;
+                if (cancelPolicyName) shareable.push(`- Cancellation policy: ${cancelPolicyName}`);
+                // Hostify pre-check-in is NOT the rental agreement. Label it
+                // explicitly so the model stops substituting it for CA links.
+                if (r.hostify_checkin_form_link && String(r.hostify_checkin_form_link).startsWith("http")) {
+                    shareable.push(
+                        Number(r.pre_check_in_completed) === 1 || Number(r.hostify_checkin_form_completed) === 1
+                            ? "- Hostify pre-check-in form: already completed by the guest."
+                            : `- Hostify pre-check-in form link (arrival questionnaire ONLY — NOT the rental agreement / deposit authorization; do NOT send this when the guest asks for the rental agreement): ${r.hostify_checkin_form_link}`
+                    );
+                }
 
-                    const staff: string[] = [];
-                    const nonRefundable = Number(l.non_refundable_factor) >= 1;
+                const staff: string[] = [];
+                // Ops-truth: platform "accepted/confirmed" with unpaid/partial balance
+                // must not be sold to the guest as fully confirmed.
+                const paidPart = String(r.paid_part || "").toLowerCase();
+                const dueAmt = r.due != null ? Number(r.due) : 0;
+                const statusBlob = `${r.status_description || ""} ${r.status || ""}`.toLowerCase();
+                const looksBooked = /\b(accepted|confirmed|modified|checked.?in)\b/.test(statusBlob);
+                if (looksBooked && (paidPart === "none" || (Number.isFinite(dueAmt) && dueAmt > 0))) {
+                    staff.push(
+                        "- PAYMENT RISK (ops truth): booking status looks accepted/confirmed but payment is incomplete " +
+                            `(paid_part=${paidPart || "unknown"}${Number.isFinite(dueAmt) && dueAmt > 0 ? `, due=${dueAmt}` : ""}). ` +
+                            "Do NOT tell the guest they are fully confirmed/paid or 'all set' on payment — escalate payment questions to the team."
+                    );
+                }
+                const nonRefundable = Number(l.non_refundable_factor) >= 1;
                     staff.push(
                         nonRefundable
                             ? "- Rate type: NON-REFUNDABLE rate plan (the guest booked a non-refundable rate)."
@@ -3115,9 +3284,27 @@ export class InboxAIService {
      * inquiries. Coverage is partial (smart locks aren't on every property),
      * but when a row exists it is the exact live code.
      */
-    private async buildAccessBlock(conversation: InboxConversationEntity): Promise<string | null> {
+    private async buildAccessBlock(
+        conversation: InboxConversationEntity,
+        guestText: string = ""
+    ): Promise<string | null> {
         const resvId = conversation.reservationId ? Number(conversation.reservationId) : null;
         if (!resvId || InboxAIService.isInquiryStatus(conversation.reservationStatus)) return null;
+
+        const stage = this.stayStageLine(conversation.checkin, conversation.checkout);
+        const codesAllowed = stayAllowsAccessCodes(stage) || guestReportsLockout(guestText);
+
+        // Pre-arrival: never put live codes in the prompt (model will leak them).
+        if (!codesAllowed) {
+            return [
+                "## Door access policy (pre-arrival — codes NOT shareable yet)",
+                "- Access codes go out the morning of check-in / at arrival.",
+                "- Do NOT share, invent, or hint at any door/lock/gate code before then.",
+                "- If the guest asks early, say the code will be sent on check-in day.",
+                "- Exception already handled separately: only if they report being locked out / code not working on arrival day.",
+            ].join("\n");
+        }
+
         const rows: any[] = await appDatabase
             .query(
                 `SELECT ac.code, ac.code_name, d.device_name, d.location_name
@@ -3128,15 +3315,18 @@ export class InboxAIService {
                 [resvId]
             )
             .catch(() => []);
-        if (!rows.length) return null;
-        const out = ["## Door access for THIS stay (live code programmed on the smart lock — accurate)"];
+        if (!rows.length) {
+            return [
+                "## Door access (check-in/mid-stay)",
+                "- No programmed code is on file yet. Do NOT invent one — say the team will send access details shortly.",
+            ].join("\n");
+        }
+        const out = ["## Door access for THIS stay (live code — shareable because check-in day / mid-stay / lockout)"];
         for (const r of rows) {
             const where = [r.device_name, r.location_name].filter(Boolean).join(", ");
             out.push(`- Code: ${r.code}${where ? ` (${where})` : ""}${r.code_name ? ` — ${r.code_name}` : ""}`);
         }
-        out.push(
-            "You MAY give this code to the booked guest when they ask for access details or say their code isn't working. Don't volunteer it long before check-in unless asked."
-        );
+        out.push("You MAY give this code to the booked guest when they ask for access.");
         return out.join("\n");
     }
 
@@ -3263,9 +3453,9 @@ export class InboxAIService {
 
         if (!out.length) return null;
         return [
-            "## Internal operations in progress (STAFF-ONLY — real work our team already has open for THIS guest/reservation. " +
-                "Align your reply with it: reference ongoing work naturally ('our team is on it / will reach out'), " +
-                "don't offer to 'check' something already in motion, and never quote internal wording, names, or prices verbatim)",
+            "## Internal operations in progress (STAFF-ONLY — open work for THIS reservation only. " +
+                "You may say the team will follow up. You may NOT claim completion, delivery ETAs, or that something is already arranged " +
+                "unless the task text explicitly says so. Never invent on-site presence. Never quote internal wording/names/prices.)",
             ...out,
         ].join("\n");
     }
@@ -3393,10 +3583,22 @@ export class InboxAIService {
                     else if (agg.anyFee == null) agg.anyFee = fee;
                 }
             }
+            // Staff fee overrides / quarantine (listing_ops_overrides).
+            const feeOverrides = await new ListingOpsOverrideService().getForListings(listingIds);
+            const earlyOv = feeOverrides.find((o) => o.field === "early_checkin_fee");
+            const lateOv = feeOverrides.find((o) => o.field === "late_checkout_fee");
+
             const items = [...byUpsell.values()]
                 .map((r) => {
                     if (!r.title) return null;
-                    const fee = r.preferredFee ?? r.anyFee ?? (r.basePrice > 0 ? r.basePrice : 0);
+                    const titleLower = r.title.toLowerCase();
+                    const isEarly = /early/.test(titleLower) && /check/.test(titleLower);
+                    const isLate = /late/.test(titleLower) && /check/.test(titleLower);
+                    if (isEarly && earlyOv?.status === "quarantined") return null;
+                    if (isLate && lateOv?.status === "quarantined") return null;
+                    let fee = r.preferredFee ?? r.anyFee ?? (r.basePrice > 0 ? r.basePrice : 0);
+                    if (isEarly && earlyOv?.status === "active" && earlyOv.value) fee = Number(earlyOv.value) || fee;
+                    if (isLate && lateOv?.status === "active" && lateOv.value) fee = Number(lateOv.value) || fee;
                     const bits: string[] = [];
                     if (fee > 0) bits.push(`$${fee.toFixed(2)}${r.timePeriod ? ` ${String(r.timePeriod).toLowerCase()}` : ""}`);
                     else bits.push("price on request");
@@ -3408,8 +3610,11 @@ export class InboxAIService {
                 .filter(Boolean) as string[];
             if (!items.length) return null;
             return [
-                "## Available paid services for this property (the ONLY add-ons we offer here; " +
-                    "state the price when the guest asks, subject to availability/confirmation — never discount)",
+                "## Available paid services (FEE ONLY — never approve/decline)",
+                "These lines are PRICE LIST facts only. For early check-in, late checkout, or stay extensions:",
+                "- You MAY state the listed fee when asked.",
+                "- You must NOT say it is possible, approved, arranged, or 'should be fine'.",
+                "- Always: acknowledge → quote fee if listed → say the team must confirm based on cleaning/occupancy → escalation_required=true.",
                 ...items,
             ].join("\n");
         } catch {
@@ -3454,12 +3659,10 @@ export class InboxAIService {
             /* non-fatal */
         }
 
-        // Smart-lock door code programmed for this exact stay. The July 16
-        // audit's worst wrong_info miss was the bot INVENTING an access code
-        // ("last four digits of your phone number") while real codes sat in
-        // access_codes untouched.
+        // Smart-lock door codes — only injected on check-in day / mid-stay / lockout.
         if (includeKnowledge) try {
-            const access = await this.buildAccessBlock(conversation);
+            const guestForAccess = (targetMessage?.body || conversation.lastMessageText || "").toString();
+            const access = await this.buildAccessBlock(conversation, guestForAccess);
             if (access) {
                 lines.push("");
                 lines.push(access);
@@ -3519,45 +3722,43 @@ export class InboxAIService {
             /* non-fatal */
         }
 
-        // Best-effort listing profile from the local listing record: times, size,
-        // capacity, location and standard fees. The team flagged the bot "doesn't
-        // use listing details like address, bedrooms, baths, fees" — this block is
-        // what grounds those answers.
+        // Contested facts (checkout/check-in times, capacity): staff/ops beat PMS.
+        let contestedConflicts = false;
+        if (includeKnowledge) try {
+            const contested = await resolveContestedFacts({
+                listingIds: groupIds,
+                canonicalListingId,
+            });
+            if (contested.promptBlock) {
+                lines.push("");
+                lines.push(contested.promptBlock);
+            }
+            contestedConflicts = contested.resolutions.some((r) => r.conflict);
+            if (contestedConflicts) {
+                lines.push(
+                    "- NOTE: because at least one contested field conflicts across sources, set escalation_required=true if the guest asks about check-in/out time or max guests."
+                );
+            }
+        } catch {
+            /* non-fatal */
+        }
+
+        // Listing profile WITHOUT asserting PMS checkout/capacity (those come from
+        // the contested ladder above).
         try {
             const listing = canonicalListingId
                 ? await this.listingRepo.findOne({ where: { id: Number(canonicalListingId) }, withDeleted: true })
                 : null;
             if (listing) {
-                const fmtHour = (v: any): string | null => {
-                    if (v == null || v === "") return null;
-                    let n = Number(v);
-                    if (!Number.isFinite(n)) return null;
-                    if (n > 23) n = Math.floor(n / 100);
-                    if (n < 0 || n > 23) return null;
-                    const ampm = n >= 12 ? "PM" : "AM";
-                    return `${n % 12 === 0 ? 12 : n % 12}:00 ${ampm}`;
-                };
-                const ci = fmtHour((listing as any).checkInTimeStart);
-                const co = fmtHour((listing as any).checkOutTime);
-                const ll: string[] = [];
-                if (ci) ll.push(`check-in from ${ci}`);
-                if (co) ll.push(`check-out by ${co}`);
-                if (ll.length) lines.push(`Listing times: ${ll.join(", ")}`);
-
                 const l: any = listing;
                 const details: string[] = [];
                 const loc = [l.address, l.city, l.state].filter((v: any) => v && String(v).trim() && String(v) !== "(NOT SPECIFIED)");
                 if (loc.length) details.push(`- Location: ${loc.join(", ")}`);
                 if (l.bedroomsNumber != null) details.push(`- Bedrooms: ${l.bedroomsNumber}`);
                 if (l.bathroomsNumber != null) details.push(`- Bathrooms: ${l.bathroomsNumber}`);
-                if (l.personCapacity != null) details.push(`- Max guests: ${l.personCapacity}`);
                 if (l.cleaningFee != null && Number(l.cleaningFee) > 0) details.push(`- Cleaning fee: $${l.cleaningFee}`);
                 if (l.airbnbPetFeeAmount != null && Number(l.airbnbPetFeeAmount) > 0)
                     details.push(`- Pet fee: $${l.airbnbPetFeeAmount}`);
-                // WiFi credentials sat in listing_info for every active listing
-                // while the bot told guests "the team will send the WiFi code"
-                // (July 16 audit, ignored-ask class). Booked guests only — never
-                // hand network credentials to inquiries.
                 const wifiName = String(l.wifiUsername || "").trim();
                 if (wifiName && conversation.reservationId && !InboxAIService.isInquiryStatus(conversation.reservationStatus)) {
                     const wifiPass = String(l.wifiPassword || "").trim();
@@ -3569,7 +3770,7 @@ export class InboxAIService {
                 if (desc) details.push(`- Description: ${desc.slice(0, 900)}`);
                 if (details.length) {
                     lines.push("");
-                    lines.push("## Listing details (from our listing record — you MAY share these with the guest)");
+                    lines.push("## Listing details (non-contested — you MAY share these with the guest)");
                     lines.push(...details);
                 }
             }
