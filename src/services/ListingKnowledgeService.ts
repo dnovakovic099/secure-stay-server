@@ -155,6 +155,12 @@ export class ListingKnowledgeService {
                 // A/C, laundry) still surface.
                 body = extractRelevantSnippet(raw, qTokens, limit);
             }
+            // Platform amenity checklists are marketing lists, not confirmed inventory.
+            if (/^amenities$/i.test(String(e.title || "").trim()) || /^amenities$/i.test(String(e.category || "").trim())) {
+                body =
+                    `[Platform amenity checklist — listed on the booking site, NOT confirmed on-site inventory; ` +
+                    `do NOT invent where items are stored] ${body}`;
+            }
             return `- [${head}] ${body}`;
         };
 

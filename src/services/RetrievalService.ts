@@ -6,6 +6,7 @@ import { ListingKnowledgeEntryEntity } from "../entity/ListingKnowledgeEntry";
 import { EmbeddingService } from "./EmbeddingService";
 import { ExemplarService, focusQuery } from "./ExemplarService";
 import { ListingGroupService } from "./ListingGroupService";
+import { allowPortfolioMemory } from "../utils/aiPortfolioGuards";
 
 export interface RetrievedFact {
     question: string;
@@ -193,7 +194,7 @@ export class RetrievalService {
     async retrieveFacts(
         groupId: number | null | undefined,
         queryText: string,
-        opts: { k?: number; minSim?: number } = {}
+        opts: { k?: number; minSim?: number; channel?: string | null } = {}
     ): Promise<RetrievedFact[]> {
         if (!queryText?.trim()) return [];
         const k = opts.k ?? 6;
@@ -214,6 +215,9 @@ export class RetrievalService {
             }
         }
         for (const r of await this.getPortfolioFacts(blockedIds)) {
+            // Never inject property-scoped / channel-mismatched portfolio facts
+            // (checkout times, deposits, capacity) into unrelated bookings.
+            if (!allowPortfolioMemory(`${r.text} ${r.payload}`, opts.channel)) continue;
             const sim = EmbeddingService.cosine(qv, r.vec);
             if (sim >= Math.max(minSim, 0.45)) scored.push({ question: r.text, answer: r.payload, sim, scope: "portfolio" });
         }
@@ -276,7 +280,10 @@ export class RetrievalService {
             for (const f of prop) lines.push(this.fmt(f));
         }
         if (port.length) {
-            lines.push("PORTFOLIO-WIDE learned answers (apply to all properties):");
+            lines.push(
+                "PORTFOLIO-WIDE learned answers (generic ops ONLY — never use for checkout/check-in times, " +
+                    "guest capacity, deposits/money, amenities, or channel-specific policies; prefer reservation billing + listing details):"
+            );
             for (const f of port) lines.push(this.fmt(f));
         }
         return lines.join("\n");

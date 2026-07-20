@@ -3,6 +3,7 @@ import logger from "../utils/logger.utils";
 import { AIEmbeddingEntity } from "../entity/AIEmbedding";
 import { EmbeddingService, EMBEDDING_MODEL } from "./EmbeddingService";
 import { ListingGroupService } from "./ListingGroupService";
+import { allowPortfolioMemory, isPropertyScopedMemory } from "../utils/aiPortfolioGuards";
 
 export interface Exemplar {
     question: string;
@@ -17,10 +18,6 @@ const norm = (s: string) =>
         .replace(/[^a-z0-9\s]/g, " ")
         .replace(/\s+/g, " ")
         .trim();
-
-/** Details that belong to a single property and must not go portfolio-wide. */
-const PROPERTY_SPECIFIC =
-    /\bgarage|driveway|carport|parking|door\s*code|lock\s*code|gate\s*code|access\s*code|wifi\s*password|password|\baddress\b|\bfloor\b|square\s*feet|sq\s*ft|bedroom|bathroom|\bsleeps\b|\bcode\b|\bkey\b|lockbox|pool\s*heat/i;
 
 /**
  * Strip greetings, guest names, and sign-offs so the embedding focuses on the
@@ -58,7 +55,7 @@ export class ExemplarService {
     async retrieveSimilar(
         groupId: number | null | undefined,
         queryVector: number[],
-        opts: { k?: number; minSim?: number; withPortfolio?: boolean } = {}
+        opts: { k?: number; minSim?: number; withPortfolio?: boolean; channel?: string | null } = {}
     ): Promise<Exemplar[]> {
         if (!queryVector?.length) return [];
         const k = opts.k ?? 4;
@@ -87,10 +84,13 @@ export class ExemplarService {
 
         // Portfolio fallback for generic operational questions when the property
         // itself has little/no matching history (higher similarity bar).
+        // Skip property-scoped / channel-mismatched FAQ that already leaked into
+        // the portfolio index (checkout times, deposits, capacity, etc.).
         if (opts.withPortfolio !== false && out.length < k) {
             const port = await this.getPortfolioFaq();
             const scored: Exemplar[] = [];
             for (const r of port) {
+                if (!allowPortfolioMemory(`${r.text} ${r.payload}`, opts.channel)) continue;
                 const sim = EmbeddingService.cosine(queryVector, r.vec);
                 if (sim >= Math.max(minSim, 0.6)) scored.push({ question: r.text, answer: r.payload, sim, scope: "portfolio" });
             }
@@ -109,7 +109,7 @@ export class ExemplarService {
     async retrieveForQuery(
         groupId: number | null | undefined,
         queryText: string,
-        opts: { k?: number; minSim?: number; withPortfolio?: boolean } = {}
+        opts: { k?: number; minSim?: number; withPortfolio?: boolean; channel?: string | null } = {}
     ): Promise<Exemplar[]> {
         if (!queryText?.trim()) return [];
         const qv = await this.embed.embedOne(focusQuery(queryText));
@@ -249,7 +249,7 @@ export class ExemplarService {
         const byQ = new Map<string, { groups: Set<number>; answer: string; question: string }>();
         for (const p of toEmbed) {
             const qk = norm(p.question).slice(0, 60);
-            if (!qk || PROPERTY_SPECIFIC.test(`${p.question} ${p.answer}`)) continue;
+            if (!qk || isPropertyScopedMemory(`${p.question} ${p.answer}`)) continue;
             if (!byQ.has(qk)) byQ.set(qk, { groups: new Set(), answer: p.answer, question: p.question });
             byQ.get(qk)!.groups.add(Number(p.groupId ?? 0));
         }

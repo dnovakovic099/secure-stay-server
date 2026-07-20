@@ -47,7 +47,7 @@ import sendSlackMessage from "../utils/sendSlackMsg";
  * human via the escalation keyword safety net.
  */
 
-export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v5"; // v5: discretionary-topic deferral, wifi/door-code/check-in-link context, "you're all set" ban
+export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v6"; // v6: stop portfolio/sibling contamination, deposit+agreement truth, amenity soft claims, calendar price ranges
 const INBOX_AI_MODEL = process.env.AI_MESSAGING_MODEL || "gpt-4.1";
 
 /** Topics that must always route to a human, regardless of model confidence. */
@@ -2376,8 +2376,12 @@ export class InboxAIService {
             "- NEVER promise to send a phone number, email address, or any personal contact info — you don't have one. Keep the conversation in this thread.",
             "- DISCRETIONARY REQUESTS — late checkout, early check-in, group-size changes, fee waivers: these are decided per-situation by the team based on same-day cleaning and occupancy YOU CANNOT SEE. Never approve, decline, or say 'that should be fine' yourself. If the context shows a documented fee/policy you may state it ('early check-in is available for $X when the schedule allows'), but the final yes/no always comes from the team: acknowledge warmly, say you'll check with the team and confirm, and set escalation_required=true. Only skip escalation when a TEAM message in THIS thread already decided this exact request.",
             "- Do NOT invent physical features or capacities. In particular, never name a parking type (garage, driveway, carport, lot) or a specific number of cars/vehicles unless that detail appears in the provided context. If parking specifics are not in context, describe only what IS known and offer to confirm the rest — do not guess.",
+            "- AMENITIES: A platform 'Amenities' checklist is marketing/listed-on-site data, NOT confirmed on-site inventory. You may say an item is listed for the property, but NEVER invent where it is stored/located (cabinet, drawer, under sink, etc.). If the guest needs to find something and location isn't in a staff-written KB entry, say the team will confirm. Prefer house rules / staff-written KB over amenity checklists when they conflict.",
+            "- DEPOSITS & MONEY: Prefer live 'Reservation billing' fields (security_price / deposit_paid) over any learned/portfolio answer. Never assert 'no deposit was collected' from a portfolio/Airbnb rule when this booking's channel or billing block does not clearly support it — if unclear, say the team will check the deposit status and escalate.",
+            "- RENTAL AGREEMENT / DEPOSIT AUTHORIZATION LINKS: Only send a ChargeAutomation securelink or a SecureStay rental-agreement link that appears in context (or an earlier TEAM message in THIS thread). NEVER send a Hostify pre-check-in / us.hostify.com/checkin URL as the rental agreement — that is a different form. If the guest needs the agreement and no correct link is in context, say the team will send the secure link.",
+            "- AUTHORITY ORDER when sources conflict: (1) TEAM messages in THIS thread, (2) live reservation billing + listing times/capacity/house rules, (3) property-specific KB/learned facts, (4) proven replies for this property, (5) portfolio answers last and only for generic ops. Never let portfolio override house rules, capacity, checkout time, or deposit facts.",
             "- Earlier TEAM messages in this same thread are authoritative: prefer them, reuse their facts, and NEVER contradict something the team already told this guest.",
-            "- The 'proven replies' section shows how our team answered similar questions for THIS property before. Strongly prefer their facts, specifics, and tone; adapt to the current guest. If they conflict with listing context, trust listing context and the current thread.",
+            "- The 'proven replies' section shows how our team answered similar questions for THIS property before. Strongly prefer their facts, specifics, and tone; adapt to the current guest. If they conflict with listing context (especially house rules / max guests / checkout time), trust listing context and the current thread.",
             "- Answer DIRECTLY and confidently when the context (proven replies, learned answers, listing knowledge, availability, reservation details) already contains the answer. Do NOT default to 'the team will confirm' for information you already have — only defer for things genuinely not in context.",
             "- ANSWER THE QUESTION: never reply with only a generic acknowledgement ('thanks for reaching out', 'let us know if you need anything') when the guest asked a specific question. Address what they actually asked using the context. A generic holding reply is acceptable ONLY when the needed info is truly absent AND you add a warning and keep confidence low.",
             "- PRICING: never offer, promise, negotiate, or imply a discount, deal, coupon, or 'special offer'. If a guest asks for a better/lower price, explain the rate shown reflects current dynamic pricing for those dates; do not invent reductions.",
@@ -2393,6 +2397,7 @@ export class InboxAIService {
             "",
             "AVAILABILITY / EXTENSIONS:",
             "- If a 'Live availability' section is present, it is real calendar data. You MAY state those specific open dates and nightly prices to the guest and answer availability/extension questions directly — do NOT say 'let me check' or 'I'll get back to you' when this data is present.",
+            "- When a date range shows a price band (e.g. ~$40–$55/night), do NOT collapse it to a single number — say rates vary by date in that range, or quote the extension-check night's exact price when present.",
             "- For an extension request, if the relevant night is available, confirm it and its nightly price, then say the team will finalize the booking/charge (you cannot modify the reservation yourself). This does NOT require escalation.",
             "- If the requested night is NOT available per the calendar, tell the guest it's unavailable and, if helpful, mention the nearest open dates.",
             "- If NO 'Live availability' data is present for an extension/date request, do NOT express eagerness that presumes the night is open (avoid 'we'd love to extend your stay!'). Give a neutral reply that you'll confirm availability, keep confidence <= 0.4, and do not imply the night is likely available.",
@@ -2412,9 +2417,9 @@ export class InboxAIService {
             "- Keep the proactive part to 1–2 sentences; never let it crowd out the direct answer.",
             "",
             "INTERNAL OPERATIONS AWARENESS:",
-            "- If an 'Internal operations in progress' section is present, our team already has real work open for this guest (tasks, maintenance, callbacks, payment follow-ups).",
+            "- If an 'Internal operations in progress' section is present, it only includes work tied to THIS guest/reservation — treat it as in-progress for them.",
             "- Align with it: if the guest's message relates to an open item, say the team is already on it and reference the state naturally. Do NOT offer to 'look into' something already in motion, and do NOT restart a process the team has underway.",
-            "- Never reveal internal wording, staff names, vendor names, or internal prices from that section.",
+            "- Never reveal internal wording, staff names, vendor names, or internal prices from that section. Never invent on-site presence (cleaner, vendor) unless the ops block or a TEAM message explicitly says someone is there.",
             "",
             "TEAM FEEDBACK:",
             "- If a 'Team feedback on the AI's past replies' section is present, it is direct instruction from our staff about how your replies should improve (tone, length, wording, things you got wrong).",
@@ -2514,20 +2519,33 @@ export class InboxAIService {
         const currency = (days.find((d: any) => d?.currency)?.currency) || conversation.currency || "USD";
 
         // Collapse consecutive available days into ranges for a tight summary.
-        const ranges: Array<{ from: string; to: string; price: number }> = [];
+        // Track min/max nightly price across the range — quoting only night-1
+        // caused wrong_info misses (AI said ~$40 while later nights were ~$50).
+        const ranges: Array<{ from: string; to: string; minPrice: number; maxPrice: number }> = [];
         for (const d of days) {
             if (!isAvailable(d)) continue;
+            const price = Number(d.price) || 0;
             const last = ranges[ranges.length - 1];
             const prevDate = last ? new Date(last.to) : null;
             const thisDate = new Date(d.date);
             const contiguous =
                 last && prevDate && (thisDate.getTime() - prevDate.getTime()) === 86400000;
-            if (contiguous) {
-                last!.to = d.date;
+            if (contiguous && last) {
+                last.to = d.date;
+                if (price > 0) {
+                    if (!last.minPrice || price < last.minPrice) last.minPrice = price;
+                    if (price > last.maxPrice) last.maxPrice = price;
+                }
             } else {
-                ranges.push({ from: d.date, to: d.date, price: Number(d.price) || 0 });
+                ranges.push({ from: d.date, to: d.date, minPrice: price, maxPrice: price });
             }
         }
+
+        const fmtRangePrice = (r: { minPrice: number; maxPrice: number }): string => {
+            if (!r.minPrice && !r.maxPrice) return "";
+            if (!r.maxPrice || r.minPrice === r.maxPrice) return ` (~${currency} ${r.minPrice}/night)`;
+            return ` (~${currency} ${r.minPrice}–${r.maxPrice}/night, varies by date)`;
+        };
 
         const out: string[] = [];
         if (ranges.length === 0) {
@@ -2536,7 +2554,7 @@ export class InboxAIService {
             out.push("Open date ranges (next 45 days):");
             for (const r of ranges.slice(0, 12)) {
                 const label = r.from === r.to ? r.from : `${r.from} → ${r.to}`;
-                out.push(`- ${label}${r.price ? ` (~${currency} ${r.price}/night)` : ""}`);
+                out.push(`- ${label}${fmtRangePrice(r)}`);
             }
         }
 
@@ -2909,95 +2927,186 @@ export class InboxAIService {
      * code) are separated from staff-only billing/cancellation facts so the
      * model can share the former but only uses the latter to inform its draft.
      */
-    private async buildReservationBlock(conversation: InboxConversationEntity): Promise<string | null> {
+    private extractChargeAutomationLink(messages: InboxMessageEntity[]): string | null {
+        for (let i = messages.length - 1; i >= 0; i--) {
+            const m = messages[i];
+            if (m.direction === "incoming") continue;
+            const body = String(m.body || "");
+            const match = body.match(/https?:\/\/(?:app\.)?chargeautomation\.com\/securelink\/[A-Za-z0-9_-]+/i);
+            if (match) return match[0];
+        }
+        return null;
+    }
+
+    private async buildReservationBlock(
+        conversation: InboxConversationEntity,
+        messages: InboxMessageEntity[] = []
+    ): Promise<string | null> {
         const reservationId = conversation.reservationId ? Number(conversation.reservationId) : null;
         if (!reservationId || !this.hostifyApiKey) return null;
 
+        // Cache Hostify payload only; agreement links from thread messages are
+        // appended after so we don't serve a stale CA link from another pass.
         const cached = InboxAIService.reservationCache.get(reservationId);
-        if (cached && Date.now() - cached.at < 5 * 60 * 1000) return cached.block;
+        let core: string | null = null;
+        if (cached && Date.now() - cached.at < 5 * 60 * 1000) {
+            core = cached.block;
+        } else {
+            try {
+                const data: any = await this.hostify.getReservationInfo(this.hostifyApiKey, reservationId);
+                const r = data?.reservation || {};
+                const l = data?.listing || {};
+                if (r && (r.checkIn || r.confirmation_code || r.status)) {
+                    const fmtTime = (t: any): string | null => {
+                        const m = String(t || "").match(/^(\d{1,2}):(\d{2})/);
+                        if (!m) return null;
+                        let h = Number(m[1]);
+                        const ampm = h >= 12 ? "PM" : "AM";
+                        h = h % 12 === 0 ? 12 : h % 12;
+                        return `${h}:${m[2]} ${ampm}`;
+                    };
+                    const shareable: string[] = [];
+                    if (r.confirmation_code) shareable.push(`- Confirmation code: ${r.confirmation_code}`);
+                    if (r.checkIn)
+                        shareable.push(
+                            `- Check-in date: ${r.checkIn}${fmtTime(l.checkin_start) ? ` (from ${fmtTime(l.checkin_start)})` : ""}`
+                        );
+                    if (r.checkOut)
+                        shareable.push(
+                            `- Check-out date: ${r.checkOut}${fmtTime(l.checkout) ? ` (by ${fmtTime(l.checkout)})` : ""}`
+                        );
+                    const stay: string[] = [];
+                    if (r.nights != null) stay.push(`${r.nights} night(s)`);
+                    if (r.guests != null) stay.push(`${r.guests} guest(s)`);
+                    if (stay.length) shareable.push(`- Length of stay: ${stay.join(", ")}`);
+                    const party: string[] = [];
+                    if (r.adults != null && Number(r.adults) > 0) party.push(`${r.adults} adult(s)`);
+                    if (r.children != null && Number(r.children) > 0) party.push(`${r.children} child(ren)`);
+                    if (r.infants != null && Number(r.infants) > 0) party.push(`${r.infants} infant(s)`);
+                    if (r.pets != null) party.push(Number(r.pets) > 0 ? `${r.pets} pet(s)` : "no pets registered");
+                    if (party.length) shareable.push(`- Party details: ${party.join(", ")}`);
+                    if (r.status_description || r.status)
+                        shareable.push(`- Reservation status: ${r.status_description || r.status}`);
+                    const cancelPolicyName =
+                        r.cancellation_policy || l.cancellation_policy || l.cancel_policy || null;
+                    if (cancelPolicyName) shareable.push(`- Cancellation policy: ${cancelPolicyName}`);
+                    // Hostify pre-check-in is NOT the rental agreement. Label it
+                    // explicitly so the model stops substituting it for CA links.
+                    if (r.hostify_checkin_form_link && String(r.hostify_checkin_form_link).startsWith("http")) {
+                        shareable.push(
+                            Number(r.pre_check_in_completed) === 1 || Number(r.hostify_checkin_form_completed) === 1
+                                ? "- Hostify pre-check-in form: already completed by the guest."
+                                : `- Hostify pre-check-in form link (arrival questionnaire ONLY — NOT the rental agreement / deposit authorization; do NOT send this when the guest asks for the rental agreement): ${r.hostify_checkin_form_link}`
+                        );
+                    }
 
-        let block: string | null = null;
-        try {
-            const data: any = await this.hostify.getReservationInfo(this.hostifyApiKey, reservationId);
-            const r = data?.reservation || {};
-            const l = data?.listing || {};
-            if (r && (r.checkIn || r.confirmation_code || r.status)) {
-                const fmtTime = (t: any): string | null => {
-                    const m = String(t || "").match(/^(\d{1,2}):(\d{2})/);
-                    if (!m) return null;
-                    let h = Number(m[1]);
-                    const ampm = h >= 12 ? "PM" : "AM";
-                    h = h % 12 === 0 ? 12 : h % 12;
-                    return `${h}:${m[2]} ${ampm}`;
-                };
-                const shareable: string[] = [];
-                if (r.confirmation_code) shareable.push(`- Confirmation code: ${r.confirmation_code}`);
-                if (r.checkIn) shareable.push(`- Check-in date: ${r.checkIn}${fmtTime(l.checkin_start) ? ` (from ${fmtTime(l.checkin_start)})` : ""}`);
-                if (r.checkOut) shareable.push(`- Check-out date: ${r.checkOut}${fmtTime(l.checkout) ? ` (by ${fmtTime(l.checkout)})` : ""}`);
-                const stay: string[] = [];
-                if (r.nights != null) stay.push(`${r.nights} night(s)`);
-                if (r.guests != null) stay.push(`${r.guests} guest(s)`);
-                if (stay.length) shareable.push(`- Length of stay: ${stay.join(", ")}`);
-                // Party breakdown incl. pets — the bot must know these when the
-                // guest asks about pet fees, extra guests, etc.
-                const party: string[] = [];
-                if (r.adults != null && Number(r.adults) > 0) party.push(`${r.adults} adult(s)`);
-                if (r.children != null && Number(r.children) > 0) party.push(`${r.children} child(ren)`);
-                if (r.infants != null && Number(r.infants) > 0) party.push(`${r.infants} infant(s)`);
-                if (r.pets != null) party.push(Number(r.pets) > 0 ? `${r.pets} pet(s)` : "no pets registered");
-                if (party.length) shareable.push(`- Party details: ${party.join(", ")}`);
-                if (r.status_description || r.status) shareable.push(`- Reservation status: ${r.status_description || r.status}`);
-                const cancelPolicyName =
-                    r.cancellation_policy || l.cancellation_policy || l.cancel_policy || null;
-                if (cancelPolicyName) shareable.push(`- Cancellation policy: ${cancelPolicyName}`);
-                // Pre-check-in form: a real, reservation-specific link the team
-                // otherwise has to dig up by hand ("ignored ask" miss class).
-                if (r.hostify_checkin_form_link && String(r.hostify_checkin_form_link).startsWith("http")) {
-                    shareable.push(
-                        Number(r.pre_check_in_completed) === 1 || Number(r.hostify_checkin_form_completed) === 1
-                            ? "- Pre-check-in form: already completed by the guest."
-                            : `- Pre-check-in form link (you MAY send it if the guest needs to complete check-in steps): ${r.hostify_checkin_form_link}`
-                    );
-                }
-
-                const staff: string[] = [];
-                const nonRefundable = Number(l.non_refundable_factor) >= 1;
-                staff.push(
-                    nonRefundable
-                        ? "- Rate type: NON-REFUNDABLE rate plan (the guest booked a non-refundable rate)."
-                        : "- Rate type: standard/refundable rate plan (not a non-refundable booking)."
-                );
-                if (r.cancellation_fee != null && Number(r.cancellation_fee) > 0)
-                    staff.push(`- Cancellation fee currently on file: ${r.cancellation_fee}.`);
-                if (r.cancelled_at)
-                    staff.push(`- This reservation was CANCELLED on ${r.cancelled_at}${r.cancel_reason ? ` (reason: ${r.cancel_reason})` : ""}.`);
-                if (r.sum_refunds != null && Number(r.sum_refunds) > 0) staff.push(`- Refunds issued so far: ${r.sum_refunds}.`);
-                const paidLabel: Record<string, string> = { none: "not yet paid", part: "partially paid", full: "paid in full", all: "paid in full" };
-                const pl = paidLabel[String(r.paid_part || "").toLowerCase()];
-                if (pl) staff.push(`- Payment status: ${pl}${r.paid_sum != null && Number(r.paid_sum) > 0 ? ` (${r.paid_sum} collected so far)` : ""}.`);
-                if (r.due != null && Number(r.due) > 0)
+                    const staff: string[] = [];
+                    const nonRefundable = Number(l.non_refundable_factor) >= 1;
                     staff.push(
-                        `- Balance still due: ${r.due}. If the guest needs to pay it, the team sends a secure Hostify payment link — you cannot generate one; say the team will send it.`
+                        nonRefundable
+                            ? "- Rate type: NON-REFUNDABLE rate plan (the guest booked a non-refundable rate)."
+                            : "- Rate type: standard/refundable rate plan (not a non-refundable booking)."
                     );
+                    if (r.cancellation_fee != null && Number(r.cancellation_fee) > 0)
+                        staff.push(`- Cancellation fee currently on file: ${r.cancellation_fee}.`);
+                    if (r.cancelled_at)
+                        staff.push(
+                            `- This reservation was CANCELLED on ${r.cancelled_at}${
+                                r.cancel_reason ? ` (reason: ${r.cancel_reason})` : ""
+                            }.`
+                        );
+                    if (r.sum_refunds != null && Number(r.sum_refunds) > 0)
+                        staff.push(`- Refunds issued so far: ${r.sum_refunds}.`);
+                    const paidLabel: Record<string, string> = {
+                        none: "not yet paid",
+                        part: "partially paid",
+                        full: "paid in full",
+                        all: "paid in full",
+                    };
+                    const pl = paidLabel[String(r.paid_part || "").toLowerCase()];
+                    if (pl)
+                        staff.push(
+                            `- Payment status: ${pl}${
+                                r.paid_sum != null && Number(r.paid_sum) > 0 ? ` (${r.paid_sum} collected so far)` : ""
+                            }.`
+                        );
+                    if (r.due != null && Number(r.due) > 0)
+                        staff.push(
+                            `- Balance still due: ${r.due}. If the guest needs to pay it, the team sends a secure Hostify payment link — you cannot generate one; say the team will send it.`
+                        );
+                    // Live deposit facts beat portfolio "no deposit on Airbnb" answers.
+                    const sec = r.security_price != null ? Number(r.security_price) : null;
+                    const depPaid = r.deposit_paid != null ? Number(r.deposit_paid) : null;
+                    const depRefunded = r.deposit_refunded != null ? Number(r.deposit_refunded) : null;
+                    if (sec != null && Number.isFinite(sec)) {
+                        if (sec > 0) {
+                            staff.push(
+                                `- Security deposit / hold on file for THIS reservation: ${sec}` +
+                                    (depPaid != null && Number.isFinite(depPaid) ? ` (deposit_paid recorded: ${depPaid})` : "") +
+                                    ". Do NOT claim no deposit was collected."
+                            );
+                        } else {
+                            staff.push(
+                                "- Security deposit / hold on file for THIS reservation: 0. Still do not invent channel-wide deposit policy; if the guest disputes a charge, escalate for the team to check."
+                            );
+                        }
+                    } else {
+                        staff.push(
+                            "- Security deposit amount is not present on the live reservation payload. Do NOT assert there is or isn't a deposit from portfolio/learned answers — say the team will check."
+                        );
+                    }
+                    if (depRefunded != null && Number.isFinite(depRefunded) && depRefunded > 0) {
+                        staff.push(`- Deposit refunded so far (on file): ${depRefunded}.`);
+                    }
 
-                const out: string[] = [];
-                if (shareable.length) {
-                    out.push("## Reservation details (live booking — accurate; you MAY share dates, status and confirmation code with the guest)");
-                    out.push(...shareable);
+                    const out: string[] = [];
+                    if (shareable.length) {
+                        out.push(
+                            "## Reservation details (live booking — accurate; you MAY share dates, status and confirmation code with the guest)"
+                        );
+                        out.push(...shareable);
+                    }
+                    if (staff.length) {
+                        out.push("");
+                        out.push(
+                            "## Reservation billing & cancellation (STAFF-ONLY facts — authoritative for money/deposit on THIS booking; do NOT override with portfolio learned answers)"
+                        );
+                        out.push(...staff);
+                    }
+                    core = out.length ? out.join("\n") : null;
                 }
-                if (staff.length) {
-                    out.push("");
-                    out.push("## Reservation billing & cancellation (STAFF-ONLY facts — use to inform your reply; still confirm specifics with the team and do NOT over-assert a policy the facts don't clearly support)");
-                    out.push(...staff);
-                }
-                block = out.length ? out.join("\n") : null;
+            } catch (e: any) {
+                logger.warn(`[InboxAI] reservation enrich failed for ${reservationId}: ${e.message}`);
+                core = null;
             }
-        } catch (e: any) {
-            logger.warn(`[InboxAI] reservation enrich failed for ${reservationId}: ${e.message}`);
-            block = null;
+            InboxAIService.reservationCache.set(reservationId, { at: Date.now(), block: core });
         }
-        InboxAIService.reservationCache.set(reservationId, { at: Date.now(), block });
-        return block;
+
+        const agreementLines: string[] = [];
+        const caLink = this.extractChargeAutomationLink(messages);
+        if (caLink) {
+            agreementLines.push(
+                `- ChargeAutomation secure link already sent in this thread (you MAY resend if the guest needs the rental agreement / deposit authorization): ${caLink}`
+            );
+        }
+        const frontendBase = (
+            process.env.FRONTEND_URL ||
+            process.env.DASHBOARD_URL ||
+            process.env.APP_FRONTEND_URL ||
+            ""
+        ).replace(/\/$/, "");
+        if (frontendBase) {
+            agreementLines.push(
+                `- SecureStay rental agreement page (use only if the guest asks for our signing link and no ChargeAutomation link is available): ${frontendBase}/rental-agreement/${reservationId}`
+            );
+        }
+        if (!agreementLines.length) return core;
+        const agreementBlock = [
+            "## Rental agreement / deposit authorization links",
+            "- Prefer ChargeAutomation securelink when present. Never substitute the Hostify pre-check-in form for these.",
+            ...agreementLines,
+        ].join("\n");
+        return core ? `${core}\n\n${agreementBlock}` : agreementBlock;
     }
 
     /**
@@ -3121,27 +3230,19 @@ export class InboxAIService {
             /* non-fatal */
         }
 
-        // Open property issues (maintenance etc.) on this property group.
+        // Open property issues tied to THIS reservation only. Pulling every open
+        // ticket on the listing group leaked other guests' work into drafts
+        // (mattresses "already arranged", cleaner "on site", etc.).
         try {
-            const conds: string[] = [];
-            const params: any[] = [];
             if (resvId) {
-                conds.push("reservation_id = ?");
-                params.push(String(resvId));
-            }
-            if (listingIds.length) {
-                conds.push(`listing_id IN (${listingIds.map(() => "?").join(",")})`);
-                params.push(...listingIds.map((n) => String(n)));
-            }
-            if (conds.length) {
                 const rows: any[] = await appDatabase.query(
                     `SELECT ai_short_title, issue_description, status, next_steps, created_at FROM issues
                      WHERE deleted_at IS NULL
                        AND status NOT IN ('Completed')
                        AND created_at >= (NOW() - INTERVAL 30 DAY)
-                       AND (${conds.join(" OR ")})
+                       AND reservation_id = ?
                      ORDER BY created_at DESC LIMIT 4`,
-                    params
+                    [String(resvId)]
                 );
                 const items = rows
                     .map((r) => {
@@ -3152,7 +3253,7 @@ export class InboxAIService {
                     })
                     .filter(Boolean) as string[];
                 if (items.length) {
-                    out.push("Open property issues the team is working on:");
+                    out.push("Open property issues the team is working on for this reservation:");
                     out.push(...items);
                 }
             }
@@ -3162,7 +3263,7 @@ export class InboxAIService {
 
         if (!out.length) return null;
         return [
-            "## Internal operations in progress (STAFF-ONLY — real work our team already has open for this guest/property. " +
+            "## Internal operations in progress (STAFF-ONLY — real work our team already has open for THIS guest/reservation. " +
                 "Align your reply with it: reference ongoing work naturally ('our team is on it / will reach out'), " +
                 "don't offer to 'check' something already in motion, and never quote internal wording, names, or prices verbatim)",
             ...out,
@@ -3238,34 +3339,71 @@ export class InboxAIService {
      * Without this the bot either invents offers or wrongly says "we don't
      * provide that" for services we actually sell.
      */
-    private async buildUpsellsBlock(groupIds: number[]): Promise<string | null> {
+    private async buildUpsellsBlock(
+        groupIds: number[],
+        preferredListingId?: number | null
+    ): Promise<string | null> {
         const listingIds = (groupIds || []).map((n) => Number(n)).filter((n) => Number.isFinite(n));
         if (!listingIds.length) return null;
+        const preferred = preferredListingId != null ? Number(preferredListingId) : null;
         try {
             const ph = listingIds.map(() => "?").join(",");
+            // Per-row fees (no MAX across siblings). Prefer the conversation's
+            // listing fee, then any sibling override, then the base price.
             const rows: any[] = await appDatabase.query(
-                `SELECT ui.title, ui.timePeriod, ui.availability, ui.description,
-                        ui.price AS basePrice, MAX(upc.upsellFee) AS listingFee
+                `SELECT ui.upsell_id AS upsellId, ui.title, ui.timePeriod, ui.availability, ui.description,
+                        ui.price AS basePrice, ul.listingId, upc.upsellFee AS listingFee
                  FROM upsell_listing ul
                  JOIN upsell_info ui ON ui.upsell_id = ul.upSellId AND ui.isActive = 1
                  LEFT JOIN upsell_property_config upc
                         ON upc.upSellId = ul.upSellId AND upc.listingId = ul.listingId
-                 WHERE ul.status = 1 AND ul.listingId IN (${ph})
-                 GROUP BY ui.upsell_id, ui.title, ui.timePeriod, ui.availability, ui.description, ui.price`,
+                 WHERE ul.status = 1 AND ul.listingId IN (${ph})`,
                 listingIds
             );
             if (!rows.length) return null;
-            const items = rows
+            type Agg = {
+                title: string;
+                timePeriod: any;
+                availability: any;
+                description: any;
+                basePrice: number;
+                preferredFee: number | null;
+                anyFee: number | null;
+            };
+            const byUpsell = new Map<number, Agg>();
+            for (const r of rows) {
+                const id = Number(r.upsellId);
+                if (!Number.isFinite(id)) continue;
+                let agg = byUpsell.get(id);
+                if (!agg) {
+                    agg = {
+                        title: String(r.title || "").trim(),
+                        timePeriod: r.timePeriod,
+                        availability: r.availability,
+                        description: r.description,
+                        basePrice: Number(r.basePrice) || 0,
+                        preferredFee: null,
+                        anyFee: null,
+                    };
+                    byUpsell.set(id, agg);
+                }
+                const fee = r.listingFee != null && Number(r.listingFee) > 0 ? Number(r.listingFee) : null;
+                if (fee != null) {
+                    if (preferred != null && Number(r.listingId) === preferred) agg.preferredFee = fee;
+                    else if (agg.anyFee == null) agg.anyFee = fee;
+                }
+            }
+            const items = [...byUpsell.values()]
                 .map((r) => {
-                    const title = String(r.title || "").trim();
-                    if (!title) return null;
-                    const fee = r.listingFee != null && Number(r.listingFee) > 0 ? Number(r.listingFee) : Number(r.basePrice) || 0;
+                    if (!r.title) return null;
+                    const fee = r.preferredFee ?? r.anyFee ?? (r.basePrice > 0 ? r.basePrice : 0);
                     const bits: string[] = [];
                     if (fee > 0) bits.push(`$${fee.toFixed(2)}${r.timePeriod ? ` ${String(r.timePeriod).toLowerCase()}` : ""}`);
                     else bits.push("price on request");
-                    if (r.availability && String(r.availability).toLowerCase() !== "always") bits.push(`availability: ${r.availability}`);
+                    if (r.availability && String(r.availability).toLowerCase() !== "always")
+                        bits.push(`availability: ${r.availability}`);
                     const desc = String(r.description || "").replace(/\s+/g, " ").trim();
-                    return `- ${title}: ${bits.join("; ")}${desc ? ` — ${desc.slice(0, 160)}` : ""}`;
+                    return `- ${r.title}: ${bits.join("; ")}${desc ? ` — ${desc.slice(0, 160)}` : ""}`;
                 })
                 .filter(Boolean) as string[];
             if (!items.length) return null;
@@ -3307,7 +3445,7 @@ export class InboxAIService {
         // the bot previously "didn't detect" reservation dates or cancellation
         // policy — this block is what lets it answer those accurately.
         if (includeKnowledge) try {
-            const resvBlock = await this.buildReservationBlock(conversation);
+            const resvBlock = await this.buildReservationBlock(conversation, messages);
             if (resvBlock) {
                 lines.push("");
                 lines.push(resvBlock);
@@ -3361,7 +3499,7 @@ export class InboxAIService {
         // Paid add-on services (early check-in, late checkout, pool heat…) that
         // are actually configured for this property, with real prices.
         if (includeKnowledge) try {
-            const ups = await this.buildUpsellsBlock(groupIds);
+            const ups = await this.buildUpsellsBlock(groupIds, conversation.listingId);
             if (ups) {
                 lines.push("");
                 lines.push(ups);
@@ -3477,7 +3615,15 @@ export class InboxAIService {
                 if (kbSem.external.length) {
                     lines.push("");
                     lines.push("## Listing Knowledge Base (you MAY share this with the guest)");
-                    for (const d of kbSem.external) lines.push(`- ${d.text.replace(/\s+/g, " ").trim().slice(0, 1400)}`);
+                    for (const d of kbSem.external) {
+                        let text = d.text.replace(/\s+/g, " ").trim().slice(0, 1400);
+                        if (/^amenities\b/i.test(text) || /:\s*Essentials,\s*Kitchen/i.test(text)) {
+                            text =
+                                `[Platform amenity checklist — listed on the booking site, NOT confirmed on-site inventory; ` +
+                                `do NOT invent where items are stored] ${text}`;
+                        }
+                        lines.push(`- ${text}`);
+                    }
                     rendered = true;
                 }
             }
@@ -3501,11 +3647,18 @@ export class InboxAIService {
             let learned: string | null = null;
             if (ExemplarService.isEnabled() && guestQuery.trim()) {
                 // Semantic fact retrieval — paraphrase-robust, ranked by meaning.
-                const facts = await new RetrievalService().retrieveFacts(canonicalListingId, guestQuery, { k: 6 });
+                const facts = await new RetrievalService().retrieveFacts(canonicalListingId, guestQuery, {
+                    k: 6,
+                    channel: conversation.channel,
+                });
                 learned = new RetrievalService().renderFacts(facts);
             }
             if (!learned) {
-                learned = await new AILearnedFactsService().renderForBot(conversation.listingId, { query: guestQuery, listingIds: groupIds });
+                learned = await new AILearnedFactsService().renderForBot(conversation.listingId, {
+                    query: guestQuery,
+                    listingIds: groupIds,
+                    channel: conversation.channel,
+                });
             }
             if (learned) {
                 lines.push("");
@@ -3524,14 +3677,22 @@ export class InboxAIService {
         // answered semantically similar questions on this SAME property group in
         // the past. Retrieved by embedding similarity over real message history.
         if (includeKnowledge && ExemplarService.isEnabled() && guestQuery.trim()) try {
-            const exemplars = await new ExemplarService().retrieveForQuery(canonicalListingId, guestQuery, { k: 4, minSim: 0.55 });
+            const exemplars = await new ExemplarService().retrieveForQuery(canonicalListingId, guestQuery, {
+                k: 4,
+                minSim: 0.55,
+                channel: conversation.channel,
+            });
             if (exemplars.length) {
                 lines.push("");
-                lines.push("## How our team answered similar questions before (proven replies — prefer these facts & phrasing)");
+                lines.push(
+                    "## How our team answered similar questions before (proven replies — prefer these facts & phrasing; " +
+                        "if they conflict with house rules / capacity / listing times for THIS property, trust the listing)"
+                );
                 for (const ex of exemplars) {
                     const a = ex.answer.replace(/\s+/g, " ").trim().slice(0, 500);
                     const q = ex.question.replace(/\s+/g, " ").trim().slice(0, 200);
-                    lines.push(`- Guest asked: "${q}"\n  Team replied: "${a}"`);
+                    const scopeTag = ex.scope === "portfolio" ? " [portfolio — generic ops only]" : "";
+                    lines.push(`- Guest asked: "${q}"\n  Team replied: "${a}"${scopeTag}`);
                 }
             }
         } catch {

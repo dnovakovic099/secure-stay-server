@@ -3,6 +3,7 @@ import logger from "../utils/logger.utils";
 import { AILearnedFactEntity } from "../entity/AILearnedFact";
 import { ListingKnowledgeEntryEntity } from "../entity/ListingKnowledgeEntry";
 import { IsNull, In } from "typeorm";
+import { allowPortfolioMemory, isPropertyScopedMemory } from "../utils/aiPortfolioGuards";
 
 export type LearnedFactType = "qa" | "style_rule" | "topic_to_avoid";
 export type LearnedFactVisibility = "internal" | "external";
@@ -142,8 +143,6 @@ export class AILearnedFactsService {
     // Facts that are physically tied to a single property must never be stored
     // portfolio-wide (that caused e.g. a "one car fits in the garage" answer to
     // leak onto a driveway-only property). Force these back to property scope.
-    private static PROPERTY_SPECIFIC =
-        /\bgarage|driveway|carport|parking|door\s*code|lock\s*code|gate\s*code|access\s*code|wifi\s*password|address|\bfloor\b|square\s*feet|sq\s*ft|bedroom|bathroom|sleeps|capacity|pool\s*heat/i;
 
     /**
      * Property-scoped facts only auto-approve once the same topic has been seen
@@ -294,7 +293,7 @@ export class AILearnedFactsService {
         let scope = input.scope === "portfolio" ? "portfolio" : "property";
         if (
             scope === "portfolio" &&
-            AILearnedFactsService.PROPERTY_SPECIFIC.test(`${input.question ?? ""} ${input.answer ?? ""}`)
+            isPropertyScopedMemory(`${input.question ?? ""} ${input.answer ?? ""}`)
         ) {
             // Only demotable if we actually know which listing it came from;
             // otherwise drop it rather than let it generalize incorrectly.
@@ -489,11 +488,12 @@ export class AILearnedFactsService {
      */
     async renderForBot(
         listingId: number | null | undefined,
-        opts: { query?: string; maxChars?: number; listingIds?: number[] } | number = {}
+        opts: { query?: string; maxChars?: number; listingIds?: number[]; channel?: string | null } | number = {}
     ): Promise<string | null> {
         const o = typeof opts === "number" ? { maxChars: opts } : opts;
         const maxChars = o.maxChars ?? 3500;
         const qTokens = tokenizeFacts(o.query);
+        const channel = o.channel ?? null;
         // Gather property facts across the whole channel-split group when provided.
         const ids = (o.listingIds && o.listingIds.length ? o.listingIds : listingId ? [Number(listingId)] : []).map(Number);
         try {
@@ -548,7 +548,13 @@ export class AILearnedFactsService {
             const isAvoid = (f: AILearnedFactEntity) => f.factType === "topic_to_avoid";
 
             const rankedPropertyExternal = rank(property.filter(qaExternal));
-            const rankedPortfolioExternal = rank(portfolio.filter(qaExternal));
+            const rankedPortfolioExternal = rank(
+                portfolio.filter(
+                    (f) =>
+                        qaExternal(f) &&
+                        allowPortfolioMemory(`${f.question || ""} ${f.answer || ""} ${f.topic || ""}`, channel)
+                )
+            );
             const styleRules = rank([...property, ...portfolio].filter(isStyle));
             const avoidTopics = rank([...property, ...portfolio].filter(isAvoid));
 
@@ -580,7 +586,7 @@ export class AILearnedFactsService {
             addSection("PROPERTY-SPECIFIC learned answers (guest-shareable):", rankedPropertyExternal, Math.floor(maxChars * 0.55));
             if (lines.length) lines.push("");
             addSection(
-                "PORTFOLIO-WIDE learned answers (apply to all properties, guest-shareable):",
+                "PORTFOLIO-WIDE learned answers (generic ops ONLY — never use for checkout times, capacity, deposits, amenities, or channel-specific money facts):",
                 rankedPortfolioExternal,
                 Math.floor(maxChars * 0.3)
             );
