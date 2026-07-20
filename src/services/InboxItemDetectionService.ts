@@ -115,6 +115,90 @@ export class InboxItemDetectionService {
         InboxItemDetectionService.pendingThreads.set(threadId, entry);
     }
 
+    /**
+     * Catch-up sweep for detections that never ran. The real-time path arms an
+     * in-memory setTimeout — if the process restarts, crashes, or the OpenAI
+     * call fails, that timer is gone and the message would silently miss
+     * detection. This sweep finds threads that received a fresh incoming guest
+     * message but haven't been scanned since, and schedules them.
+     *
+     * Bounded by a 24-hour lookback so a boot on a long-idled server doesn't
+     * turn into a mass backfill. The 7-day dedupe in `detectForThreadLocked`
+     * and the MySQL named lock keep it safe against races with the real-time
+     * timer or a parallel sweep on another worker.
+     *
+     * Returns the number of threads it scheduled.
+     */
+    static async sweepMissedDetections(): Promise<number> {
+        if (!(await InboxItemDetectionService.resolveEnabled())) return 0;
+
+        // Grace window: don't touch messages younger than the debounce, so we
+        // never fight the real-time timer for the same burst.
+        const graceMinutes = Math.max(1, Math.ceil(BURST_DELAY_MS / 60000));
+
+        try {
+            const rows: Array<{ threadId: number; messageId: number | null }> = await appDatabase.query(
+                `
+                SELECT m.threadId AS threadId, MAX(m.id) AS messageId
+                FROM inbox_messages m
+                LEFT JOIN (
+                    SELECT threadId, MAX(createdAt) AS lastDetectedAt
+                    FROM ai_detected_items
+                    GROUP BY threadId
+                ) d ON d.threadId = m.threadId
+                WHERE m.direction = 'incoming'
+                  AND m.isAutomatic = 0
+                  AND m.sentAt <= (NOW() - INTERVAL ? MINUTE)
+                  AND m.sentAt >= (NOW() - INTERVAL 24 HOUR)
+                  AND (d.lastDetectedAt IS NULL OR m.sentAt > d.lastDetectedAt)
+                GROUP BY m.threadId
+                LIMIT 200
+                `,
+                [graceMinutes]
+            );
+
+            if (!rows?.length) return 0;
+
+            for (const r of rows) {
+                InboxItemDetectionService.scheduleDetection(
+                    Number(r.threadId),
+                    r.messageId != null ? Number(r.messageId) : null
+                );
+            }
+
+            logger.info(`[ItemDetection] sweep scheduled ${rows.length} missed thread(s)`);
+            return rows.length;
+        } catch (err: any) {
+            logger.error(`[ItemDetection] sweep failed: ${err?.message}`);
+            return 0;
+        }
+    }
+
+    /**
+     * Wires the sweep to run on boot (after a short warm-up) and every N
+     * minutes thereafter. Safe to call multiple times — a module-level guard
+     * ensures the interval is armed only once.
+     */
+    private static sweepTimer: NodeJS.Timeout | null = null;
+
+    static startSweepLoop(intervalMs = 5 * 60 * 1000, initialDelayMs = 30 * 1000): void {
+        if (InboxItemDetectionService.sweepTimer) return;
+
+        const boot = setTimeout(() => {
+            InboxItemDetectionService.sweepMissedDetections().catch(() => undefined);
+        }, initialDelayMs);
+        boot.unref?.();
+
+        InboxItemDetectionService.sweepTimer = setInterval(() => {
+            InboxItemDetectionService.sweepMissedDetections().catch(() => undefined);
+        }, intervalMs);
+        InboxItemDetectionService.sweepTimer.unref?.();
+
+        logger.info(
+            `[ItemDetection] sweep loop armed (initial ${initialDelayMs / 1000}s, then every ${intervalMs / 1000}s)`
+        );
+    }
+
     /** Tokenized overlap for duplicate suppression across repeated scans. */
     private static similar(a: string, b: string): boolean {
         const tok = (s: string) =>

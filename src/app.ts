@@ -12,6 +12,7 @@ import appRoutes from "./router/appRoutes";
 import cors from "cors";
 import compression from "compression";
 import logger from "./utils/logger.utils";
+import { InboxItemDetectionService } from "./services/InboxItemDetectionService";
 
 // 🔹 Global error handlers
 process.on("uncaughtException", (err) => {
@@ -87,6 +88,15 @@ const main = async () => {
   };
   logMemory(); // log once at startup
   setInterval(logMemory, 2 * 60 * 1000); // then every 2 minutes
+
+  // Catch-up sweep for the AI ticket detector. Only worker 0 runs it — the
+  // MySQL lock in detectForThread would already de-duplicate cluster races,
+  // but running the sweep query on every worker is wasted DB load. Env-gated
+  // by AI_ITEM_DETECTION_ENABLED via the service itself, so this is a no-op
+  // when the feature is off.
+  if (instanceId === 'standalone' || instanceId === '0') {
+    InboxItemDetectionService.startSweepLoop();
+  }
 };
 
 main().catch((err) => {
