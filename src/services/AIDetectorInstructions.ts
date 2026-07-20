@@ -159,9 +159,15 @@ export const resolveTicketCategories = (
 /** Just the display names, in resolved order. Used by detector prompts. */
 export const collectCategoryNames = (
     settings: Partial<AIMessagingSettingsEntity> | null | undefined
-): string[] => resolveTicketCategories(settings)
-    .map((c) => (c?.name || "").trim())
-    .filter(Boolean);
+): string[] => {
+    const configured = resolveTicketCategories(settings)
+        .map((c) => (c?.name || "").trim())
+        .filter(Boolean);
+    if (configured.length) return configured;
+    // Fresh install: fall back to the same defaults the Guest Issues dropdown
+    // uses, so the AI's category output always matches a real dropdown option.
+    return DEFAULT_ISSUE_CATEGORIES.map((c) => c.name);
+};
 
 const clampFloor = (n: number): number => {
     if (!Number.isFinite(n)) return DEFAULT_DETECTION_CONFIDENCE_FLOOR;
