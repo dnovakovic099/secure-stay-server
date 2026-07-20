@@ -50,6 +50,8 @@ export const DEFAULT_DETECTION_EXCLUSION_RULES = [
     "6. ONE TICKET PER FACT: never emit two tickets that restate the same underlying problem. Consolidate into a single ticket.",
     "7. ALREADY TRACKED: if the context lists tickets already tracked for this conversation, NEVER re-emit them or reworded / split / merged variations of them. On a re-scan of an ongoing conversation, only emit facts that are genuinely NEW since those tickets were created. If everything is already tracked, return an empty array.",
     "8. CATEGORY MATCH: every ticket must fit one of the configured Ticket Categories. If nothing fits, do not force a ticket — return an empty array instead.",
+    "9. AIRBNB SUPPORT / PLATFORM AGENTS: never create a ticket from a message written by Airbnb Support (or any channel case worker). These conversations are between the team and a platform rep — they are NOT guest reports of a property issue, even when a property problem is discussed. Only guest messages qualify.",
+    "10. NO RESERVATION, NO TICKET: if the thread is not tied to a real guest reservation (pre-booking inquiry, support-only channel, orphan chat), return an empty array. Tickets require a stay context.",
 ].join("\n");
 
 export const DEFAULT_DETECTION_CONFIDENCE_FLOOR = 0.6;

@@ -115,6 +115,22 @@ export class InboxItemDetectionService {
         InboxItemDetectionService.pendingThreads.set(threadId, entry);
     }
 
+    /**
+     * True when the counterparty on the thread is Airbnb Support (case
+     * workers), not a real guest. Mirrors the InboxAIService helper — same
+     * regex, same signals — so both pipelines agree on what an Airbnb Support
+     * thread is.
+     */
+    static isAirbnbSupportThread(
+        conversation: InboxConversationEntity,
+        messages: InboxMessageEntity[]
+    ): boolean {
+        if (/airbnb\s*support/i.test(conversation.guestName || "")) return true;
+        return messages.some(
+            (m) => m.direction === "incoming" && /airbnb\s*support/i.test(m.senderName || "")
+        );
+    }
+
     /** Tokenized overlap for duplicate suppression across repeated scans. */
     private static similar(a: string, b: string): boolean {
         const tok = (s: string) =>
@@ -171,6 +187,24 @@ export class InboxItemDetectionService {
                 order: { sentAt: "ASC", id: "ASC" },
             });
             if (!messages.length) return { detected: 0, reason: "no_messages" };
+
+            // Skip Airbnb Support threads outright — the counterparty is a
+            // case worker, not a guest, and their messages routinely mention
+            // property issues in a way the model would otherwise turn into
+            // spurious tickets. Same signal InboxAIService.isAirbnbSupportThread
+            // uses (regex on guestName / senderName).
+            if (InboxItemDetectionService.isAirbnbSupportThread(conversation, messages)) {
+                return { detected: 0, reason: "airbnb_support_thread" };
+            }
+
+            // A guest ticket requires a guest reservation. If the thread has
+            // no reservationId (pre-booking inquiry, support channel, orphan
+            // chat), skip detection entirely — no reservation means no
+            // property / stay context, which produces low-quality tickets and
+            // matches the pattern the team flagged in production.
+            if (!conversation.reservationId) {
+                return { detected: 0, reason: "no_reservation" };
+            }
 
             const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
 
@@ -435,6 +469,11 @@ export class InboxItemDetectionService {
         settings: any
     ): Promise<number> {
         if (!detected.length) return 0;
+
+        // Belt-and-suspenders: the detector should have already bailed for
+        // Airbnb Support threads or missing reservations, but guard here too so
+        // an accidental future codepath cannot open bogus tickets.
+        if (!conversation?.reservationId) return 0;
 
         // Build a case-insensitive lookup of category → autoCreate flag from
         // the same list the prompt is constrained to. Missing/unknown categories
