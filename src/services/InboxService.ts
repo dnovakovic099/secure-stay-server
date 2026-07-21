@@ -856,6 +856,21 @@ export class InboxService {
                 conversation,
                 `${payload?.message || ""} ${payload?.notes || ""} ${message.body || ""} ${message.note || ""}`
             );
+            // Access / safety / time-sensitive CI·CO → Urgent pin (independent of AI).
+            if (
+                saved.direction === "incoming" &&
+                !Number(saved.isAutomatic) &&
+                String(saved.body || "").trim()
+            ) {
+                try {
+                    const { InboxUrgentPinService } = await import("./InboxUrgentPinService");
+                    await new InboxUrgentPinService().evaluateAndRaise(conversation, saved.body || "");
+                } catch (pinErr: any) {
+                    logger.warn(
+                        `[InboxService] urgent pin eval failed thread=${threadId}: ${pinErr?.message}`
+                    );
+                }
+            }
             return saved;
         } catch (err: any) {
             // Same webhook delivered twice in parallel across cluster workers:

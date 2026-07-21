@@ -598,6 +598,19 @@ export class InboxAIService {
                 );
             }
         }
+
+        // Access lockouts, real safety emergencies, and time-sensitive early/late
+        // check-in/out (within 48h) → Urgent pin. Payment pins still win.
+        if (guestAskText) {
+            try {
+                const { InboxUrgentPinService } = await import("./InboxUrgentPinService");
+                await new InboxUrgentPinService().evaluateAndRaise(conversation, guestAskText);
+            } catch (err: any) {
+                logger.warn(
+                    `[InboxAIService] urgent pin eval failed (thread ${threadId}): ${err?.message}`
+                );
+            }
+        }
         output.warnings = warnings;
 
         // (c) Calibrate confidence down when the reply is risky or under-informed.
@@ -2348,6 +2361,17 @@ export class InboxAIService {
                         { notify: false }
                     );
                     return this.autosendSkip(threadId, suggestion.id, "extension_price_urgent");
+                }
+                if (guestBody) {
+                    const { InboxUrgentPinService } = await import("./InboxUrgentPinService");
+                    const pin = await new InboxUrgentPinService().evaluateAndRaise(conversation, guestBody);
+                    if (pin.raised || pin.type) {
+                        return this.autosendSkip(
+                            threadId,
+                            suggestion.id,
+                            `emergency:${pin.type || "urgent"}`
+                        );
+                    }
                 }
             } catch (err: any) {
                 logger.warn(`[InboxAIService] extension_price urgent check failed (thread ${threadId}): ${err.message}`);

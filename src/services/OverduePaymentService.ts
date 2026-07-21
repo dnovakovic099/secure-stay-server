@@ -284,11 +284,17 @@ export class OverduePaymentService {
      * rows are sometimes missing, so the sweep alone can leave false "Needs payment".
      */
     async clearStalePaymentPins(): Promise<{ cleared: number }> {
+        // Lazy import avoids a circular dependency with InboxUrgentPinService.
+        const { InboxUrgentPinService } = await import("./InboxUrgentPinService");
+        const urgentPins = new InboxUrgentPinService();
         const cleared =
             (await this.clearPaymentEmergenciesForInactiveReservations()) +
             (await this.clearPastStayPaymentEmergencies()) +
             (await this.clearSettledPaymentEmergencies()) +
-            (await this.clearFalseExtensionPricePins());
+            (await this.clearFalseExtensionPricePins()) +
+            (await urgentPins.clearStaleUrgentPins());
+        // Pin open lockouts / time-sensitive asks that arrived before this feature.
+        await urgentPins.scanRecentUnanswered(60).catch(() => 0);
         return { cleared };
     }
 
