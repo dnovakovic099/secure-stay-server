@@ -30,12 +30,14 @@ jobs:
             cd /home/ec2-user/secure_stay/secure-stay-server
             echo ">>> Pulling latest..."
             git pull origin dev-new
-            echo ">>> Ensuring ts-node available..."
-            npm install --no-save ts-node typescript reflect-metadata 2>/dev/null || npm install
             ARGS=""
             if [ "${{ github.event.inputs.seed_listings }}" = "true" ]; then
               ARGS="--seed"
             fi
-            echo ">>> Running promoteLearnedFactsToKb.ts $ARGS"
-            NODE_ENV=development npx ts-node --transpile-only src/scripts/promoteLearnedFactsToKb.ts $ARGS
+            echo ">>> Building so we can run the compiled promote script..."
+            npm install
+            npm run build
+            echo ">>> Running promoteLearnedFactsToKb $ARGS"
+            # Use compiled JS + production entity glob under dist/
+            NODE_ENV=production node dist/out-tsc/scripts/promoteLearnedFactsToKb.js $ARGS
             echo ">>> Done"
