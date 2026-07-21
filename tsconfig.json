@@ -3,11 +3,14 @@
     "lib": ["es2015", "es6", "dom"],
     "target": "es2015",
     "module": "commonjs",
+    "rootDir": "./src",
     "outDir": "./dist/out-tsc",
     "moduleResolution": "node",
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
     "esModuleInterop": true,
     "resolveJsonModule": true
-  }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "scripts"]
 }

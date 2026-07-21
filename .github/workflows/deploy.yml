@@ -66,8 +66,20 @@ jobs:
             echo ">>> Installing dependencies..."
             npm install || { echo "❌ npm install failed"; exit 1; }
 
+            echo ">>> Cleaning previous build output..."
+            rm -rf dist/out-tsc
+
             echo ">>> Building the project..."
             npm run build || { echo "❌ Build failed"; exit 1; }
+
+            if [ ! -f dist/out-tsc/app.js ]; then
+              echo "❌ Build did not emit dist/out-tsc/app.js (wrong outDir layout?)"
+              exit 1
+            fi
+            if [ -d dist/out-tsc/src ]; then
+              echo "❌ Build emitted dist/out-tsc/src/ — tsconfig rootDir/include is wrong"
+              exit 1
+            fi
 
             echo ">>> Running database migrations..."
             npm run migrate || { echo "❌ Migration failed"; exit 1; }
