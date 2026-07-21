@@ -440,10 +440,7 @@ export class InboxAnalyticsService {
                        ORDER BY s.generatedAt DESC`,
                       win.params
                   );
-        const listingIdFilter =
-            filters?.listingIds && filters.listingIds.length
-                ? new Set(filters.listingIds.map(Number))
-                : null;
+        const listingIdFilter = await this.listingFilterSet(filters);
         const taughtByName = (filters?.taughtByName || "").trim().toLowerCase() || null;
         const teamPairs: Pair[] = teamRows
             .filter((r) => (listingIdFilter ? r.listingId != null && listingIdFilter.has(Number(r.listingId)) : true))
@@ -640,10 +637,7 @@ export class InboxAnalyticsService {
              ORDER BY s.generatedAt DESC`,
             win.params
         );
-        const listingIdFilter =
-            filters?.listingIds && filters.listingIds.length
-                ? new Set(filters.listingIds.map(Number))
-                : null;
+        const listingIdFilter = await this.listingFilterSet(filters);
         const userPairs: Pair[] = userRows
             .filter((r) => r.sentBody && String(r.sentBody).trim())
             .filter((r) => (listingIdFilter ? r.listingId != null && listingIdFilter.has(Number(r.listingId)) : true))
@@ -773,10 +767,7 @@ export class InboxAnalyticsService {
         const { AILearningPromptService } = await import("./AILearningPromptService");
         let pending = await new AILearningPromptService().listPending({ source, limit: 300 });
 
-        const listingIdFilter =
-            filters?.listingIds && filters.listingIds.length
-                ? new Set(filters.listingIds.map(Number))
-                : null;
+        const listingIdFilter = await this.listingFilterSet(filters);
         if (listingIdFilter) {
             pending = pending.filter((p) => p.listingId != null && listingIdFilter.has(Number(p.listingId)));
         }
@@ -1219,47 +1210,87 @@ export class InboxAnalyticsService {
         return { saved: taughtCount > 0, resolvedBy: byUser.name, listingsTaught: taughtCount };
     }
 
+        /**
+     * Expand compound (group) ids from the property filter into every Hostify
+     * channel listing under that compound. Selecting "Drummond (#01)" must
+     * match Airbnb + Booking + Vrbo threads without forcing staff to tick
+     * each channel row.
+     */
+    private async expandCompoundListingIds(selected: number[]): Promise<Set<number>> {
+        const ids = [...new Set((selected || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
+        if (!ids.length) return new Set();
+        const ph = ids.map(() => "?").join(",");
+        const mapped: any[] = await appDatabase.query(
+            `SELECT listingId, groupId FROM listing_group_map
+             WHERE listingId IN (${ph}) OR groupId IN (${ph})`,
+            [...ids, ...ids]
+        );
+        const groupIds = new Set<number>();
+        for (const id of ids) {
+            const asMember = mapped.find((r) => Number(r.listingId) === id);
+            groupIds.add(asMember ? Number(asMember.groupId) : id);
+        }
+        const out = new Set<number>(groupIds);
+        if (groupIds.size) {
+            const gph = [...groupIds].map(() => "?").join(",");
+            const members: any[] = await appDatabase.query(
+                `SELECT listingId FROM listing_group_map WHERE groupId IN (${gph})`,
+                [...groupIds]
+            );
+            for (const r of members) out.add(Number(r.listingId));
+        }
+        return out;
+    }
+
+    private async listingFilterSet(filters?: AnalyticsFilters): Promise<Set<number> | null> {
+        if (!filters?.listingIds?.length) return null;
+        return this.expandCompoundListingIds(filters.listingIds);
+    }
+
     /**
-     * Distinct listings that appear in the analytics window — powers the property
-     * filter dropdown. Deduplicated by listingId (the raw conversation tables can
-     * carry stale / inconsistent `listingName` values across threads for the same
-     * property) and prefer `listing_info.internalListingName` (the canonical name
-     * used everywhere else in the app) with the conversation name as a fallback
-     * for listings that don't have a `listing_info` row.
+     * Distinct COMPOUNDS (Hostify channel-groups) that appear in the analytics
+     * window — powers the property filter. One row per real property so staff
+     * pick "Drummond (#01)" once instead of Airbnb + Booking + Vrbo siblings.
+     * The returned `id` is the canonical groupId; filters expand it to every
+     * channel listing under that compound server-side.
      */
     async listListings(source: AnalyticsSource = "hostify", sinceDays = 60): Promise<any> {
         const days = Math.min(Math.max(sinceDays, 7), 365);
         const rows: any[] =
             source === "quo"
                 ? await appDatabase.query(
-                      `SELECT q.listingId AS listingId,
-                              MAX(li.internalListingName) AS internalName,
+                      `SELECT COALESCE(g.groupId, q.listingId) AS compoundId,
+                              MAX(COALESCE(li_parent.internalListingName, li.internalListingName, g.name)) AS compoundName,
                               MAX(NULLIF(TRIM(q.listingName), '')) AS convoName
                        FROM quo_conversations q
                        JOIN ai_message_suggestions s ON s.threadId = q.id AND s.source = 'quo'
+                       LEFT JOIN listing_group_map g ON g.listingId = q.listingId
                        LEFT JOIN listing_info li ON li.id = q.listingId
+                       LEFT JOIN listing_info li_parent ON li_parent.id = COALESCE(g.groupId, q.listingId)
                        WHERE q.listingId IS NOT NULL
                          AND s.generatedAt >= (NOW() - INTERVAL ? DAY)
-                       GROUP BY q.listingId`,
+                       GROUP BY COALESCE(g.groupId, q.listingId)`,
                       [days]
                   )
                 : await appDatabase.query(
-                      `SELECT c.listingId AS listingId,
-                              MAX(li.internalListingName) AS internalName,
+                      `SELECT COALESCE(g.groupId, c.listingId) AS compoundId,
+                              MAX(COALESCE(li_parent.internalListingName, li.internalListingName, g.name)) AS compoundName,
                               MAX(NULLIF(TRIM(c.listingName), '')) AS convoName
                        FROM inbox_conversations c
                        JOIN ai_message_suggestions s ON s.threadId = c.threadId AND s.source = 'hostify'
+                       LEFT JOIN listing_group_map g ON g.listingId = c.listingId
                        LEFT JOIN listing_info li ON li.id = c.listingId
+                       LEFT JOIN listing_info li_parent ON li_parent.id = COALESCE(g.groupId, c.listingId)
                        WHERE c.listingId IS NOT NULL
                          AND s.generatedAt >= (NOW() - INTERVAL ? DAY)
-                       GROUP BY c.listingId`,
+                       GROUP BY COALESCE(g.groupId, c.listingId)`,
                       [days]
                   );
         const listings = rows
-            .filter((r) => r.listingId != null)
+            .filter((r) => r.compoundId != null)
             .map((r) => ({
-                id: Number(r.listingId),
-                name: String(r.internalName || r.convoName || `Listing ${r.listingId}`).trim(),
+                id: Number(r.compoundId),
+                name: String(r.compoundName || r.convoName || `Property ${r.compoundId}`).trim(),
             }))
             .sort((a, b) => a.name.localeCompare(b.name));
         return { listings };
