@@ -100,7 +100,7 @@ export class OverduePaymentService {
 
     private excludedStatusLower = new Set(this.excludedStatus.map((s) => s.toLowerCase()));
 
-    /** Cancelled / inquiry / denied / etc. — never need a payment emergency. */
+    /** Cancelled / inquiry / denied / etc. — never need a payment or extension pin. */
     private isInactiveReservationStatus(status?: string | null): boolean {
         const normalized = String(status || "")
             .trim()
@@ -113,6 +113,8 @@ export class OverduePaymentService {
         for (const s of this.excludedStatusLower) {
             if (s.replace(/_/g, "") === compact) return true;
         }
+        // "Cancelled by guest", "canceled_by_host", etc.
+        if (compact.startsWith("cancel")) return true;
         return false;
     }
 
@@ -850,8 +852,8 @@ export class OverduePaymentService {
         type = "payment",
         opts: { notify?: boolean } = {}
     ): Promise<boolean> {
-        // Cancelled / inquiry / etc. never need a payment pin.
-        if (type === "payment" && this.isInactiveReservationStatus(conversation.reservationStatus)) {
+        // Cancelled / inquiry / etc. never need payment or extension-price pins.
+        if (this.isInactiveReservationStatus(conversation.reservationStatus)) {
             return false;
         }
         // Never downgrade a payment emergency to a softer type.
@@ -1044,10 +1046,12 @@ export class OverduePaymentService {
      */
     private async clearPaymentEmergenciesForInactiveReservations(): Promise<number> {
         try {
-            const pinned = await this.conversationRepo.find({
-                where: { emergency: 1, emergencyType: "payment" },
-                select: ["threadId", "reservationId", "reservationStatus"],
-            });
+            // Any urgent pin (payment, extension_price, …) on cancelled/inactive bookings.
+            const pinned = await this.conversationRepo
+                .createQueryBuilder("c")
+                .select(["c.threadId", "c.reservationId", "c.reservationStatus", "c.emergencyType"])
+                .where("c.emergency = 1")
+                .getMany();
             if (!pinned.length) return 0;
 
             const reservationIds = pinned
@@ -1072,7 +1076,9 @@ export class OverduePaymentService {
                 if (ok) cleared++;
             }
             if (cleared > 0) {
-                logger.info(`[OverduePayment] Cleared ${cleared} payment emergency(ies) on inactive/cancelled reservations`);
+                logger.info(
+                    `[OverduePayment] Cleared ${cleared} urgent pin(s) on inactive/cancelled reservations`
+                );
             }
             return cleared;
         } catch (err: any) {

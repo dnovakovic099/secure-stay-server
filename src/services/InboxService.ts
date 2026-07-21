@@ -399,9 +399,9 @@ export class InboxService {
         }
     }
 
-    /** Cancelled/voided bookings should never stay pinned as "needs payment". */
+    /** Cancelled/voided bookings should never stay pinned as payment or extension urgent. */
     private clearStalePaymentEmergency(conversation: InboxConversationEntity) {
-        if (Number(conversation.emergency) !== 1 || conversation.emergencyType !== "payment") return;
+        if (Number(conversation.emergency) !== 1) return;
         const status = String(conversation.reservationStatus || "")
             .trim()
             .toLowerCase()
@@ -422,7 +422,8 @@ export class InboxService {
             "timedout",
             "notpossible",
         ];
-        if (!inactive.includes(status)) return;
+        // "cancelledbyguest", "canceledbyhost", etc.
+        if (!inactive.includes(status) && !status.startsWith("cancel")) return;
         conversation.emergency = 0;
         conversation.emergencyType = null;
         conversation.emergencyReason = null;
