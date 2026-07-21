@@ -20,6 +20,7 @@ router.get("/listings", verifySession, controller.listings);
 router.get("/taught-by-users", verifySession, controller.taughtByUsers);
 router.post("/misses/:id/resolve", verifySession, controller.resolveMiss);
 router.post("/misses/:id/teach", verifySession, controller.teachMiss);
+router.post("/misses/:id/prefer-ai", verifySession, controller.preferAiMiss);
 router.post("/backfill", verifySession, controller.backfill);
 
 export default router;

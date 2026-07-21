@@ -1331,6 +1331,107 @@ export class InboxAnalyticsService {
         return { resolvedAt, resolvedBy };
     }
 
+    /**
+     * Manager says the AI reply was better than the team reply (false "miss").
+     * Overturns the audit verdict for grading, resolves the queue item, records
+     * feedback so future prompts prefer the AI approach, and dismisses any
+     * pending learning prompt tied to this suggestion/thread.
+     */
+    async preferAiMiss(
+        suggestionId: number,
+        userId?: string | null
+    ): Promise<{ saved: boolean; resolvedBy: string | null }> {
+        const rows: any[] = await appDatabase.query(
+            `SELECT s.id, s.source, s.threadId, s.quoConversationId, s.messageId,
+                    s.suggestedReply, s.actualReplyText, s.aiReplyQualityNote,
+                    COALESCE(c.listingId, q.listingId) AS listingId,
+                    COALESCE(c.reservationId, q.reservationId) AS reservationId
+             FROM ai_message_suggestions s
+             LEFT JOIN inbox_conversations c ON s.source = 'hostify' AND c.threadId = s.threadId
+             LEFT JOIN quo_conversations q ON s.source = 'quo' AND q.id = s.threadId
+             WHERE s.id = ?`,
+            [suggestionId]
+        );
+        if (!rows.length) return { saved: false, resolvedBy: null };
+        const r = rows[0];
+        const byUser = await this.resolveUser(userId);
+        const resolvedBy = byUser.name || "manager";
+        const aiReply = String(r.suggestedReply || "").replace(/\s+/g, " ").trim();
+        const teamReply = String(r.actualReplyText || "").replace(/\s+/g, " ").trim();
+        const missNote = String(r.aiReplyQualityNote || "").replace(/\s+/g, " ").trim();
+
+        // Overturn the miss for KPIs / future grading, and clear the root-cause
+        // category so it no longer appears in the fix-queue breakdown.
+        await appDatabase.query(
+            `UPDATE ai_message_suggestions
+             SET aiReplyQuality = 'addressed',
+                 aiReplyQualityCategory = NULL,
+                 aiReplyQualityNote = ?,
+                 missResolvedAt = NOW(),
+                 missResolvedBy = ?
+             WHERE id = ?`,
+            [
+                `Manager preferred AI reply over team reply${missNote ? `: was flagged as "${missNote.slice(0, 160)}"` : ""}`.slice(
+                    0,
+                    255
+                ),
+                resolvedBy,
+                suggestionId,
+            ]
+        );
+
+        // Steering signal for future drafts: prefer this AI approach; do not treat
+        // the team reply as the gold standard for similar asks.
+        try {
+            const { InboxAIService } = await import("./InboxAIService");
+            const feedbackText = [
+                "AI Response Preferred: a manager judged the AI reply better than the team reply for this guest ask.",
+                "Do NOT copy the team's reply as the correct answer.",
+                "Prefer the AI's approach/tone/caution for similar questions.",
+                missNote ? `Audit had claimed: ${missNote.slice(0, 160)}` : null,
+            ]
+                .filter(Boolean)
+                .join(" ");
+            await new InboxAIService().recordFeedback({
+                suggestionId,
+                threadId: r.threadId != null ? Number(r.threadId) : null,
+                messageId: r.messageId != null ? Number(r.messageId) : null,
+                listingId: r.listingId != null ? Number(r.listingId) : null,
+                reservationId: r.reservationId != null ? Number(r.reservationId) : null,
+                userId: byUser.id,
+                rating: "up",
+                categories: ["AI Response Preferred"],
+                feedbackText,
+                correctedResponse: aiReply || null,
+                targetType: "suggestion",
+                originalMessage: teamReply || null,
+            });
+        } catch {
+            /* feedback is best-effort; verdict flip already saved */
+        }
+
+        // Close pending learning prompts — the AI wasn't wrong, so don't wait
+        // for staff to "teach" a correction based on this false miss.
+        const isQuo = r.source === "quo";
+        await appDatabase.query(
+            `UPDATE ai_learning_prompts
+             SET status = 'dismissed',
+                 resolvedAt = NOW(),
+                 resolvedVia = 'ai_preferred',
+                 answerText = COALESCE(answerText, ?)
+             WHERE source = ? AND status = 'pending'
+               AND (sampleSuggestionId = ? OR threadId = ?)`,
+            [
+                "Dismissed — manager preferred the AI reply over the team reply.",
+                isQuo ? "quo" : "hostify",
+                suggestionId,
+                r.threadId,
+            ]
+        ).catch(() => undefined);
+
+        return { saved: true, resolvedBy };
+    }
+
     /** Resolve a Supabase uid to the users row (numeric id + display name); name falls back to the raw uid. */
     private async resolveUser(userId?: string | null): Promise<{ id: number | null; name: string | null }> {
         const uid = String(userId || "").trim();

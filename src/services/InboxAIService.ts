@@ -3954,26 +3954,44 @@ export class InboxAIService {
                 const isGeneral = f.listingId == null;
                 // Listing-specific feedback for OTHER properties doesn't apply here.
                 if (!isForThisListing && !isGeneral) continue;
-                const parts: string[] = [];
-                const txt = (f.feedbackText || "").replace(/\s+/g, " ").trim();
-                if (txt) parts.push(`"${txt.slice(0, 220)}"`);
-                const corrected = (f.correctedResponse || "").replace(/\s+/g, " ").trim();
-                if (corrected) parts.push(`team's preferred wording: "${corrected.slice(0, 220)}"`);
-                // For manager feedback on a bad sent reply, surface what was sent
-                // so the model avoids repeating that wording.
-                const original = (f.originalMessage || "").replace(/\s+/g, " ").trim();
-                if (original && f.rating === "down" && f.targetType === "sent_reply") {
-                    parts.push(`avoid repeating this sent reply: "${original.slice(0, 180)}"`);
-                }
-                if (!parts.length) continue;
                 let cats: string[] = [];
                 try {
                     cats = f.categories ? JSON.parse(f.categories) : [];
                 } catch {
                     /* ignore */
                 }
+                const aiPreferred = cats.some((c) =>
+                    /ai response preferred/i.test(String(c || ""))
+                );
+                const parts: string[] = [];
+                const txt = (f.feedbackText || "").replace(/\s+/g, " ").trim();
+                if (txt) parts.push(`"${txt.slice(0, 220)}"`);
+                const corrected = (f.correctedResponse || "").replace(/\s+/g, " ").trim();
+                if (corrected) {
+                    parts.push(
+                        aiPreferred
+                            ? `prefer this AI wording/approach: "${corrected.slice(0, 220)}"`
+                            : `team's preferred wording: "${corrected.slice(0, 220)}"`
+                    );
+                }
+                // For manager feedback on a bad sent reply, surface what was sent
+                // so the model avoids repeating that wording.
+                const original = (f.originalMessage || "").replace(/\s+/g, " ").trim();
+                if (original && f.rating === "down" && f.targetType === "sent_reply") {
+                    parts.push(`avoid repeating this sent reply: "${original.slice(0, 180)}"`);
+                }
+                if (original && aiPreferred) {
+                    parts.push(
+                        `do NOT treat this team reply as the correct answer: "${original.slice(0, 180)}"`
+                    );
+                }
+                if (!parts.length) continue;
                 const scopeTag = isForThisListing ? "this property" : "general";
-                const kindTag = f.targetType === "sent_reply" ? "sent reply" : "AI";
+                const kindTag = aiPreferred
+                    ? "AI preferred over team"
+                    : f.targetType === "sent_reply"
+                      ? "sent reply"
+                      : "AI";
                 const line = `- [${scopeTag}; ${kindTag}${cats.length ? `; ${cats.slice(0, 3).join(", ")}` : ""}] ${parts.join(" — ")}`;
                 const key = line.toLowerCase();
                 if (seen.has(key)) continue;

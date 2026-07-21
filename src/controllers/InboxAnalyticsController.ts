@@ -133,6 +133,21 @@ export class InboxAnalyticsController {
         }
     }
 
+    /** Manager prefers the AI reply over the team reply (false miss). */
+    async preferAiMiss(request: Request, response: Response, next: NextFunction) {
+        try {
+            const id = Number(request.params.id);
+            if (!Number.isFinite(id)) {
+                return response.status(400).json({ status: false, message: "Invalid miss id" });
+            }
+            const userId = (request as any).user?.id ?? null;
+            const data = await new InboxAnalyticsService().preferAiMiss(id, userId);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     /** Pending "questions from the AI" queue (learning prompts), both inboxes. */
     async learningPrompts(request: Request, response: Response, next: NextFunction) {
         try {
