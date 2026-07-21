@@ -2251,15 +2251,6 @@ export class InboxAIService {
                 return { sent: false, reason: "already_queued", suggestionId: suggestion.id };
             }
 
-            // Any urgent flag (payment, extension price, etc.) blocks auto-send.
-            if (Number(conversation.emergency) === 1) {
-                return this.autosendSkip(
-                    threadId,
-                    suggestion.id,
-                    `emergency:${conversation.emergencyType || "unknown"}`
-                );
-            }
-
             // Manual mutes: per-thread, per-guest (problematic guests), or per-listing.
             const mute = await this.resolveAutosendMute(conversation);
             if (mute.disabled) {
@@ -2272,14 +2263,35 @@ export class InboxAIService {
             // emergency ("guest needs to pay") and email the configured recipients
             // so a human collects payment before access is granted. This runs
             // regardless of the auto-send toggle so the alert always fires.
+            // Also clears stale payment pins on cancelled/inactive reservations.
             try {
                 const paymentCheck = await this.overduePaymentService.evaluateArrivalPaymentEmergency(conversation);
                 if (paymentCheck.isEmergency) {
                     await this.overduePaymentService.raiseEmergency(conversation, paymentCheck.reason || "Guest has an unpaid balance at check-in.", "payment");
                     return this.autosendSkip(threadId, suggestion.id, "payment_emergency");
                 }
+                // evaluateArrivalPaymentEmergency may have cleared a cancelled pin —
+                // reload so a stale emergency flag doesn't keep blocking autosend.
+                if (Number(conversation.emergency) === 1 && conversation.emergencyType === "payment") {
+                    const fresh = await this.conversationRepo.findOne({ where: { threadId } });
+                    if (fresh) {
+                        conversation.emergency = fresh.emergency;
+                        conversation.emergencyType = fresh.emergencyType;
+                        conversation.emergencyReason = fresh.emergencyReason;
+                        conversation.emergencyAt = fresh.emergencyAt;
+                    }
+                }
             } catch (err: any) {
                 logger.warn(`[InboxAIService] payment-emergency check failed (thread ${threadId}): ${err.message}`);
+            }
+
+            // Any urgent flag (payment, extension price, etc.) blocks auto-send.
+            if (Number(conversation.emergency) === 1) {
+                return this.autosendSkip(
+                    threadId,
+                    suggestion.id,
+                    `emergency:${conversation.emergencyType || "unknown"}`
+                );
             }
 
             // Extension asks: never auto-quote Hostify calendar rates — pin Urgent for a human price.
@@ -4016,7 +4028,10 @@ export class InboxAIService {
                 text: string | null;
                 facts: AssertableFact[];
             };
-        } catch {
+        } catch (err: any) {
+            logger.warn(
+                `[InboxAIService] buildUpsellsBlock failed (listing ${preferred}): ${err?.message || err}`
+            );
             return { text: null, facts: [] };
         }
     }

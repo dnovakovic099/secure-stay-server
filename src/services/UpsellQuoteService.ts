@@ -70,7 +70,8 @@ export function normalizeSdto(raw: string | null | undefined): SdtoStatus {
         .toLowerCase()
         .replace(/[_-]+/g, " ")
         .replace(/\s+/g, " ");
-    if (!v) return "unknown";
+    // Blank SDTO = allowed (quote). Only explicit "Not Allowed" / "Needs Confirmation" special-case.
+    if (!v) return "allowed";
     if (v === "not allowed" || v === "disallowed" || v === "no" || v === "denied") return "not_allowed";
     if (
         v === "need confirmation" ||
@@ -208,7 +209,13 @@ function classifyTitle(title: string): { isEarlyCheckin: boolean; isLateCheckout
     };
 }
 
-function calculateGuestFee(row: any, nights: number, hours?: number | null, quantity?: number | null): {
+/** Exported for unit tests — mirrors Upsells order-form fee math. */
+export function calculateGuestFee(
+    row: any,
+    nights: number,
+    hours?: number | null,
+    quantity?: number | null
+): {
     guestFee: number | null;
     unitLabel: string | null;
     breakdown: string[];
@@ -217,9 +224,16 @@ function calculateGuestFee(row: any, nights: number, hours?: number | null, quan
     const rateConfiguration = normalizeRateConfiguration(String(row.rateConfiguration || "Fixed Rate"));
     const chargeType = String(row.chargeType || row.timePeriod || "Per Stay");
     const chargeTypeKey = normalizeChargeTypeKey(chargeType);
-    const pmFee = toNumber(row.pmFee);
-    const processingFee = toNumber(row.processingFee ?? DEFAULT_PROCESSING_FEE);
-    const taxable = Boolean(row.taxable);
+    // Prefer property_config, fall back to upsell_info defaults (processingFee defaults to 3%).
+    const pmFee = toNumber(row.pmFee ?? row.basePmFee);
+    const processingFee = toNumber(
+        row.processingFee != null && row.processingFee !== ""
+            ? row.processingFee
+            : row.baseProcessingFee != null && row.baseProcessingFee !== ""
+              ? row.baseProcessingFee
+              : DEFAULT_PROCESSING_FEE
+    );
+    const taxable = Boolean(Number(row.taxable));
     const tax = taxable ? toNumber(row.taxRate) : 0;
     const rules = parsePricingRules(row.pricingRules);
     const constraints = parseFeeConstraints(row.pricingRules);
@@ -311,7 +325,13 @@ function calculateGuestFee(row: any, nights: number, hours?: number | null, quan
         unitLabel = `${units} night${units === 1 ? "" : "s"}`;
     } else {
         // Fixed Rate
-        const unitActual = toNumber(row.actualFee ?? row.basePrice);
+        const unitActual = toNumber(
+            row.actualFee != null && row.actualFee !== ""
+                ? row.actualFee
+                : row.baseActualFee != null && row.baseActualFee !== ""
+                  ? row.baseActualFee
+                  : row.basePrice
+        );
         if (chargeType === "Per Night" || chargeTypeKey === "per night") {
             if (!nights) {
                 return {
@@ -421,7 +441,8 @@ export class UpsellQuoteService {
 
         const rows: any[] = await appDatabase.query(
             `SELECT ui.upsell_id AS upSellId, ui.title, ui.timePeriod, ui.availability, ui.description,
-                    ui.price AS basePrice, ul.listingId,
+                    ui.price AS basePrice, ui.actualFee AS baseActualFee, ui.pmFee AS basePmFee,
+                    ui.processingFee AS baseProcessingFee, ul.listingId,
                     upc.upsellFee AS listingFee, upc.actualFee, upc.pmFee, upc.processingFee,
                     upc.chargeType, upc.rateConfiguration, upc.pricingRules, upc.taxable, upc.sdto,
                     upc.internalNotes
@@ -458,9 +479,10 @@ export class UpsellQuoteService {
             const sdto = normalizeSdto(r.sdto);
             const calc = calculateGuestFee(r, nights, input.hours, input.quantity);
 
-            let autoRespond: UpsellAutoRespond = "escalate";
+            // SDTO: Not Allowed → deny; Needs Confirmation → escalate; else quote when we can.
+            let autoRespond: UpsellAutoRespond = "quote";
             if (sdto === "not_allowed") autoRespond = "deny";
-            else if (sdto === "needs_confirmation" || sdto === "unknown") autoRespond = "escalate";
+            else if (sdto === "needs_confirmation") autoRespond = "escalate";
             else if (calc.needsUnits || calc.guestFee == null) autoRespond = "escalate";
             else autoRespond = "quote";
 
