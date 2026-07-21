@@ -43,9 +43,11 @@ import { ListingOpsOverrideService } from "./ListingOpsOverrideService";
 import {
     AssertableFact,
     AssertEvalContext,
+    derivePaymentState,
     guestAsksAgreement,
     guestAsksWifi,
     opsTextExplicitlyConfirmed,
+    PaymentState,
     renderAssertPolicyBlock,
     renderEarlyLateCheckPolicy,
 } from "./InboxAIAssertPolicy";
@@ -73,7 +75,7 @@ import {
  * human via the escalation keyword safety net.
  */
 
-export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v7.7"; // v7.7: extension pricing → urgent human quote (no AI rate)
+export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v7.8"; // v7.8: guest-code echo gate + payment_state diagnosis
 const INBOX_AI_MODEL = process.env.AI_MESSAGING_MODEL || "gpt-4.1";
 
 const textOrDefault = (value: string | null | undefined, fallback: string): string =>
@@ -518,6 +520,8 @@ export class InboxAIService {
         const stageLine = this.stayStageLine(conversation.checkin, conversation.checkout);
         const guestAskText = targetMessage?.body || conversation.lastMessageText || "";
         const codesAllowed = stayAllowsAccessCodes(stageLine) || guestReportsLockout(guestAskText);
+        const paymentStateMatch = context.match(/payment_state:\s*(paid|due|failed|auth_required|unknown)/i);
+        const paymentState = (paymentStateMatch?.[1]?.toLowerCase() || "unknown") as PaymentState;
         const unsafeAsserts = detectUnsafeAsserts(reply, {
             codesAllowed,
             agreementAsk: guestAsksAgreement(guestAskText),
@@ -528,6 +532,8 @@ export class InboxAIService {
             lateCheckoutHandling: settings?.lateCheckoutHandling,
             // Hostify inbox is guest/Airbnb-support; PM owners are Quo PM lines.
             pmClient: /PM client/i.test(String(conversation.channel || "")),
+            contextHaystack: contextHaystack,
+            paymentState,
         });
         if (unsafeAsserts.length) {
             warnings.push(
@@ -1656,6 +1662,7 @@ export class InboxAIService {
         }
         // Quo rows lack stay dates here — only allow codes on explicit lockout reports.
         const quoGuest = target.body || "";
+        const quoPayMatch = context.match(/payment_state:\s*(paid|due|failed|auth_required|unknown)/i);
         const quoUnsafe = detectUnsafeAsserts(reply, {
             codesAllowed: guestReportsLockout(quoGuest),
             agreementAsk: guestAsksAgreement(quoGuest),
@@ -1666,6 +1673,8 @@ export class InboxAIService {
             earlyCheckinHandling: settings?.earlyCheckinHandling,
             lateCheckoutHandling: settings?.lateCheckoutHandling,
             pmClient: isPmLine,
+            contextHaystack: haystack,
+            paymentState: (quoPayMatch?.[1]?.toLowerCase() || "unknown") as PaymentState,
         });
         if (quoUnsafe.length) {
             warnings.push(`Reply asserts something that must not be stated yet: ${quoUnsafe.join(", ")}.`);
@@ -2708,6 +2717,8 @@ export class InboxAIService {
             "- BOOKING CONFIRMATION: never say the reservation/booking is confirmed, or that the guest 'has a place to go', unless Reservation status in context is clearly accepted/confirmed (not inquiry, preapproved, pending, or missing). If they are anxious about having a place and status is unclear, say the team will verify availability/status — escalation_required=true. Never invent a confirmation.",
             "- ASSERT POLICY: when an 'Assert policy' section is present, only ASSERTABLE lines may be stated as certain. POLICY lines are instructions, not guest facts. Price/fee ≠ approval.",
             "- ACCESS CODES: only share when the Door access block contains live codes (check-in day / mid-stay / lockout). If the policy block says codes go out on arrival day, do NOT share or invent any code.",
+            "- NEVER CONFIRM A CODE THE GUEST SUGGESTED. If they ask 'is the code 14-28-38?', do NOT say yes / you've got it right unless that exact code appears in Door access / EXTERNAL KB / a TEAM message. Prefer stating the documented code, or say the team will verify.",
+            "- PAYMENT STATE: follow the payment_state line in Reservation billing. failed → charge did not go through (ask for a valid card / bank; never say authenticate or confirmed). auth_required → guest may need to complete verification. due → balance outstanding. A ChargeAutomation securelink alone does NOT mean authentication is needed.",
             "- CONTESTED FACTS: when the Contested listing facts section marks CONFLICT for checkout/check-in/capacity, do NOT pick a time or max-guest number — escalate for the team to confirm.",
             "- Do NOT invent physical features or capacities. In particular, never name a parking type (garage, driveway, carport, lot) or a specific number of cars/vehicles unless that detail appears in the provided context. If parking specifics are not in context, describe only what IS known and offer to confirm the rest — do not guess.",
             "- AMENITIES: A platform 'Amenities' checklist is marketing/listed-on-site data, NOT confirmed on-site inventory. You may say an item is listed for the property, but NEVER invent where it is stored/located (cabinet, drawer, under sink, etc.). If the guest needs to find something and location isn't in a staff-written KB entry, say the team will confirm. Prefer house rules / staff-written KB over amenity checklists when they conflict.",
@@ -3274,7 +3285,16 @@ export class InboxAIService {
 
     /** Build the user-message context block from conversation + reservation + listing. */
     /** Short-lived cache so repeated previews of the same thread don't refetch Hostify. */
-    private static reservationCache = new Map<number, { at: number; block: string | null }>();
+    private static reservationCache = new Map<
+        number,
+        {
+            at: number;
+            block: string | null;
+            paidPart: string | null;
+            due: number | null;
+            paidSum: number | null;
+        }
+    >();
 
     /**
      * Live reservation facts for the prompt: exact check-in/out dates, status,
@@ -3304,12 +3324,18 @@ export class InboxAIService {
         const reservationId = conversation.reservationId ? Number(conversation.reservationId) : null;
         if (!reservationId || !this.hostifyApiKey) return null;
 
-        // Cache Hostify payload only; agreement links from thread messages are
-        // appended after so we don't serve a stale CA link from another pass.
+        // Cache Hostify payload only; payment_state (thread-sensitive) and agreement
+        // links are appended after so we don't serve stale diagnosis/links.
         const cached = InboxAIService.reservationCache.get(reservationId);
         let core: string | null = null;
+        let paidPart: string | null = null;
+        let dueAmt: number | null = null;
+        let paidSum: number | null = null;
         if (cached && Date.now() - cached.at < 5 * 60 * 1000) {
             core = cached.block;
+            paidPart = cached.paidPart;
+            dueAmt = cached.due;
+            paidSum = cached.paidSum;
         } else {
             try {
                 const data: any = await this.hostify.getReservationInfo(this.hostifyApiKey, reservationId);
@@ -3350,14 +3376,15 @@ export class InboxAIService {
                 const staff: string[] = [];
                 // Ops-truth: platform "accepted/confirmed" with unpaid/partial balance
                 // must not be sold to the guest as fully confirmed.
-                const paidPart = String(r.paid_part || "").toLowerCase();
-                const dueAmt = r.due != null ? Number(r.due) : 0;
+                paidPart = String(r.paid_part || "").toLowerCase() || null;
+                dueAmt = r.due != null && Number.isFinite(Number(r.due)) ? Number(r.due) : null;
+                paidSum = r.paid_sum != null && Number.isFinite(Number(r.paid_sum)) ? Number(r.paid_sum) : null;
                 const statusBlob = `${r.status_description || ""} ${r.status || ""}`.toLowerCase();
                 const looksBooked = /\b(accepted|confirmed|modified|checked.?in)\b/.test(statusBlob);
-                if (looksBooked && (paidPart === "none" || (Number.isFinite(dueAmt) && dueAmt > 0))) {
+                if (looksBooked && (paidPart === "none" || (dueAmt != null && dueAmt > 0))) {
                     staff.push(
                         "- PAYMENT RISK (ops truth): booking status looks accepted/confirmed but payment is incomplete " +
-                            `(paid_part=${paidPart || "unknown"}${Number.isFinite(dueAmt) && dueAmt > 0 ? `, due=${dueAmt}` : ""}). ` +
+                            `(paid_part=${paidPart || "unknown"}${dueAmt != null && dueAmt > 0 ? `, due=${dueAmt}` : ""}). ` +
                             "Do NOT tell the guest they are fully confirmed/paid or 'all set' on payment — escalate payment questions to the team."
                     );
                 }
@@ -3439,8 +3466,38 @@ export class InboxAIService {
                 logger.warn(`[InboxAI] reservation enrich failed for ${reservationId}: ${e.message}`);
                 core = null;
             }
-            InboxAIService.reservationCache.set(reservationId, { at: Date.now(), block: core });
+            InboxAIService.reservationCache.set(reservationId, {
+                at: Date.now(),
+                block: core,
+                paidPart,
+                due: dueAmt,
+                paidSum,
+            });
         }
+
+        const threadText = messages.map((m) => String(m.body || "")).join("\n");
+        const paymentState: PaymentState = derivePaymentState({
+            paidPart,
+            due: dueAmt,
+            paidSum,
+            threadText,
+        });
+        const paymentPolicy: Record<PaymentState, string> = {
+            paid: "Guest is paid in full — do not ask for payment.",
+            due: "Balance outstanding — do NOT invent 3DS/authentication; say the team will send the correct payment link / next step. escalation_required=true for payment questions.",
+            failed:
+                "Charge FAILED / declined — tell the guest the payment did not go through and they need a valid card or bank action. NEVER say authenticate, verified, or that the reservation is paid/confirmed. escalation_required=true.",
+            auth_required:
+                "Guest may need to complete card authentication/verification — you may point them at an existing ChargeAutomation securelink if present. Do not claim payment succeeded.",
+            unknown:
+                "Payment status unclear — do NOT diagnose authenticate vs failed. Say the team will check payment status. escalation_required=true.",
+        };
+        const paymentBlock = [
+            "## Payment diagnosis (structural — follow exactly)",
+            `- payment_state: ${paymentState}`,
+            `- payment_policy: ${paymentPolicy[paymentState]}`,
+            "- A ChargeAutomation securelink in this thread does NOT by itself mean authentication is required — only follow payment_state.",
+        ].join("\n");
 
         const agreementLines: string[] = [];
         const caLink = this.extractChargeAutomationLink(messages);
@@ -3460,13 +3517,17 @@ export class InboxAIService {
                 `- SecureStay rental agreement page (use only if the guest asks for our signing link and no ChargeAutomation link is available): ${frontendBase}/rental-agreement/${reservationId}`
             );
         }
-        if (!agreementLines.length) return core;
-        const agreementBlock = [
-            "## Rental agreement / deposit authorization links",
-            "- Prefer ChargeAutomation securelink when present. Never substitute the Hostify pre-check-in form for these.",
-            ...agreementLines,
-        ].join("\n");
-        return core ? `${core}\n\n${agreementBlock}` : agreementBlock;
+        const parts = [core, paymentBlock].filter(Boolean);
+        if (agreementLines.length) {
+            parts.push(
+                [
+                    "## Rental agreement / deposit authorization links",
+                    "- Prefer ChargeAutomation securelink when present. Never substitute the Hostify pre-check-in form for these.",
+                    ...agreementLines,
+                ].join("\n")
+            );
+        }
+        return parts.length ? parts.join("\n\n") : null;
     }
 
     /**

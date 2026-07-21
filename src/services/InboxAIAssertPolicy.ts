@@ -163,6 +163,8 @@ export function renderEarlyLateCheckPolicy(
     ].join("\n");
 }
 
+export type PaymentState = "paid" | "due" | "failed" | "auth_required" | "unknown";
+
 export interface SpeechActGateOpts {
     codesAllowed: boolean;
     agreementAsk: boolean;
@@ -175,6 +177,90 @@ export interface SpeechActGateOpts {
     lateCheckoutHandling?: EarlyLateCheckHandling | string;
     /** True when drafting a reply to a PM/owner client (not a guest). */
     pmClient?: boolean;
+    /** Full generation context (lowercased preferred) — used to verify codes exist outside the guest message. */
+    contextHaystack?: string;
+    /** Structured payment diagnosis from reservation + thread signals. */
+    paymentState?: PaymentState | string;
+}
+
+/** Normalize lock/access code tokens for comparison (digits + hyphen only). */
+export function normalizeCodeToken(raw: string): string {
+    return String(raw || "")
+        .toLowerCase()
+        .replace(/#/g, "")
+        .replace(/\s+/g, "")
+        .replace(/[–—]/g, "-");
+}
+
+/** Extract plausible door/shed/lock codes from free text. */
+export function extractCodeTokens(text: string): string[] {
+    const t = String(text || "");
+    const out: string[] = [];
+    for (const m of t.matchAll(/\b(\d{2,4}(?:\s*[-–—]\s*\d{2,4}){1,3})\b/g)) {
+        out.push(normalizeCodeToken(m[1]));
+    }
+    for (const m of t.matchAll(/\b(\d{4,8})#?\b/g)) {
+        out.push(normalizeCodeToken(m[1]));
+    }
+    return [...new Set(out.filter(Boolean))];
+}
+
+function codeInHaystack(code: string, haystack: string): boolean {
+    const h = String(haystack || "").toLowerCase();
+    if (!code || !h) return false;
+    if (h.includes(code.toLowerCase())) return true;
+    // Also match spaced / unhyphenated variants present in KB.
+    const digits = code.replace(/\D/g, "");
+    if (digits.length >= 4 && h.replace(/\D/g, "").includes(digits)) return true;
+    const spaced = code.replace(/-/g, " ");
+    if (spaced !== code && h.includes(spaced)) return true;
+    return false;
+}
+
+function replyConfirmsGuestCode(text: string): boolean {
+    return /\b(you'?ve got it right|you have it right|that'?s (?:correct|right|it)|yes[,.]?\s+(?:that'?s|the code)|the (?:code|combination) is|confirm(?:ing|ed)? (?:that |the )?(?:code|combination)|exactly right)\b/i.test(
+        text
+    );
+}
+
+/**
+ * Derive a coarse payment diagnosis for speech-act gating.
+ * A ChargeAutomation link alone never implies auth_required.
+ */
+export function derivePaymentState(input: {
+    paidPart?: string | null;
+    due?: number | null;
+    paidSum?: number | null;
+    threadText?: string | null;
+}): PaymentState {
+    const paidPart = String(input.paidPart || "")
+        .toLowerCase()
+        .trim();
+    const due = input.due != null && Number.isFinite(Number(input.due)) ? Number(input.due) : null;
+    const paidSum =
+        input.paidSum != null && Number.isFinite(Number(input.paidSum)) ? Number(input.paidSum) : null;
+    const thread = String(input.threadText || "");
+
+    if (paidPart === "full" || paidPart === "all" || (due != null && due <= 0 && (paidPart || (paidSum != null && paidSum > 0)))) {
+        return "paid";
+    }
+
+    const failedSignal =
+        /\b(payment failed|charge failed|failed charge|card (?:was )?declined|declined|attempted charge.+failed|could not (?:process|complete) (?:the )?payment)\b/i.test(
+            thread
+        ) ||
+        (/\bVAS_CART|PURCHASE_RECEIPT\b/i.test(thread) && (due == null || due > 0) && paidPart !== "full" && paidPart !== "all");
+
+    if (failedSignal) return "failed";
+
+    const authSignal = /\b(authenticat(?:e|ion|ed)?|3\s*-?\s*d\s*secure|3ds|verify (?:your )?card)\b/i.test(thread);
+    if (authSignal && (due == null || due > 0) && paidPart !== "full" && paidPart !== "all") {
+        return "auth_required";
+    }
+
+    if (paidPart === "none" || paidPart === "part" || (due != null && due > 0)) return "due";
+    if (!paidPart && due == null && paidSum == null) return "unknown";
+    return due != null && due > 0 ? "due" : "unknown";
 }
 
 /** Guest has a real booked stay — not inquiry / preapproved / pending / unknown. */
@@ -347,6 +433,50 @@ export function detectUnsafeSpeechActs(reply: string, opts: SpeechActGateOpts): 
         /[$€£]\s?\d|\b\d+\s*(?:dollars?|usd|\/\s*night|per\s*night)\b/i.test(text)
     ) {
         hits.push("extension_price_quote");
+    }
+
+    // Never echo/confirm a code the guest proposed unless that exact code is in
+    // Door access / KB / TEAM context (Alexis shed-lock wrong_info).
+    const guestCodes = extractCodeTokens(opts.guestText || "");
+    if (guestCodes.length && replyConfirmsGuestCode(text)) {
+        const hay = String(opts.contextHaystack || "");
+        // Strip guest message from haystack so a code only in the ask doesn't count as documented.
+        const hayWithoutGuest = hay.replace(String(opts.guestText || "").toLowerCase(), " ");
+        const replyCodes = extractCodeTokens(text);
+        if (!replyCodes.length) {
+            // "you've got it right" with no digits = confirming the guest's proposal.
+            if (!guestCodes.every((c) => codeInHaystack(c, hayWithoutGuest))) {
+                hits.push("guest_code_echo");
+            }
+        } else {
+            for (const c of replyCodes) {
+                if (guestCodes.includes(c) && !codeInHaystack(c, hayWithoutGuest)) {
+                    hits.push("guest_code_echo");
+                    break;
+                }
+            }
+        }
+    }
+
+    // Payment diagnosis: never invent 3DS/auth when ops truth is failed/due.
+    const payState = String(opts.paymentState || "unknown").toLowerCase();
+    if (payState === "failed" || payState === "due") {
+        if (
+            /\b(authenticat(?:e|ion|ed)?|3\s*-?\s*d\s*secure|3ds|verify (?:your )?card|complete (?:the )?verification)\b/i.test(
+                text
+            )
+        ) {
+            hits.push("wrong_payment_diagnosis");
+        }
+    }
+    if (payState === "failed") {
+        if (
+            /\b(reservation is confirmed|booking is confirmed|you(?:'re| are) confirmed|payment (?:went|was) through|successfully (?:paid|charged))\b/i.test(
+                text
+            )
+        ) {
+            hits.push("wrong_payment_diagnosis");
+        }
     }
 
     // Complimentary / free / goodwill approvals without explicit ops/team confirm.
