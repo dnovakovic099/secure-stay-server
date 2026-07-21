@@ -134,8 +134,8 @@ export class OverduePaymentService {
     // At >= 85% collected we treat the stay as fully paid for our purposes.
     private static readonly OZZIE_BOOKING_COM_PAID_THRESHOLD = 0.85;
 
-    static isBookingCom(source?: string | null, channelName?: string | null): boolean {
-        const s = `${source || ""} ${channelName || ""}`.toLowerCase();
+    static isBookingCom(source?: string | null, channelName?: string | null, listingName?: string | null): boolean {
+        const s = `${source || ""} ${channelName || ""} ${listingName || ""}`.toLowerCase();
         return /booking\.com|\bbcom\b|\bbooking\b/.test(s);
     }
 
@@ -146,6 +146,16 @@ export class OverduePaymentService {
     static isOzzieProperty(listingName?: string | null, ownerName?: string | null): boolean {
         const haystack = `${listingName || ""} ${ownerName || ""}`;
         return /\bOzzie\b/i.test(haystack) || /Pirzada/i.test(ownerName || "");
+    }
+
+    /** Parse "paid 227.12 of 251.04" from an emergency reason when local paidAmount is stale. */
+    private paidRatioFromReason(reason?: string | null): { paid: number; total: number } | null {
+        const m = String(reason || "").match(/paid\s+([\d.]+)\s+of\s+([\d.]+)/i);
+        if (!m) return null;
+        const paid = Number(m[1]);
+        const total = Number(m[2]);
+        if (!Number.isFinite(paid) || !Number.isFinite(total) || total <= 0) return null;
+        return { paid, total };
     }
 
     private toNum(v: any): number | null {
@@ -184,7 +194,7 @@ export class OverduePaymentService {
         // Ozzie + Booking.com only: remaining balance is platform tax, not owed to us.
         if (
             ctx &&
-            OverduePaymentService.isBookingCom(ctx.source, ctx.channelName) &&
+            OverduePaymentService.isBookingCom(ctx.source, ctx.channelName, ctx.listingName) &&
             OverduePaymentService.isOzzieProperty(ctx.listingName, ctx.ownerName) &&
             paid != null &&
             total != null &&
@@ -194,6 +204,17 @@ export class OverduePaymentService {
             return true;
         }
         return false;
+    }
+
+    /**
+     * Clear stale payment pins (cancelled + Ozzie Booking.com ≥85%). Safe to call
+     * from inbox list so pins drop without waiting for the 3-hour payment sweep.
+     */
+    async clearStalePaymentPins(): Promise<{ cleared: number }> {
+        const cleared =
+            (await this.clearPaymentEmergenciesForInactiveReservations()) +
+            (await this.clearOzzieBookingComTaxRemainderEmergencies());
+        return { cleared };
     }
 
     private paymentLabel(
@@ -766,12 +787,15 @@ export class OverduePaymentService {
     /**
      * Ozzie + Booking.com: once >= 85% is collected, the remainder is tax paid
      * to Booking.com — clear any leftover "needs payment" pins.
+     *
+     * Uses (in order): local paidAmount, "paid X of Y" in the emergency reason
+     * (written at raise time from live Hostify), then a live Hostify refresh.
      */
     private async clearOzzieBookingComTaxRemainderEmergencies(): Promise<number> {
         try {
             const pinned = await this.conversationRepo.find({
                 where: { emergency: 1, emergencyType: "payment" },
-                select: ["threadId", "reservationId", "listingName", "channel"],
+                select: ["threadId", "reservationId", "listingName", "channel", "emergencyReason"],
             });
             if (!pinned.length) return 0;
 
@@ -795,29 +819,72 @@ export class OverduePaymentService {
                 const reservation = conversation.reservationId
                     ? reservationById.get(Number(conversation.reservationId))
                     : null;
-                if (!reservation) continue;
                 const listing =
-                    reservation.listingMapId != null
+                    reservation?.listingMapId != null
                         ? listingById.get(Number(reservation.listingMapId)) || null
                         : null;
-                const total = this.expectedTotal(reservation.payoutPrice, reservation.totalPrice);
-                const paid = this.toNum(reservation.paidAmount);
                 const payCtx = {
-                    source: reservation.source,
-                    channelName: reservation.channelName || conversation.channel,
+                    source: reservation?.source || null,
+                    channelName: reservation?.channelName || conversation.channel,
                     listingName:
-                        reservation.listingName || listing?.internalListingName || conversation.listingName || null,
+                        reservation?.listingName ||
+                        listing?.internalListingName ||
+                        conversation.listingName ||
+                        null,
                     ownerName: listing?.ownerName || null,
                 };
-                if (!this.isFullyPaid(reservation.paidPart, paid, total, payCtx)) continue;
-                // Only clear via this path when the Ozzie Booking.com rule is what made it "paid"
-                // (true full pay is already handled elsewhere; clearing here is still correct).
                 if (
-                    !OverduePaymentService.isBookingCom(payCtx.source, payCtx.channelName) ||
+                    !OverduePaymentService.isBookingCom(payCtx.source, payCtx.channelName, payCtx.listingName) ||
                     !OverduePaymentService.isOzzieProperty(payCtx.listingName, payCtx.ownerName)
                 ) {
                     continue;
                 }
+
+                let paid = this.toNum(reservation?.paidAmount);
+                let total = this.expectedTotal(reservation?.payoutPrice, reservation?.totalPrice);
+                let paidPart = reservation?.paidPart ?? null;
+
+                // Emergency reason usually has the Hostify snapshot from raise time
+                // ("paid 227.12 of 251.04") even when reservation_info.paidAmount is null.
+                if (paid == null || total == null || total <= 0) {
+                    const fromReason = this.paidRatioFromReason(conversation.emergencyReason);
+                    if (fromReason) {
+                        paid = fromReason.paid;
+                        total = fromReason.total;
+                    }
+                }
+
+                let qualifies = this.isFullyPaid(paidPart, paid, total, payCtx);
+
+                // Last resort: live Hostify check for Ozzie B.com pins still unsettled locally.
+                if (!qualifies && this.apiKey && conversation.reservationId) {
+                    try {
+                        const data: any = await this.hostify.getReservationInfo(
+                            this.apiKey,
+                            Number(conversation.reservationId)
+                        );
+                        const live = data?.reservation || {};
+                        paidPart = live.paid_part != null ? String(live.paid_part) : paidPart;
+                        paid = this.toNum(live.paid_sum) ?? paid;
+                        total =
+                            this.expectedTotal(this.toNum(live.payout_price), this.toNum(live.total_price)) ?? total;
+                        qualifies = this.isFullyPaid(paidPart, paid, total, payCtx);
+                        if (qualifies && reservation) {
+                            reservation.paidPart = paidPart ?? reservation.paidPart;
+                            if (paid != null) reservation.paidAmount = paid;
+                            const payout = this.toNum(live.payout_price);
+                            if (payout != null) reservation.payoutPrice = payout;
+                            reservation.paymentSyncedAt = new Date();
+                            await this.reservationRepo.save(reservation);
+                        }
+                    } catch (err: any) {
+                        logger.warn(
+                            `[OverduePayment] Ozzie B.com live check failed for reservation ${conversation.reservationId}: ${err.message}`
+                        );
+                    }
+                }
+
+                if (!qualifies) continue;
                 const ok = await this.clearEmergency(Number(conversation.threadId));
                 if (ok) cleared++;
             }

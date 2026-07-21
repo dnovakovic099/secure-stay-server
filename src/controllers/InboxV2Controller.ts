@@ -4,6 +4,8 @@ import { InboxAIService } from "../services/InboxAIService";
 import { MessagingService } from "../services/MessagingServices";
 import { AILearningPromptService } from "../services/AILearningPromptService";
 import { AIProposedActionService } from "../services/AIProposedActionService";
+import { OverduePaymentService } from "../services/OverduePaymentService";
+import logger from "../utils/logger.utils";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -15,6 +17,10 @@ const toNum = (v: any): number | null => {
     return Number.isFinite(n) ? n : null;
 };
 
+/** Don't hammer Hostify/DB on every inbox page flip — clear stale pins at most every 60s. */
+let lastStalePaymentPinClearAt = 0;
+const STALE_PAYMENT_PIN_CLEAR_MS = 60_000;
+
 /**
  * Controller for the v2 Inbox. Reads come from the local DB (inbox_conversations
  * / inbox_messages); replies are delivered to Hostify and recorded locally with
@@ -23,6 +29,19 @@ const toNum = (v: any): number | null => {
 export class InboxV2Controller {
     async listConversations(request: Request, response: Response, next: NextFunction) {
         try {
+            const now = Date.now();
+            if (now - lastStalePaymentPinClearAt >= STALE_PAYMENT_PIN_CLEAR_MS) {
+                lastStalePaymentPinClearAt = now;
+                try {
+                    const { cleared } = await new OverduePaymentService().clearStalePaymentPins();
+                    if (cleared > 0) {
+                        logger.info(`[InboxV2] Cleared ${cleared} stale payment pin(s) before listing`);
+                    }
+                } catch (err: any) {
+                    logger.warn(`[InboxV2] stale payment pin clear failed: ${err?.message || err}`);
+                }
+            }
+
             const inboxService = new InboxService();
             const result = await inboxService.listConversations({
                 page: parseInt(request.query.page as string) || 1,
