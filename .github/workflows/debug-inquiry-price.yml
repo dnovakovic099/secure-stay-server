@@ -1,0 +1,29 @@
+name: Debug Inquiry Price
+
+on:
+  workflow_dispatch:
+    inputs:
+      thread_id:
+        description: "Inbox thread id (local or Hostify external)"
+        required: true
+        default: "300771649"
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Debug inquiry price fields on EC2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT }}
+          command_timeout: 20m
+          script: |
+            set -e
+            cd /home/ec2-user/secure_stay/secure-stay-server
+            git pull origin dev-new
+            npm install
+            npm run build
+            NODE_ENV=production node dist/out-tsc/scripts/debugInquiryPrice.js ${{ github.event.inputs.thread_id }}
