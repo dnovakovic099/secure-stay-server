@@ -1338,12 +1338,35 @@ export class MessagingService {
             // predates the guest's actual payment (screenshot 8 showed a wrong
             // Total Paid because we were still reading the local value).
             revenue: liveReservation?.revenue ?? reservation.totalPrice ?? null,
-            totalPrice: liveReservation?.total_price ?? liveReservation?.total_paid ?? reservation.totalPrice ?? null,
+            // Inquiries often only carry Hostify `price` / `subtotal` (+ tax) — fall
+            // through those before giving up on the local totalPrice.
+            totalPrice: (() => {
+                const fromSubtotal =
+                    liveReservation?.subtotal != null
+                        ? Number(liveReservation.subtotal) + Number(liveReservation.tax_amount ?? 0)
+                        : null;
+                const candidates = [
+                    liveReservation?.total_price,
+                    liveReservation?.total_paid,
+                    liveReservation?.price,
+                    liveReservation?.revenue,
+                    fromSubtotal,
+                    reservation.totalPrice,
+                ];
+                for (const candidate of candidates) {
+                    if (candidate == null || candidate === "") continue;
+                    const n = Number(candidate);
+                    if (!Number.isNaN(n)) return n;
+                }
+                return null;
+            })(),
             netRevenue:
                 liveReservation?.net_revenue ??
                 liveReservation?.payout_price ??
                 liveReservation?.payout ??
+                liveReservation?.owner_revenue ??
                 reservation.owner_revenue ??
+                reservation.payoutPrice ??
                 null,
             nightRate: liveReservation?.price_per_night ?? liveReservation?.base_price ?? null,
             price_per_night: liveReservation?.price_per_night ?? null,

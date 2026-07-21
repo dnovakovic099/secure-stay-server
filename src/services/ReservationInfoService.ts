@@ -2121,7 +2121,28 @@ export class ReservationInfoService {
       nights: reservation.nights,
       //guest.phones can be either string or array of phones so handle both case
       phone: Array.isArray(guest.phones) ? guest.phones.join(', ') : guest.phones,
-      totalPrice: reservation.subtotal + reservation.tax_amount, //subtotal + tax_amount gives the totalPrice
+      // Prefer Hostify's total_price / price (inquiries often only have these).
+      // subtotal + tax is the fallback for confirmed bookings; never persist NaN.
+      // Entity column is string — stringify the resolved number.
+      totalPrice: (() => {
+        const pick = (raw: unknown): string | null => {
+          if (raw == null || raw === "") return null;
+          const n = Number(raw);
+          return Number.isNaN(n) ? null : String(n);
+        };
+        const fromTotal = pick(reservation.total_price);
+        if (fromTotal != null) return fromTotal;
+        const fromPrice = pick(reservation.price);
+        if (fromPrice != null) return fromPrice;
+        if (reservation.subtotal != null && reservation.subtotal !== "") {
+          const subtotal = Number(reservation.subtotal);
+          const tax = Number(reservation.tax_amount ?? 0);
+          if (!Number.isNaN(subtotal)) {
+            return String(subtotal + (Number.isNaN(tax) ? 0 : tax));
+          }
+        }
+        return pick(reservation.revenue);
+      })(),
       taxAmount: reservation.tax_amount,
       channelCommissionAmount: reservation.channel_commission,
       hostawayCommissionAmount: null,
