@@ -156,10 +156,13 @@ export function renderEarlyLateCheckPolicy(
         }
     };
     return [
-        "EARLY CHECK-IN / LATE CHECK-OUT HANDLING (team settings — follow strictly):",
+        "EARLY CHECK-IN / LATE CHECK-OUT HANDLING:",
+        "PRIORITY: If Available paid services lists Early/Late with an SDTO, that SDTO wins over the Settings lines below.",
+        "  NOT ALLOWED → deny. NEEDS CONFIRMATION → escalate, no firm price. ALLOWED → quote the calculated fee (subject to availability); do not approve a specific clock time unless a TEAM message already confirmed it.",
+        "Fallback Settings (only when Upsells SDTO is missing for that service):",
         describe("Early check-in", normalize(early)),
         describe("Late check-out", normalize(late)),
-        "- Only skip this policy when a TEAM message in THIS thread already decided this exact request.",
+        "- Only skip when a TEAM message in THIS thread already decided this exact request.",
     ].join("\n");
 }
 

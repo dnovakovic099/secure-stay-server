@@ -54,7 +54,10 @@ jobs:
               upsert_env REDDIT_CLIENT_SECRET "$REDDIT_CLIENT_SECRET"
               upsert_env REDDIT_REDIRECT_URI "$REDIRECT_URI"
               upsert_env REDDIT_USER_AGENT "SecureStay/1.0"
-              upsert_env REDDIT_OAUTH_SCOPES "adsread adsedit adsconversions"
+              upsert_env REDDIT_OAUTH_SCOPES "adsread,adsedit,adsconversions"
+              if [ -n "${ZAPIER_REDDIT_LEADS_WEBHOOK_URL:-}" ]; then
+                upsert_env ZAPIER_REDDIT_LEADS_WEBHOOK_URL "$ZAPIER_REDDIT_LEADS_WEBHOOK_URL"
+              fi
               echo ">>> Reddit OAuth env vars upserted"
             else
               echo ">>> Reddit OAuth secrets not set in GitHub; skipping env upsert"

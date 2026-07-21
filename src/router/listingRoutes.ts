@@ -81,6 +81,12 @@ router.route('/getlistingdetail')
     listingController.getListingDetail
   )
 
+router.route('/:listingId/ai-auto-respond')
+  .patch(
+    verifySession,
+    listingController.setAiAutoRespondDisabled
+  )
+
 router.route('/getupdates/:listingId')
   .get(
     verifyMobileSession,

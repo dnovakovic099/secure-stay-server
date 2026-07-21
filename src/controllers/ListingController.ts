@@ -254,6 +254,22 @@ export class ListingController {
     }
   }
 
+  async setAiAutoRespondDisabled(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const listingId = Number(request.params.listingId);
+      if (!Number.isFinite(listingId)) {
+        return response.status(400).json({ status: false, message: "Invalid listingId" });
+      }
+      const disabled = Boolean(request.body?.disabled);
+      const listingService = new ListingService();
+      const userId = String(request.user?.id || request.user?.secureStayUserId || "");
+      const saved = await listingService.setAiAutoRespondDisabled(listingId, disabled, userId);
+      return response.status(200).json(successDataFetch(saved));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
   async getPmListings(request: CustomRequest, response: Response, next: NextFunction) {
     try {
       const listingService = new ListingService();

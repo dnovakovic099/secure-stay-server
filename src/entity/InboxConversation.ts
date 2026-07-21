@@ -113,6 +113,18 @@ export class InboxConversationEntity {
     @Column({ type: "datetime", nullable: true })
     emergencyAt: Date | null;
 
+    // Manual mute from Inbox V2 ("Disable auto-respond") for problematic guests.
+    // When guestId is set, a matching ai_guest_autosend_disable row also persists
+    // the mute across future threads for that guest.
+    @Column({ type: "tinyint", default: 0 })
+    aiAutoRespondDisabled: number;
+
+    @Column({ type: "datetime", nullable: true })
+    aiAutoRespondDisabledAt: Date | null;
+
+    @Column({ length: 255, nullable: true })
+    aiAutoRespondDisabledBy: string | null;
+
     @Column({ type: "datetime", nullable: true })
     syncedAt: Date | null;
 

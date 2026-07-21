@@ -1284,14 +1284,39 @@ export class InboxService {
             : [];
         const listingMap = new Map(listings.map((listing) => [Number(listing.id), listing]));
 
+        // Guest-level auto-respond mutes (problematic guests) — hydrate onto
+        // the conversation so the inbox UI can show Disable without a second fetch.
+        const guestIds = Array.from(
+            new Set(
+                conversations
+                    .map((c) => Number(c.guestId))
+                    .filter((id) => Number.isFinite(id) && id > 0)
+            )
+        );
+        let mutedGuestIds = new Set<number>();
+        if (guestIds.length) {
+            try {
+                const { AIGuestAutosendDisableEntity } = await import("../entity/AIGuestAutosendDisable");
+                const muteRows = await appDatabase
+                    .getRepository(AIGuestAutosendDisableEntity)
+                    .find({ where: { guestId: In(guestIds as any) } });
+                mutedGuestIds = new Set(muteRows.map((r) => Number(r.guestId)));
+            } catch {
+                /* table may not exist until migrate — ignore */
+            }
+        }
+
         const enrichedConversations = await Promise.all(conversations.map(async (conversation) => {
             const listing = listingMap.get(Number(conversation.listingId)) || null;
             const normalizedListing = listing
                 ? (this.listingService as any).normalizeListingOverview?.(listing) || null
                 : null;
             const parentListingId = await this.listingGroupService.resolve(conversation.listingId);
+            const guestMuted = conversation.guestId != null && mutedGuestIds.has(Number(conversation.guestId));
             return {
                 ...conversation,
+                aiAutoRespondDisabled:
+                    Number(conversation.aiAutoRespondDisabled) === 1 || guestMuted ? 1 : 0,
                 parentListingId,
                 propertyType: this.normalizePropertyTypeValue(listing),
                 serviceType: this.normalizeServiceTypeValue(listing, normalizedListing),
@@ -1446,7 +1471,23 @@ export class InboxService {
 
         const parentListingId = await this.listingGroupService.resolve(conversation.listingId);
 
-        return { conversation: { ...conversation, parentListingId }, messages };
+        let aiAutoRespondDisabled = Number(conversation.aiAutoRespondDisabled) === 1 ? 1 : 0;
+        if (!aiAutoRespondDisabled && conversation.guestId != null) {
+            try {
+                const { AIGuestAutosendDisableEntity } = await import("../entity/AIGuestAutosendDisable");
+                const guestMute = await appDatabase
+                    .getRepository(AIGuestAutosendDisableEntity)
+                    .findOne({ where: { guestId: Number(conversation.guestId) as any } });
+                if (guestMute) aiAutoRespondDisabled = 1;
+            } catch {
+                /* ignore until migrate */
+            }
+        }
+
+        return {
+            conversation: { ...conversation, parentListingId, aiAutoRespondDisabled },
+            messages,
+        };
     }
 
     // -------------------------------------------------------------------------

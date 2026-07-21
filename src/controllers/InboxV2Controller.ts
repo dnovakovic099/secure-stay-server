@@ -413,6 +413,30 @@ export class InboxV2Controller {
         }
     }
 
+    /** Disable/enable Hostify auto-respond for this guest (persists by guestId). */
+    async setAiAutoRespondDisabled(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const threadId = Number(request.params.threadId);
+            if (!Number.isFinite(threadId)) {
+                return response.status(400).json({ status: false, message: "Invalid threadId" });
+            }
+            const disabled = Boolean(request.body?.disabled);
+            const disabledBy =
+                request.user?.name ||
+                request.user?.email ||
+                String(request.user?.secureStayUserId ?? request.user?.id ?? "") ||
+                null;
+            const saved = await new InboxAIService().setConversationAutoRespondDisabled(
+                threadId,
+                disabled,
+                disabledBy
+            );
+            return response.status(200).json({ status: true, data: saved });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     /** Update a suggestion's lifecycle status (ignored/rejected from the UI). */
     async aiUpdateSuggestionStatus(request: CustomRequest, response: Response, next: NextFunction) {
         try {

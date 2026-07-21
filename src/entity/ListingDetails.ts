@@ -50,4 +50,7 @@ export class ListingDetail {
     @Column({ nullable: true })
     updatedBy: string;
 
+    /** When 1, Hostify inbox AI will not auto-respond for this listing. */
+    @Column({ type: "tinyint", default: 0 })
+    aiAutoRespondDisabled: number;
 }

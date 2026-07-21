@@ -63,6 +63,11 @@ router.post("/ai/actions/:id/execute", verifySession, inboxV2Controller.aiExecut
 router.post("/ai/actions/:id/dismiss", verifySession, inboxV2Controller.aiDismissAction);
 // Veto a queued delayed auto-send before its window elapses.
 router.post("/ai/suggestions/:id/veto-autosend", verifySession, inboxV2Controller.aiVetoDelayedSend);
+router.patch(
+    "/conversations/:threadId/ai-auto-respond",
+    verifySession,
+    inboxV2Controller.setAiAutoRespondDisabled
+);
 
 // -------------------------------------------------------------------------
 // Automated messages (rule-based scheduled sends: winback, reminders,

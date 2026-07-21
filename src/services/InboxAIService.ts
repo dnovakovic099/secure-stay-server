@@ -8,9 +8,11 @@ import { QuoConversationEntity } from "../entity/QuoConversation";
 import { QuoMessageEntity } from "../entity/QuoMessage";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Listing } from "../entity/Listing";
+import { ListingDetail } from "../entity/ListingDetails";
 import { ListingIntake } from "../entity/ListingIntake";
 import { AIMessageSuggestionEntity } from "../entity/AIMessageSuggestion";
 import { AIMessageFeedbackEntity } from "../entity/AIMessageFeedback";
+import { AIGuestAutosendDisableEntity } from "../entity/AIGuestAutosendDisable";
 import { InboxService } from "./InboxService";
 import { OverduePaymentService } from "./OverduePaymentService";
 import { ListingKnowledgeService } from "./ListingKnowledgeService";
@@ -162,13 +164,8 @@ const ESCALATION_KEYWORDS: { pattern: RegExp; reason: string }[] = [
     { pattern: /\b(deposit|security deposit)\b/i, reason: "Security deposit" },
     { pattern: /\b(cancel|cancellation|cancelling)\b/i, reason: "Cancellation / penalty" },
     { pattern: /\b(chargeback|dispute|bad review|1 star|one star|report you)\b/i, reason: "Angry guest / review risk" },
-    // Discretionary calls the team makes per-situation (cleaning schedule,
-    // same-day occupancy). July 16 audit: the AI approved/denied these itself —
-    // approved an unverified early check-in, denied a complimentary late
-    // checkout the team then granted, OK'd a group-size change. It must
-    // acknowledge + hand off, never decide.
-    { pattern: /\b(late|extended?)[\s-]*check[\s-]*out\b|\bcheck[\s-]*out\s+(late|later|extension)\b/i, reason: "Late checkout request (team decides)" },
-    { pattern: /\bearly[\s-]*check[\s-]*in\b|\bcheck[\s-]*in\s+(early|earlier)\b/i, reason: "Early check-in request (team decides)" },
+    // Early/late check-in/out are governed by Upsells SDTO (Not Allowed /
+    // Needs Confirmation / Allowed) — not blanket escalation. See buildUpsellsBlock.
     { pattern: /\b(extra|additional|more)\s+(guest|people|person|visitor)s?\b|\bguest\s+count\b|\badd\s+(a\s+)?guests?\b/i, reason: "Group-size change (team decides)" },
     { pattern: /\bwaiv(e|er|ed|ing)\b|\bskip\s+the\s+fee\b|\bfee\s+(waiver|removed|dropped)\b/i, reason: "Fee waiver request (team decides)" },
     // Call scheduling is staff-availability dependent. July 20 audit: AI offered
@@ -214,6 +211,8 @@ export class InboxAIService {
     private messageRepo = appDatabase.getRepository(InboxMessageEntity);
     private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
     private listingRepo = appDatabase.getRepository(Listing);
+    private listingDetailRepo = appDatabase.getRepository(ListingDetail);
+    private guestAutosendDisableRepo = appDatabase.getRepository(AIGuestAutosendDisableEntity);
     private suggestionRepo = appDatabase.getRepository(AIMessageSuggestionEntity);
     private feedbackRepo = appDatabase.getRepository(AIMessageFeedbackEntity);
     private hostify = new Hostify();
@@ -2078,6 +2077,126 @@ export class InboxAIService {
      * Safe to call for every inbound webhook message; it self-gates and never
      * throws (returns a structured decision instead).
      */
+
+    /**
+     * Check listing / guest / thread mutes that block Hostify auto-respond.
+     * Suggestions still generate; only delivery is suppressed.
+     */
+    async resolveAutosendMute(
+        conversation: InboxConversationEntity
+    ): Promise<{ disabled: boolean; reason?: string }> {
+        if (Number(conversation.aiAutoRespondDisabled) === 1) {
+            return { disabled: true, reason: "thread_autosend_disabled" };
+        }
+        if (conversation.guestId != null) {
+            const guestMute = await this.guestAutosendDisableRepo
+                .findOne({ where: { guestId: Number(conversation.guestId) as any } })
+                .catch(() => null);
+            if (guestMute) {
+                return { disabled: true, reason: "guest_autosend_disabled" };
+            }
+        }
+        if (conversation.listingId != null) {
+            const detail = await this.listingDetailRepo
+                .findOne({ where: { listingId: Number(conversation.listingId) } })
+                .catch(() => null);
+            if (detail && Number((detail as any).aiAutoRespondDisabled) === 1) {
+                return { disabled: true, reason: "listing_autosend_disabled" };
+            }
+        }
+        return { disabled: false };
+    }
+
+    /**
+     * Inbox toggle: disable/enable auto-respond for this conversation's guest.
+     * When guestId is present, persists a guest-level mute so future threads
+     * for the same guest stay muted. Also cancels any queued delayed autosends.
+     */
+    async setConversationAutoRespondDisabled(
+        threadId: number,
+        disabled: boolean,
+        disabledBy?: string | null
+    ): Promise<InboxConversationEntity> {
+        const conversation = await this.conversationRepo.findOne({ where: { threadId } });
+        if (!conversation) throw new Error(`Conversation ${threadId} not found`);
+
+        conversation.aiAutoRespondDisabled = disabled ? 1 : 0;
+        conversation.aiAutoRespondDisabledAt = disabled ? new Date() : null;
+        conversation.aiAutoRespondDisabledBy = disabled ? disabledBy || null : null;
+        await this.conversationRepo.save(conversation);
+
+        if (conversation.guestId != null) {
+            const guestId = Number(conversation.guestId);
+            if (disabled) {
+                let row = await this.guestAutosendDisableRepo.findOne({
+                    where: { guestId: guestId as any },
+                });
+                if (!row) {
+                    row = this.guestAutosendDisableRepo.create({
+                        guestId: guestId as any,
+                        guestName: conversation.guestName || null,
+                        disabledBy: disabledBy || null,
+                    });
+                } else {
+                    row.guestName = conversation.guestName || row.guestName;
+                    row.disabledBy = disabledBy || row.disabledBy;
+                }
+                await this.guestAutosendDisableRepo.save(row);
+
+                // Mirror the flag onto other open threads for this guest so the
+                // inbox UI shows the mute everywhere without an extra lookup.
+                await this.conversationRepo
+                    .createQueryBuilder()
+                    .update(InboxConversationEntity)
+                    .set({
+                        aiAutoRespondDisabled: 1,
+                        aiAutoRespondDisabledAt: new Date(),
+                        aiAutoRespondDisabledBy: disabledBy || null,
+                    } as any)
+                    .where("guestId = :guestId", { guestId })
+                    .execute()
+                    .catch(() => undefined);
+            } else {
+                await this.guestAutosendDisableRepo.delete({ guestId: guestId as any }).catch(() => undefined);
+                await this.conversationRepo
+                    .createQueryBuilder()
+                    .update(InboxConversationEntity)
+                    .set({
+                        aiAutoRespondDisabled: 0,
+                        aiAutoRespondDisabledAt: null,
+                        aiAutoRespondDisabledBy: null,
+                    } as any)
+                    .where("guestId = :guestId", { guestId })
+                    .execute()
+                    .catch(() => undefined);
+            }
+        }
+
+        if (disabled) {
+            const queued = await this.suggestionRepo.find({
+                where: {
+                    source: "hostify",
+                    threadId: threadId as any,
+                    status: "suggested",
+                },
+                take: 20,
+            });
+            for (const s of queued) {
+                if (s.autosendScheduledAt == null) continue;
+                s.autosendScheduledAt = null;
+                s.status = "ignored";
+                await this.suggestionRepo.save(s).catch(() => undefined);
+            }
+        }
+
+        logger.info(
+            `[InboxAIService] auto-respond ${disabled ? "DISABLED" : "ENABLED"} for thread ${threadId}` +
+                (conversation.guestId != null ? ` (guest ${conversation.guestId})` : "") +
+                (disabledBy ? ` by ${disabledBy}` : "")
+        );
+        return conversation;
+    }
+
     async maybeAutoRespond(
         threadId: number,
         messageId?: number | null
@@ -2139,6 +2258,12 @@ export class InboxAIService {
                     suggestion.id,
                     `emergency:${conversation.emergencyType || "unknown"}`
                 );
+            }
+
+            // Manual mutes: per-thread, per-guest (problematic guests), or per-listing.
+            const mute = await this.resolveAutosendMute(conversation);
+            if (mute.disabled) {
+                return this.autosendSkip(threadId, suggestion.id, mute.reason || "autosend_muted");
             }
 
             // ---- Unpaid-arrival emergency (non-Airbnb only) ----
@@ -2315,6 +2440,11 @@ export class InboxAIService {
                 const conversation = await this.conversationRepo.findOne({ where: { threadId } });
                 if (!conversation || conversation.emergency) {
                     await cancel(conversation ? "emergency" : "no_conversation");
+                    continue;
+                }
+                const mute = await this.resolveAutosendMute(conversation);
+                if (mute.disabled) {
+                    await cancel(mute.reason || "autosend_muted");
                     continue;
                 }
                 if (
@@ -2711,7 +2841,7 @@ export class InboxAIService {
             "- LOCAL EVENTS & PROPERTY EXPERIENCE: never invent festivals, games, concerts, news, train noise, lake/beach swimability, neighborhood vibe, or on-site feel. Those require External KB / proven replies / TEAM messages. Approx drive times to well-known places are OK; property-experience claims are not.",
             "- NEVER quote a specific fee or price that does not appear in the provided context — not even a plausible-sounding one. If the amount isn't in context, say the team will confirm the exact cost.",
             "- NEVER promise to send a phone number, email address, or any personal contact info — you don't have one. Keep the conversation in this thread.",
-            "- DISCRETIONARY REQUESTS — early check-in and late check-out follow EARLY CHECK-IN / LATE CHECK-OUT HANDLING above (team Settings). Extensions beyond listed nights, group-size changes, and fee waivers remain team-decided: you MAY quote a listed FEE from Available paid services, but must NEVER approve those yourself. Always escalate. Only skip when a TEAM message in THIS thread already decided this exact request.",
+            "- DISCRETIONARY REQUESTS — early check-in / late check-out / pool heating / parking follow the Available paid services SDTO rules (Upsells database). NOT ALLOWED → deny. NEEDS CONFIRMATION → escalate (no firm price). ALLOWED → quote the calculated fee, subject to availability; do not approve a specific clock time unless a TEAM message already confirmed it. Extensions beyond listed nights, group-size changes, and fee waivers remain team-decided — always escalate those.",
             "- CALL SCHEDULING (hard rule for now): if the other party wants a phone call / to talk / to find a time to chat, defer to a live person. Never say you (or a named teammate) are free today/tomorrow or propose a specific slot. Acknowledge → a teammate will confirm timing → escalation_required=true.",
             "- AMENITY / GEAR FULFILLMENT (pack n play, high chair, crib, rollaway, extra towels, etc.): you may acknowledge and say the team will check what is on-site / with the owner. You must NEVER say we are already arranging it, that N units are confirmed, or that everything will be set for arrival — unless a TEAM message or [ops_confirm_ok] task in THIS thread already says so. Escalate; do not invent inventory.",
             "- BOOKING CONFIRMATION: never say the reservation/booking is confirmed, or that the guest 'has a place to go', unless Reservation status in context is clearly accepted/confirmed (not inquiry, preapproved, pending, or missing). If they are anxious about having a place and status is unclear, say the team will verify availability/status — escalation_required=true. Never invent a confirmation.",
@@ -2772,10 +2902,11 @@ export class InboxAIService {
             "- If a 'Team feedback on the AI's past replies' section is present, it is direct instruction from our staff about how your replies should improve (tone, length, wording, things you got wrong).",
             "- Apply it to THIS reply. Feedback tagged [this property] outranks [general] when they conflict. Preferred-wording examples show the style to emulate — do not copy them verbatim into unrelated answers, and never mention feedback to the guest.",
             "",
-            "PAID SERVICES / UPSELLS:",
-            "- If an 'Available paid services' section is present, those are the ONLY add-on services offered for this property (e.g. early check-in, late checkout, pool heating) with their guest prices.",
-            "- When the guest asks about one of them, state it directly with the listed price, subject to availability/confirmation by the team. Do not discount it.",
-            "- If the guest asks for a service NOT in that section (e.g. airport transfer when none is listed), do NOT invent one and do NOT flatly say we don't offer it unless context says so — offer what IS documented, or say the team will confirm options. This is a prime case for a learning_question.",
+            "PAID SERVICES / UPSELLS (from Upsells database):",
+            "- If an 'Available paid services' section is present, those are the ONLY add-on services for this property with SDTO + calculated guest fees (including Length-of-Stay rates for this stay).",
+            "- SDTO: NOT ALLOWED → tell guest it is not available (no fee). NEEDS CONFIRMATION → acknowledge + escalate_required=true, do NOT quote a firm price. ALLOWED → quote the calculated fee, subject to availability; escalation_required=false for a simple fee quote.",
+            "- Do not invent fees, discount fees, or approve a specific early/late clock time unless a TEAM message already confirmed it.",
+            "- If the guest asks for a service NOT in that section, do NOT invent one — offer what IS documented, or say the team will confirm options (learning_question).",
             "",
             "LEARNING QUESTIONS — how the bot gets smarter (IMPORTANT, use often):",
             "- Whenever your reply would have been BETTER with a specific, reusable, property-level fact you did not have, you MUST fill `learning_question` with one short question a staff member can answer.",
@@ -3823,111 +3954,67 @@ export class InboxAIService {
     }
 
     /**
-     * Paid add-on services (upsells) configured for this property group — early
-     * check-in, late checkout, pool heating, etc., with the guest-facing price.
-     * Per-listing fee overrides (upsell_property_config) win over the base price.
-     * Without this the bot either invents offers or wrongly says "we don't
-     * provide that" for services we actually sell.
+     * Paid add-on services from the Upsells page DB (upsell_info +
+     * upsell_property_config): SDTO, charge type, Fixed/LOS/Tiered pricing.
+     * Fees for Length-of-Stay rates are calculated for this reservation's nights.
      */
     private async buildUpsellsBlock(
         groupIds: number[],
-        preferredListingId?: number | null
+        preferredListingId?: number | null,
+        stay?: { nights?: number | null; checkin?: string | null; checkout?: string | null }
     ): Promise<{ text: string | null; facts: AssertableFact[] }> {
         const listingIds = (groupIds || []).map((n) => Number(n)).filter((n) => Number.isFinite(n));
         if (!listingIds.length) return { text: null, facts: [] };
-        const preferred = preferredListingId != null ? Number(preferredListingId) : null;
+        const preferred = preferredListingId != null ? Number(preferredListingId) : listingIds[0];
+        if (!Number.isFinite(preferred)) return { text: null, facts: [] };
         try {
-            const ph = listingIds.map(() => "?").join(",");
-            // Per-row fees (no MAX across siblings). Prefer the conversation's
-            // listing fee, then any sibling override, then the base price.
-            const rows: any[] = await appDatabase.query(
-                `SELECT ui.upsell_id AS upsellId, ui.title, ui.timePeriod, ui.availability, ui.description,
-                        ui.price AS basePrice, ul.listingId, upc.upsellFee AS listingFee
-                 FROM upsell_listing ul
-                 JOIN upsell_info ui ON ui.upsell_id = ul.upSellId AND ui.isActive = 1
-                 LEFT JOIN upsell_property_config upc
-                        ON upc.upSellId = ul.upSellId AND upc.listingId = ul.listingId
-                 WHERE ul.status = 1 AND ul.listingId IN (${ph})`,
-                listingIds
-            );
-            if (!rows.length) return { text: null, facts: [] };
-            type Agg = {
-                title: string;
-                timePeriod: any;
-                availability: any;
-                description: any;
-                basePrice: number;
-                preferredFee: number | null;
-                anyFee: number | null;
-            };
-            const byUpsell = new Map<number, Agg>();
-            for (const r of rows) {
-                const id = Number(r.upsellId);
-                if (!Number.isFinite(id)) continue;
-                let agg = byUpsell.get(id);
-                if (!agg) {
-                    agg = {
-                        title: String(r.title || "").trim(),
-                        timePeriod: r.timePeriod,
-                        availability: r.availability,
-                        description: r.description,
-                        basePrice: Number(r.basePrice) || 0,
-                        preferredFee: null,
-                        anyFee: null,
-                    };
-                    byUpsell.set(id, agg);
-                }
-                const fee = r.listingFee != null && Number(r.listingFee) > 0 ? Number(r.listingFee) : null;
-                if (fee != null) {
-                    if (preferred != null && Number(r.listingId) === preferred) agg.preferredFee = fee;
-                    else if (agg.anyFee == null) agg.anyFee = fee;
-                }
-            }
-            // Staff fee overrides / quarantine (listing_ops_overrides).
+            const { UpsellQuoteService } = await import("./UpsellQuoteService");
+            const quoteService = new UpsellQuoteService();
+            const quotes = await quoteService.listQuotesForListing({
+                listingId: preferred,
+                groupListingIds: listingIds,
+                nights: stay?.nights,
+                checkin: stay?.checkin,
+                checkout: stay?.checkout,
+            });
+
+            // Staff fee overrides / quarantine (listing_ops_overrides) still win.
             const feeOverrides = await new ListingOpsOverrideService().getForListings(listingIds);
             const earlyOv = feeOverrides.find((o) => o.field === "early_checkin_fee");
             const lateOv = feeOverrides.find((o) => o.field === "late_checkout_fee");
-
-            const facts: AssertableFact[] = [];
-            const items = [...byUpsell.entries()]
-                .map(([upsellId, r]) => {
-                    if (!r.title) return null;
-                    const titleLower = r.title.toLowerCase();
-                    const isEarly = /early/.test(titleLower) && /check/.test(titleLower);
-                    const isLate = /late/.test(titleLower) && /check/.test(titleLower);
-                    if (isEarly && earlyOv?.status === "quarantined") return null;
-                    if (isLate && lateOv?.status === "quarantined") return null;
-                    let fee = r.preferredFee ?? r.anyFee ?? (r.basePrice > 0 ? r.basePrice : 0);
-                    if (isEarly && earlyOv?.status === "active" && earlyOv.value) fee = Number(earlyOv.value) || fee;
-                    if (isLate && lateOv?.status === "active" && lateOv.value) fee = Number(lateOv.value) || fee;
-                    const bits: string[] = [];
-                    if (fee > 0) bits.push(`$${fee.toFixed(2)}${r.timePeriod ? ` ${String(r.timePeriod).toLowerCase()}` : ""}`);
-                    else bits.push("price on request");
-                    if (r.availability && String(r.availability).toLowerCase() !== "always")
-                        bits.push(`availability: ${r.availability}`);
-                    const desc = String(r.description || "").replace(/\s+/g, " ").trim();
-                    const feeLine = `${r.title}: ${bits.join("; ")}${desc ? ` — ${desc.slice(0, 160)}` : ""}`;
-                    facts.push({
-                        id: `upsell_${upsellId}`,
-                        assertWhen: "fee_only_not_approval",
-                        assertText: `${feeLine} — FEE ONLY, subject to team confirmation (never approve).`,
-                        policyText: `${r.title}: do not invent a fee; escalate to the team.`,
-                        kind: isEarly || isLate ? "discretionary_upsell" : "upsell",
-                    });
-                    return `- ${feeLine}`;
+            const filtered = quotes
+                .filter((q) => {
+                    if (q.isEarlyCheckin && earlyOv?.status === "quarantined") return false;
+                    if (q.isLateCheckout && lateOv?.status === "quarantined") return false;
+                    return true;
                 })
-                .filter(Boolean) as string[];
-            if (!items.length) return { text: null, facts: [] };
-            return {
-                facts,
-                text: [
-                    "## Available paid services (FEE ONLY — never approve/decline)",
-                    "assert_when=fee_only_not_approval: PRICE exists ≠ decision allowed.",
-                    "HARD: you MAY quote the listed fee + say it is subject to team confirmation.",
-                    "FORBIDDEN: yes / that works / I've arranged / you're approved / is possible / a specific clock time approved.",
-                    "Always: acknowledge → quote fee if listed → team must confirm based on cleaning/occupancy → escalation_required=true.",
-                    ...items,
-                ].join("\n"),
+                .map((q) => {
+                    if (q.isEarlyCheckin && earlyOv?.status === "active" && earlyOv.value) {
+                        const fee = Number(earlyOv.value);
+                        if (Number.isFinite(fee) && fee > 0 && q.autoRespond === "quote") {
+                            return {
+                                ...q,
+                                guestFee: fee,
+                                breakdown: [`Staff override fee $${fee.toFixed(2)}`],
+                            };
+                        }
+                    }
+                    if (q.isLateCheckout && lateOv?.status === "active" && lateOv.value) {
+                        const fee = Number(lateOv.value);
+                        if (Number.isFinite(fee) && fee > 0 && q.autoRespond === "quote") {
+                            return {
+                                ...q,
+                                guestFee: fee,
+                                breakdown: [`Staff override fee $${fee.toFixed(2)}`],
+                            };
+                        }
+                    }
+                    return q;
+                });
+
+            return quoteService.formatForPrompt(filtered) as {
+                text: string | null;
+                facts: AssertableFact[];
             };
         } catch {
             return { text: null, facts: [] };
@@ -4056,10 +4143,13 @@ export class InboxAIService {
             /* non-fatal */
         }
 
-        // Paid add-on services (early check-in, late checkout, pool heat…) that
-        // are actually configured for this property, with real prices.
+        // Paid add-on services from Upsells DB (SDTO + LOS-calculated fees).
         if (includeKnowledge) try {
-            const ups = await this.buildUpsellsBlock(groupIds, conversation.listingId);
+            const ups = await this.buildUpsellsBlock(groupIds, conversation.listingId, {
+                nights: conversation.nights != null ? Number(conversation.nights) : null,
+                checkin: conversation.checkin,
+                checkout: conversation.checkout,
+            });
             assertFacts.push(...ups.facts);
             if (ups.text) {
                 lines.push("");

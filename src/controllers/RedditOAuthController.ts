@@ -5,7 +5,10 @@ import logger from "../utils/logger.utils";
 
 const REDDIT_AUTHORIZE_URL = "https://www.reddit.com/api/v1/authorize";
 const REDDIT_TOKEN_URL = "https://www.reddit.com/api/v1/access_token";
-const DEFAULT_SCOPES = "adsread adsedit adsconversions";
+// Reddit Ads OAuth requires a comma-separated scope list.
+// Note: adsleadgendownloader was removed from Reddit's authorize scopes (v3),
+// so lead download via API is no longer grantable — use Zapier Reddit Lead Ads.
+const DEFAULT_SCOPES = "adsread,adsedit,adsconversions";
 
 function redditRedirectUri(): string {
   const configured = String(process.env.REDDIT_REDIRECT_URI || "").trim();

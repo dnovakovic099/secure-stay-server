@@ -42,7 +42,7 @@ jobs:
                 "REDDIT_CLIENT_SECRET": os.environ["REDDIT_CLIENT_SECRET"],
                 "REDDIT_REDIRECT_URI": os.environ.get("REDDIT_REDIRECT_URI") or "https://securestay.ai/securestay_api/oauth/reddit/callback",
                 "REDDIT_USER_AGENT": "SecureStay/1.0",
-                "REDDIT_OAUTH_SCOPES": "adsread adsedit adsconversions",
+                "REDDIT_OAUTH_SCOPES": "adsread,adsedit,adsconversions",
             }
             lines = text.splitlines()
             seen = set()

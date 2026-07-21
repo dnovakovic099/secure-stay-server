@@ -1671,6 +1671,38 @@ export class ListingService {
       return await this.listingDetailRepo.findOne({ where: { listingId } });
   }
 
+  /** Toggle Hostify inbox AI auto-respond off for a single listing. */
+  public async setAiAutoRespondDisabled(listingId: number, disabled: boolean, userId: string) {
+    await this.ensureListingDetailCleanerColumns();
+    // Ensure the new column exists even before migrate runs on older envs.
+    try {
+      const cols = await appDatabase.query(
+        "SHOW COLUMNS FROM listing_details LIKE ?",
+        ["aiAutoRespondDisabled"]
+      );
+      if (!Array.isArray(cols) || cols.length === 0) {
+        await appDatabase.query(
+          "ALTER TABLE listing_details ADD COLUMN aiAutoRespondDisabled TINYINT NOT NULL DEFAULT 0"
+        );
+      }
+    } catch {
+      /* migrate owns the canonical schema */
+    }
+
+    let detail = await this.listingDetailRepo.findOne({ where: { listingId } });
+    if (!detail) {
+      detail = this.listingDetailRepo.create({
+        listingId,
+        aiAutoRespondDisabled: disabled ? 1 : 0,
+        createdBy: userId,
+      } as Partial<ListingDetail>);
+    } else {
+      (detail as any).aiAutoRespondDisabled = disabled ? 1 : 0;
+      detail.updatedBy = userId;
+    }
+    return await this.listingDetailRepo.save(detail);
+  }
+
   public async autoSyncListings(){
     // const connectedAccounts = await this.connectedAccountInfoRepository.find({
     //   where: { account: "pm" },
