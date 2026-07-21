@@ -13,13 +13,13 @@ async function main() {
 
     await appDatabase.initialize();
     const rows = await appDatabase.query(
-        `SELECT c.id, c.externalId, c.reservationId, c.listingId, c.guestName,
+        `SELECT c.id, c.threadId, c.reservationId, c.listingId, c.guestName,
                 c.price, c.currency, c.reservationStatus, c.checkin, c.checkout,
                 r.totalPrice, r.payoutPrice, r.owner_revenue, r.base_price, r.status AS rStatus,
                 r.cleaningFee, r.taxAmount, r.nights
          FROM inbox_conversations c
          LEFT JOIN reservation_info r ON r.id = c.reservationId
-         WHERE c.id = ? OR c.externalId = ?
+         WHERE c.id = ? OR c.threadId = ?
          LIMIT 5`,
         [threadId, threadId]
     );
