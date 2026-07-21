@@ -10,6 +10,7 @@ import { Listing } from "../entity/Listing";
 import { ListingGroupMapEntity } from "../entity/ListingGroupMap";
 import { ListingService } from "./ListingService";
 import { ListingGroupService } from "./ListingGroupService";
+import { OverduePaymentService } from "./OverduePaymentService";
 
 /**
  * Raw Hostify webhook payload for a `message_new` event.
@@ -336,6 +337,66 @@ export class InboxService {
         this.clearStalePaymentEmergency(conversation);
 
         return this.conversationRepo.save(conversation);
+    }
+
+    /**
+     * Hostify/Airbnb posts a system message when the guest accepts a host
+     * alteration (new checkout date + price). That means the extension was
+     * priced and accepted — the "Needs extension price" pin is done.
+     */
+    private isHostAlterationAccepted(text?: string | null): boolean {
+        const plain = String(text || "")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+        return /host\s+alteration\s+accepted\s+by\s+guest|alteration\s+accepted\s+by\s+guest/i.test(plain);
+    }
+
+    /**
+     * Drop sticky extension_price emergencies once Hostify confirms the guest
+     * accepted a priced alteration. Safe no-op when the pin isn't that type.
+     */
+    private async clearExtensionPriceIfAlterationAccepted(
+        conversation: InboxConversationEntity | null | undefined,
+        hintText?: string | null
+    ): Promise<void> {
+        if (!conversation || Number(conversation.emergency) !== 1 || conversation.emergencyType !== "extension_price") {
+            return;
+        }
+        let matched = this.isHostAlterationAccepted(hintText);
+        if (!matched) {
+            try {
+                const recent = await this.messageRepo.find({
+                    where: { threadId: conversation.threadId as any },
+                    order: { sentAt: "DESC" },
+                    take: 40,
+                    select: ["id", "body", "note"],
+                });
+                matched = recent.some((m) => this.isHostAlterationAccepted(m.body) || this.isHostAlterationAccepted(m.note));
+            } catch (err: any) {
+                logger.warn(
+                    `[InboxService] alteration scan failed for thread ${conversation.threadId}: ${err.message}`
+                );
+                return;
+            }
+        }
+        if (!matched) return;
+        try {
+            const cleared = await new OverduePaymentService().clearEmergency(Number(conversation.threadId));
+            if (cleared) {
+                conversation.emergency = 0;
+                conversation.emergencyType = null;
+                conversation.emergencyReason = null;
+                conversation.emergencyAt = null;
+                logger.info(
+                    `[InboxService] cleared extension_price emergency on thread ${conversation.threadId} (host alteration accepted)`
+                );
+            }
+        } catch (err: any) {
+            logger.warn(
+                `[InboxService] clear extension_price failed for thread ${conversation.threadId}: ${err.message}`
+            );
+        }
     }
 
     /** Cancelled/voided bookings should never stay pinned as "needs payment". */
@@ -748,6 +809,10 @@ export class InboxService {
         try {
             const saved = await this.messageRepo.save(message);
             logger.info(`[InboxService] webhook stored message ${externalId} (thread ${threadId}, ${message.direction})`);
+            await this.clearExtensionPriceIfAlterationAccepted(
+                conversation,
+                `${payload?.message || ""} ${payload?.notes || ""} ${message.body || ""} ${message.note || ""}`
+            );
             return saved;
         } catch (err: any) {
             // Same webhook delivered twice in parallel across cluster workers:
@@ -757,6 +822,10 @@ export class InboxService {
             const dup = await this.messageRepo.findOne({ where: { externalId } });
             if (dup) {
                 logger.info(`[InboxService] webhook message ${externalId} stored by a parallel delivery`);
+                await this.clearExtensionPriceIfAlterationAccepted(
+                    conversation,
+                    `${payload?.message || ""} ${payload?.notes || ""} ${dup.body || ""} ${dup.note || ""}`
+                );
                 return dup;
             }
             throw err;
@@ -888,6 +957,11 @@ export class InboxService {
 
         const inserted = await this.saveMessages(built);
         await this.refreshConversationPreview(conversation);
+        // Alteration-accepted system messages often arrive via sync (not webhook).
+        const alterationHint = rawMessages
+            .map((m) => `${m?.message || m?.body || ""} ${m?.notes || ""}`)
+            .join("\n");
+        await this.clearExtensionPriceIfAlterationAccepted(conversation, alterationHint);
         return { conversation, inserted };
     }
 
@@ -1396,7 +1470,7 @@ export class InboxService {
     }
 
     async getConversation(threadId: number) {
-        const conversation = await this.conversationRepo.findOne({ where: { threadId } });
+        let conversation = await this.conversationRepo.findOne({ where: { threadId } });
         if (!conversation) return null;
 
         // Refuse to open threads that belong to a mirror channel listing —
@@ -1485,15 +1559,23 @@ export class InboxService {
         // silently falling behind when someone opens it. Best-effort; the
         // local read below still returns whatever we have on failure.
         try {
-            await this.syncThread(threadId);
+            const syn = await this.syncThread(threadId);
+            if (syn?.conversation) conversation = syn.conversation;
         } catch (err: any) {
             logger.warn(`[InboxService] on-open sync failed for thread ${threadId}: ${err.message}`);
         }
+        // Even if sync was a no-op (messages already local), clear sticky
+        // extension_price pins once an alteration-accepted event is in the thread.
+        await this.clearExtensionPriceIfAlterationAccepted(conversation);
 
         const messages = await this.messageRepo.find({
             where: { threadId },
             order: { sentAt: "ASC", id: "ASC" },
         });
+
+        // Re-read in case the alteration clear updated emergency fields.
+        const fresh = await this.conversationRepo.findOne({ where: { threadId } });
+        if (fresh) conversation = fresh;
 
         // Mark as read locally on open.
         if (conversation.unread) {
