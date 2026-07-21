@@ -6,6 +6,7 @@ import { AILearningPromptService } from "../services/AILearningPromptService";
 import { AIProposedActionService } from "../services/AIProposedActionService";
 import { OverduePaymentService } from "../services/OverduePaymentService";
 import { InboxMessageEscalationService } from "../services/InboxMessageEscalationService";
+import { isAdminEmail } from "../services/AdminInsightsService";
 import logger from "../utils/logger.utils";
 
 interface CustomRequest extends Request {
@@ -339,6 +340,13 @@ export class InboxV2Controller {
     async aiFeedback(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const b = request.body || {};
+            // Manager feedback on sent replies is admin-insights only (Anj / Darko / admin).
+            if (b.targetType === "sent_reply" && !isAdminEmail(request.user?.email)) {
+                return response.status(403).json({
+                    status: false,
+                    message: "Manager feedback requires admin insights access",
+                });
+            }
             const service = new InboxAIService();
             const saved = await service.recordFeedback({
                 suggestionId: toNum(b.suggestionId),
