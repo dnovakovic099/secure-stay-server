@@ -2028,7 +2028,7 @@ export class InboxAIService {
         return this.suggestionRepo.save(suggestion);
     }
 
-    /** Persist human feedback on a suggestion (or sent reply). */
+    /** Persist human feedback on a suggestion, general AI guidance, or sent reply. */
     async recordFeedback(input: {
         suggestionId?: number | null;
         threadId?: number | null;
@@ -2040,8 +2040,22 @@ export class InboxAIService {
         categories?: string[] | null;
         feedbackText?: string | null;
         correctedResponse?: string | null;
+        targetType?: string | null;
+        originalMessage?: string | null;
+        subjectUserId?: number | null;
     }) {
         const rating = input.rating === "up" || input.rating === "down" ? input.rating : null;
+        const targetType =
+            input.targetType === "suggestion" ||
+            input.targetType === "general" ||
+            input.targetType === "sent_reply"
+                ? input.targetType
+                : input.suggestionId != null
+                  ? "suggestion"
+                  : "general";
+        const originalMessage = input.originalMessage
+            ? String(input.originalMessage).replace(/\u0000/g, "").trim().slice(0, 20000) || null
+            : null;
         const feedback = this.feedbackRepo.create({
             suggestionId: input.suggestionId ?? null,
             threadId: input.threadId ?? null,
@@ -2049,13 +2063,18 @@ export class InboxAIService {
             listingId: input.listingId ?? null,
             reservationId: input.reservationId ?? null,
             userId: input.userId ?? null,
+            targetType,
+            originalMessage,
+            subjectUserId: input.subjectUserId ?? null,
             rating,
             categories: input.categories && input.categories.length ? JSON.stringify(input.categories) : null,
             feedbackText: input.feedbackText || null,
             correctedResponse: input.correctedResponse || null,
         });
         const saved = await this.feedbackRepo.save(feedback);
-        logger.info(`[InboxAIService] feedback ${saved.id} recorded (suggestion ${input.suggestionId ?? "n/a"}, rating ${rating ?? "n/a"})`);
+        logger.info(
+            `[InboxAIService] feedback ${saved.id} recorded (type=${targetType}, suggestion ${input.suggestionId ?? "n/a"}, rating ${rating ?? "n/a"})`
+        );
         return saved;
     }
 
@@ -3940,6 +3959,12 @@ export class InboxAIService {
                 if (txt) parts.push(`"${txt.slice(0, 220)}"`);
                 const corrected = (f.correctedResponse || "").replace(/\s+/g, " ").trim();
                 if (corrected) parts.push(`team's preferred wording: "${corrected.slice(0, 220)}"`);
+                // For manager feedback on a bad sent reply, surface what was sent
+                // so the model avoids repeating that wording.
+                const original = (f.originalMessage || "").replace(/\s+/g, " ").trim();
+                if (original && f.rating === "down" && f.targetType === "sent_reply") {
+                    parts.push(`avoid repeating this sent reply: "${original.slice(0, 180)}"`);
+                }
                 if (!parts.length) continue;
                 let cats: string[] = [];
                 try {
@@ -3947,8 +3972,9 @@ export class InboxAIService {
                 } catch {
                     /* ignore */
                 }
-                const tag = isForThisListing ? "this property" : "general";
-                const line = `- [${tag}${cats.length ? `; ${cats.slice(0, 3).join(", ")}` : ""}] ${parts.join(" — ")}`;
+                const scopeTag = isForThisListing ? "this property" : "general";
+                const kindTag = f.targetType === "sent_reply" ? "sent reply" : "AI";
+                const line = `- [${scopeTag}; ${kindTag}${cats.length ? `; ${cats.slice(0, 3).join(", ")}` : ""}] ${parts.join(" — ")}`;
                 const key = line.toLowerCase();
                 if (seen.has(key)) continue;
                 seen.add(key);

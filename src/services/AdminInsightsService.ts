@@ -550,6 +550,8 @@ export class AdminInsightsService {
             wantKind("feedback")
                 ? q(
                       `SELECT f.id, f.userId, f.rating, f.categories, f.feedbackText, f.correctedResponse,
+                              f.targetType, f.subjectUserId,
+                              LEFT(f.originalMessage, 500) AS originalMessage,
                               f.createdAt, f.threadId, f.suggestionId,
                               LEFT(s.suggestedReply, 300) AS suggestedReply, s.source AS src, s.quoConversationId
                        FROM ai_message_feedback f
@@ -629,6 +631,10 @@ export class AdminInsightsService {
                 categories: safeParse(r.categories),
                 feedbackText: r.feedbackText,
                 correctedResponse: r.correctedResponse,
+                targetType: r.targetType || (r.suggestionId != null ? "suggestion" : "general"),
+                originalMessage: r.originalMessage || null,
+                subjectUserId: r.subjectUserId != null ? Number(r.subjectUserId) : null,
+                subjectUserName: r.subjectUserId != null ? nameOf(Number(r.subjectUserId)) : null,
                 suggestedReply: r.suggestedReply,
                 source: r.src || "hostify",
                 threadId: r.threadId != null ? Number(r.threadId) : null,

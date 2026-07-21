@@ -329,6 +329,9 @@ export class InboxV2Controller {
                 categories: Array.isArray(b.categories) ? b.categories.map(String) : null,
                 feedbackText: typeof b.feedbackText === "string" ? b.feedbackText : null,
                 correctedResponse: typeof b.correctedResponse === "string" ? b.correctedResponse : null,
+                targetType: typeof b.targetType === "string" ? b.targetType : null,
+                originalMessage: typeof b.originalMessage === "string" ? b.originalMessage : null,
+                subjectUserId: toNum(b.subjectUserId),
             });
             return response.status(201).json({ status: true, data: saved });
         } catch (error) {
