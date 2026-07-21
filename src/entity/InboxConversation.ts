@@ -128,6 +128,19 @@ export class InboxConversationEntity {
     @Column({ type: "datetime", nullable: true })
     syncedAt: Date | null;
 
+    // Guest mood from AI suggestion generation (1 = very upset, 10 = delighted).
+    @Column({ type: "tinyint", nullable: true })
+    guestSentimentScore: number | null;
+
+    @Column({ length: 32, nullable: true })
+    guestSentimentLabel: string | null;
+
+    @Column({ length: 255, nullable: true })
+    guestSentimentNote: string | null;
+
+    @Column({ type: "datetime", nullable: true })
+    guestSentimentAt: Date | null;
+
     @CreateDateColumn({ type: "timestamp" })
     createdAt: Date;
 

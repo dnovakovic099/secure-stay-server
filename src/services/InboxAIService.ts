@@ -77,7 +77,7 @@ import {
  * human via the escalation keyword safety net.
  */
 
-export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v7.8"; // v7.8: guest-code echo gate + payment_state diagnosis
+export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v7.9"; // v7.9: guest sentiment score 1–10
 const INBOX_AI_MODEL = process.env.AI_MESSAGING_MODEL || "gpt-4.1";
 
 const textOrDefault = (value: string | null | undefined, fallback: string): string =>
@@ -204,6 +204,12 @@ interface ModelOutput {
     learning_question?: string | null;
     /** Optional: short topic slug for the learning question, e.g. "parking". */
     learning_topic?: string | null;
+    /** Guest mood 1–10 (1 upset → 10 delighted). Based on the other party's tone. */
+    guest_sentiment_score?: number | null;
+    /** Short label e.g. upset / concerned / neutral / positive / delighted. */
+    guest_sentiment_label?: string | null;
+    /** One short phrase why (staff-facing). */
+    guest_sentiment_note?: string | null;
 }
 
 export class InboxAIService {
@@ -664,6 +670,13 @@ export class InboxAIService {
             `[InboxAIService] suggestion ${saved.id} generated for thread ${threadId} ` +
             `(conf ${confidencePct ?? "?"}, verified ${verifier?.confidence ?? "?"}, escalate ${saved.escalationRequired})`
         );
+
+        // Guest mood for inbox list / open conversation (best-effort).
+        try {
+            await this.persistGuestSentiment(conversation, output, guestAskText);
+        } catch {
+            /* non-fatal */
+        }
 
         // Proposed one-click actions (late checkout, lock code resend, ops
         // ticket) for the guest message that triggered this suggestion.
@@ -2780,6 +2793,9 @@ export class InboxAIService {
                 sources_used: [],
                 warnings: ["AI output was not valid JSON."],
                 suggested_action_items: [],
+                guest_sentiment_score: null,
+                guest_sentiment_label: null,
+                guest_sentiment_note: null,
             };
         }
         return {
@@ -2795,7 +2811,75 @@ export class InboxAIService {
                 : [],
             learning_question: parsed.learning_question ? String(parsed.learning_question) : null,
             learning_topic: parsed.learning_topic ? String(parsed.learning_topic) : null,
+            guest_sentiment_score: this.clampSentimentScore(parsed.guest_sentiment_score),
+            guest_sentiment_label: parsed.guest_sentiment_label
+                ? String(parsed.guest_sentiment_label).trim().slice(0, 32)
+                : null,
+            guest_sentiment_note: parsed.guest_sentiment_note
+                ? String(parsed.guest_sentiment_note).trim().slice(0, 255)
+                : null,
         };
+    }
+
+    private clampSentimentScore(raw: unknown): number | null {
+        const n = typeof raw === "number" ? raw : Number(raw);
+        if (!Number.isFinite(n)) return null;
+        return Math.max(1, Math.min(10, Math.round(n)));
+    }
+
+    private sentimentLabelFromScore(score: number): string {
+        if (score <= 2) return "furious";
+        if (score <= 4) return "upset";
+        if (score <= 5) return "concerned";
+        if (score <= 7) return "neutral";
+        if (score <= 8) return "positive";
+        return "delighted";
+    }
+
+    /** Persist latest guest mood on the conversation for inbox list / header. */
+    private async persistGuestSentiment(
+        conversation: InboxConversationEntity,
+        output: ModelOutput,
+        guestAskText: string | null | undefined
+    ): Promise<void> {
+        // Only score when we have a guest-facing ask (incoming). Skip refine-only / empty.
+        if (!guestAskText || !String(guestAskText).trim()) return;
+
+        let score = this.clampSentimentScore(output.guest_sentiment_score);
+        if (score == null) {
+            // Lightweight fallback if the model omitted the field.
+            const t = String(guestAskText).toLowerCase();
+            if (/\b(lawsuit|attorney|lawyer|sue|scam|fraud|awful|horrible|worst|furious|unacceptable)\b/.test(t)) {
+                score = 2;
+            } else if (/\b(angry|upset|frustrated|disappointed|complaint|refund|manager|terrible|ridiculous)\b/.test(t)) {
+                score = 3;
+            } else if (/\b(worried|concerned|issue|problem|not working|broken|help)\b/.test(t)) {
+                score = 5;
+            } else if (/\b(thank|thanks|perfect|great|awesome|love|appreciate|wonderful)\b/.test(t)) {
+                score = 9;
+            } else {
+                score = 7;
+            }
+        }
+
+        const label =
+            (output.guest_sentiment_label && String(output.guest_sentiment_label).trim()) ||
+            this.sentimentLabelFromScore(score);
+        const note = output.guest_sentiment_note
+            ? String(output.guest_sentiment_note).trim().slice(0, 255)
+            : null;
+
+        conversation.guestSentimentScore = score;
+        conversation.guestSentimentLabel = label.slice(0, 32);
+        conversation.guestSentimentNote = note;
+        conversation.guestSentimentAt = new Date();
+        try {
+            await this.conversationRepo.save(conversation);
+        } catch (err: any) {
+            logger.warn(
+                `[InboxAIService] persist guest sentiment failed (thread ${conversation.threadId}): ${err?.message}`
+            );
+        }
     }
 
     /**
@@ -3000,6 +3084,13 @@ export class InboxAIService {
             "anything where listing data conflicts with guest expectations, or whenever your confidence is low.",
             "When escalating, still provide a safe, non-committal holding reply (e.g. acknowledging and saying the team will follow up).",
             "",
+            "GUEST SENTIMENT (required whenever the latest message is from the guest/other party):",
+            "- Rate how the OTHER person feels right now on a 1–10 scale from their wording/tone in this thread (not how you feel).",
+            "- 1–2 furious / hostile; 3–4 upset / frustrated; 5 concerned / uneasy; 6–7 neutral / matter-of-fact; 8 positive / warm; 9–10 delighted / grateful.",
+            "- Use recent guest messages as the main signal; one polite 'thanks' after a fix can raise the score.",
+            "- guest_sentiment_label: one short word (furious/upset/concerned/neutral/positive/delighted).",
+            "- guest_sentiment_note: one short phrase for staff (e.g. 'frustrated about lock code').",
+            "",
             "OUTPUT: Respond with STRICT JSON only, matching exactly this shape:",
             "{",
             '  "suggested_reply": "string — the guest-facing reply",',
@@ -3011,7 +3102,10 @@ export class InboxAIService {
             '  "warnings": ["any missing info or risks"],',
             '  "suggested_action_items": ["optional internal tasks, e.g. \'Confirm early check-in availability\'"],',
             '  "learning_question": "string or null — if you lacked a SPECIFIC, REUSABLE, property-level fact a staff member could answer to improve FUTURE replies (e.g. parking capacity, whether the grill is gas/charcoal, nearest grocery), a short question to ask staff. Null if you had what you needed, or the gap is a one-off / not property-specific.",',
-            '  "learning_topic": "string or null — a short slug for that question, e.g. \'parking\', \'grill\', \'checkout-time\'."',
+            '  "learning_topic": "string or null — a short slug for that question, e.g. \'parking\', \'grill\', \'checkout-time\'.",',
+            '  "guest_sentiment_score": 7,  // integer 1..10 — mood of the guest/other party',
+            '  "guest_sentiment_label": "neutral",',
+            '  "guest_sentiment_note": "short staff-facing reason or null"',
             "}",
             "Do not include any text outside the JSON. Do not expose hidden chain-of-thought; keep internal_summary brief.",
         ].join("\n");
