@@ -517,8 +517,14 @@ export class InboxAIService {
         // (b3) Speech-act gate — codes, discretionary approvals, unconfirmed ops
         //      completions, Hostify-as-agreement — even when raw values exist in context.
         const stageLine = this.stayStageLine(conversation.checkin, conversation.checkout);
-        const guestAskText = targetMessage?.body || conversation.lastMessageText || "";
-        const codesAllowed = stayAllowsAccessCodes(stageLine) || guestReportsLockout(guestAskText);
+        // Only the guest's inbound turn counts for extension detection — never fall
+        // back to lastMessageText (often our automated welcome, which markets
+        // "extend your stay" and was false-pinning brand-new bookings).
+        const guestAskText =
+            targetMessage?.direction === "incoming" && !Number(targetMessage.isAutomatic)
+                ? targetMessage.body || ""
+                : "";
+        const codesAllowed = stayAllowsAccessCodes(stageLine) || guestReportsLockout(guestAskText || conversation.lastMessageText || "");
         const paymentStateMatch = context.match(/payment_state:\s*(paid|due|failed|auth_required|unknown)/i);
         const paymentState = (paymentStateMatch?.[1]?.toLowerCase() || "unknown") as PaymentState;
         const unsafeAsserts = detectUnsafeAsserts(reply, {
@@ -545,10 +551,14 @@ export class InboxAIService {
                 : `unsafe_assert:${unsafeAsserts.join("|")}`;
         }
         // Contested-field conflict in context + guest asking about those topics.
+        const contestedGuestText =
+            targetMessage?.direction === "incoming"
+                ? targetMessage.body || ""
+                : conversation.lastMessageText || "";
         if (
             /CONFLICT/i.test(context) &&
             /\b(check[\s-]*out|check[\s-]*in|how many guests|max(?:imum)? guests|sleeps|occupancy)\b/i.test(
-                targetMessage?.body || conversation.lastMessageText || ""
+                contestedGuestText
             )
         ) {
             output.escalation_required = true;
@@ -562,7 +572,8 @@ export class InboxAIService {
 
         // Extension pricing security: pin thread to Urgent for a human rate quote.
         // Hostify calendar prices are not trusted for guest-facing extension quotes.
-        if (this.detectExtensionAsk(guestAskText)) {
+        // Require a real guest inbound ask — never host/automatic welcome copy.
+        if (guestAskText && this.detectExtensionAsk(guestAskText)) {
             output.escalation_required = true;
             output.escalation_reason = output.escalation_reason
                 ? `${output.escalation_reason}; extension_price_needs_human`
@@ -2314,14 +2325,22 @@ export class InboxAIService {
             }
 
             // Extension asks: never auto-quote Hostify calendar rates — pin Urgent for a human price.
-            // generateSuggestion already raises this flag; this is a belt-and-suspenders autosend block.
+            // Only inspect the latest real guest inbound message (not lastMessageText, which
+            // is often our automated welcome that advertises "extend your stay").
             try {
                 const fresh = await this.conversationRepo.findOne({ where: { threadId } });
                 if (Number(fresh?.emergency) === 1 && String(fresh?.emergencyType || "") === "extension_price") {
                     return this.autosendSkip(threadId, suggestion.id, "extension_price_urgent");
                 }
-                const guestBody = conversation.lastMessageText || "";
-                if (this.detectExtensionAsk(guestBody)) {
+                const msgs = await this.messageRepo.find({
+                    where: { threadId },
+                    order: { sentAt: "ASC", id: "ASC" },
+                });
+                const latestGuest = [...msgs]
+                    .reverse()
+                    .find((m) => m.direction === "incoming" && !Number(m.isAutomatic) && String(m.body || "").trim());
+                const guestBody = latestGuest?.body || "";
+                if (guestBody && this.detectExtensionAsk(guestBody)) {
                     await this.overduePaymentService.raiseEmergency(
                         conversation,
                         "Guest asked about extending their stay — please confirm availability and reply with the exact extension price. Do not rely on Hostify calendar rates alone.",
@@ -4489,7 +4508,16 @@ export class InboxAIService {
         // extending their stay, pull the real calendar so the reply can answer
         // directly ("the 5th is open at $220") instead of "we'll check".
         if (includeKnowledge) try {
-            const guestText = (targetMessage?.body || conversation.lastMessageText || "").toString();
+            const guestText = (
+                targetMessage?.direction === "incoming" && !Number(targetMessage.isAutomatic)
+                    ? targetMessage.body || ""
+                    : conversation.lastMessageText || ""
+            ).toString();
+            // hidePrices only when a real guest ask matches — not host welcome copy.
+            const extensionAskFromGuest =
+                targetMessage?.direction === "incoming" &&
+                !Number(targetMessage.isAutomatic) &&
+                this.detectExtensionAsk(targetMessage.body || "");
             if (this.detectAvailabilityIntent(guestText)) {
                 // The conversation row should always carry a listingId, but thread
                 // summaries have dropped it before — recover it from the
@@ -4515,12 +4543,13 @@ export class InboxAIService {
                     } catch { /* fall through to the warning below */ }
                 }
                 if (conversation.listingId) {
-                    const extensionAsk = this.detectExtensionAsk(guestText);
-                    const avail = await this.buildAvailabilityBlock(conversation, { hidePrices: extensionAsk });
+                    const avail = await this.buildAvailabilityBlock(conversation, {
+                        hidePrices: extensionAskFromGuest,
+                    });
                     if (avail) {
                         lines.push("");
                         lines.push(
-                            extensionAsk
+                            extensionAskFromGuest
                                 ? "## Live availability (dates only — NEVER quote Hostify nightly prices for extensions; a human prices them)"
                                 : "## Live availability (from the calendar — you MAY state these facts to the guest)"
                         );

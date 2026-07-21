@@ -2,11 +2,16 @@ import { In } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { InboxConversationEntity } from "../entity/InboxConversation";
+import { InboxMessageEntity } from "../entity/InboxMessage";
 import { Listing } from "../entity/Listing";
 import { AIMessagingSettingsEntity } from "../entity/AIMessagingSettings";
 import { Hostify } from "../client/Hostify";
 import sendEmail from "../utils/sendEmai";
 import logger from "../utils/logger.utils";
+
+/** Same pattern as InboxAIService.detectExtensionAsk — guest must ask, not host welcome copy. */
+const EXTENSION_ASK_RE =
+    /\b(extend(?:ing|ed)?|extension|extra\s+night|another\s+night|one\s+more\s+night|1\s+more\s+night|stay\s+(?:longer|another)|add\s+(?:a\s+|another\s+)?night|additional\s+night|stay\s+an\s+extra)\b/i;
 
 /**
  * OverduePaymentService
@@ -280,8 +285,57 @@ export class OverduePaymentService {
         const cleared =
             (await this.clearPaymentEmergenciesForInactiveReservations()) +
             (await this.clearPastStayPaymentEmergencies()) +
-            (await this.clearOzzieBookingComTaxRemainderEmergencies());
+            (await this.clearOzzieBookingComTaxRemainderEmergencies()) +
+            (await this.clearFalseExtensionPricePins());
         return { cleared };
+    }
+
+    /**
+     * Drop extension_price pins when no real guest inbound message asked to
+     * extend. Automated welcomes often say "extend your stay" and used to
+     * false-pin brand-new Accepted bookings (e.g. Jorge Morales / Viola).
+     */
+    private async clearFalseExtensionPricePins(): Promise<number> {
+        try {
+            const pinned = await this.conversationRepo
+                .createQueryBuilder("c")
+                .select(["c.threadId"])
+                .where("c.emergency = 1")
+                .andWhere("c.emergencyType = :type", { type: "extension_price" })
+                .getMany();
+            if (!pinned.length) return 0;
+
+            const messageRepo = appDatabase.getRepository(InboxMessageEntity);
+            let cleared = 0;
+            for (const conversation of pinned) {
+                const threadId = Number(conversation.threadId);
+                if (!Number.isFinite(threadId) || threadId <= 0) continue;
+                const messages = await messageRepo.find({
+                    where: { threadId },
+                    select: ["direction", "isAutomatic", "body"],
+                    order: { sentAt: "DESC", id: "DESC" },
+                    take: 80,
+                });
+                const guestAsked = messages.some(
+                    (m) =>
+                        m.direction === "incoming" &&
+                        !Number(m.isAutomatic) &&
+                        EXTENSION_ASK_RE.test(String(m.body || ""))
+                );
+                if (guestAsked) continue;
+                const ok = await this.clearEmergency(threadId);
+                if (ok) cleared++;
+            }
+            if (cleared > 0) {
+                logger.info(
+                    `[OverduePayment] Cleared ${cleared} false extension_price pin(s) (no guest extension ask)`
+                );
+            }
+            return cleared;
+        } catch (err: any) {
+            logger.warn(`[OverduePayment] clearFalseExtensionPricePins failed: ${err.message}`);
+            return 0;
+        }
     }
 
     /**
