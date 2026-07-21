@@ -1410,6 +1410,22 @@ export class MessagingService {
                 if (Number.isFinite(paid) && Number.isFinite(total)) return Math.max(0, total - paid);
                 return null;
             })(),
+            // Security deposit (Hostify: security_price / deposit_paid / deposit_fully_paid).
+            security_price:
+                liveReservation?.security_price ??
+                liveReservation?.security_deposit ??
+                reservation.securityDepositFee ??
+                null,
+            deposit_paid:
+                liveReservation?.deposit_paid ??
+                liveReservation?.security_deposit_paid ??
+                null,
+            deposit_refunded: liveReservation?.deposit_refunded ?? null,
+            deposit_fully_paid:
+                liveReservation?.deposit_fully_paid ??
+                liveReservation?.deposit_full_paid ??
+                liveReservation?.security_deposit_fully_paid ??
+                null,
             confirmedAt: liveReservation?.confirmed_at ?? (reservation as any).confirmedAt ?? (reservation as any).reservationDate ?? null,
             plannedArrival: liveReservation?.planned_arrival ?? null,
             plannedDeparture: liveReservation?.planned_departure ?? null,
