@@ -261,6 +261,8 @@ export class Hostify {
                     params: {
                         page,
                         per_page,
+                        fees: 1,
+                        fees_costs: 1,
                         ...filter
                     },
                 });
@@ -295,6 +297,8 @@ export class Hostify {
                 },
                 params: {
                     include_related_objects: 1,
+                    fees: 1,
+                    fees_costs: 1,
                 },
             });
 

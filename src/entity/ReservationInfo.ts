@@ -208,6 +208,25 @@ export class ReservationInfoEntity {
     @Column({ type: 'text', nullable: true })
     tags: string;
 
+    // Fee breakdown persisted from Hostify's `fees` array (requires fees=1 & fees_costs=1).
+    // Amount is taken from `amount_gross_total` (falling back to `amount_net_total` /
+    // `amount_incl_total`). `resortFee` uses this exact name so the Claims Fee Funds
+    // dashboard's column resolver (`getReservationClaimsFeeColumn`) picks it up.
+    @Column({ type: 'float', nullable: true })
+    accommodationFee: number;
+
+    @Column({ type: 'float', nullable: true })
+    resortFee: number;
+
+    @Column({ type: 'float', nullable: true })
+    cleaningFeeAmount: number;
+
+    @Column({ type: 'float', nullable: true })
+    managementCommission: number;
+
+    @Column({ type: 'float', nullable: true })
+    insuranceFee: number;
+
     @OneToOne(() => ReviewCheckout, (reviewCheckout) => reviewCheckout.reservationInfo, { cascade: true, eager: false, onDelete: "CASCADE" })
     reviewCheckout: ReviewCheckout;
 

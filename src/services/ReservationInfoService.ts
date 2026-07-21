@@ -2084,6 +2084,7 @@ export class ReservationInfoService {
     const reservationService = new ReservationService();
     const channelList = await reservationService.getChannelList();
     const channel = channelList.find(c => c.channelName?.toLowerCase() == reservation?.source?.toLowerCase());
+    const feeBreakdown = this.extractHostifyFeeBreakdown(reservation?.fees);
 
     return {
       id: reservation.id,
@@ -2165,8 +2166,62 @@ export class ReservationInfoService {
       confirmation_code: reservation.confirmation_code,
       owner_revenue: reservation.owner_revenue,
       integration_nickname: reservation.integration_nickname,
+      accommodationFee: feeBreakdown.accommodationFee,
+      resortFee: feeBreakdown.resortFee,
+      cleaningFeeAmount: feeBreakdown.cleaningFeeAmount,
+      managementCommission: feeBreakdown.managementCommission,
+      insuranceFee: feeBreakdown.insuranceFee,
     };
   }
 
+  private extractHostifyFeeBreakdown(fees: any): {
+    accommodationFee: number | null;
+    resortFee: number | null;
+    cleaningFeeAmount: number | null;
+    managementCommission: number | null;
+    insuranceFee: number | null;
+  } {
+    const empty = {
+      accommodationFee: null,
+      resortFee: null,
+      cleaningFeeAmount: null,
+      managementCommission: null,
+      insuranceFee: null,
+    };
+    if (!Array.isArray(fees) || fees.length === 0) return empty;
+
+    // Prefer amount_gross_total, then amount_net_total, then amount_incl_total.
+    // Management Commission rows have amount_incl_total = null but gross/net set.
+    const feeAmount = (entry: any): number | null => {
+      const candidates = [entry?.amount_gross_total, entry?.amount_net_total, entry?.amount_incl_total];
+      for (const candidate of candidates) {
+        if (candidate == null) continue;
+        const parsed = Number(candidate);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+      return null;
+    };
+
+    const result: any = { ...empty };
+    for (const entry of fees) {
+      const name = String(entry?.fee?.name || "").trim().toLowerCase();
+      const type = String(entry?.fee?.type || "").trim().toLowerCase();
+      const amount = feeAmount(entry);
+      if (amount == null) continue;
+
+      if (type === "accommodation" || name === "accommodation") {
+        result.accommodationFee = (result.accommodationFee || 0) + amount;
+      } else if (name === "resort fee") {
+        result.resortFee = (result.resortFee || 0) + amount;
+      } else if (name === "cleaning fee") {
+        result.cleaningFeeAmount = (result.cleaningFeeAmount || 0) + amount;
+      } else if (name === "management commission") {
+        result.managementCommission = (result.managementCommission || 0) + amount;
+      } else if (name.includes("insurance")) {
+        result.insuranceFee = (result.insuranceFee || 0) + amount;
+      }
+    }
+    return result;
+  }
 
 }
