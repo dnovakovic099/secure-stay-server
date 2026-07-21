@@ -550,21 +550,39 @@ export class OverduePaymentService {
         }
     }
 
-    /** Flag the conversation and email recipients (only on the 0 -> 1 transition). */
-    async raiseEmergency(conversation: InboxConversationEntity, reason: string, type = "payment"): Promise<boolean> {
-        const wasEmergency = Number(conversation.emergency) === 1 && conversation.emergencyType === type;
+    /**
+     * Flag the conversation as urgent (inbox pin + AI pause).
+     * Payment emergencies email alert recipients; other types (e.g. extension_price)
+     * are inbox-only unless opts.notify is true.
+     */
+    async raiseEmergency(
+        conversation: InboxConversationEntity,
+        reason: string,
+        type = "payment",
+        opts: { notify?: boolean } = {}
+    ): Promise<boolean> {
+        // Never downgrade a payment emergency to a softer type.
+        if (
+            Number(conversation.emergency) === 1 &&
+            conversation.emergencyType === "payment" &&
+            type !== "payment"
+        ) {
+            return false;
+        }
+        const wasSame = Number(conversation.emergency) === 1 && conversation.emergencyType === type;
         conversation.emergency = 1;
         conversation.emergencyType = type;
         conversation.emergencyReason = reason ? reason.slice(0, 500) : null;
-        if (!wasEmergency) conversation.emergencyAt = new Date();
+        if (!wasSame) conversation.emergencyAt = new Date();
         await this.conversationRepo.save(conversation);
 
-        if (!wasEmergency) {
+        const shouldNotify = opts.notify !== undefined ? opts.notify : type === "payment";
+        if (!wasSame && shouldNotify) {
             await this.sendEmergencyEmail(conversation, reason).catch((e) =>
                 logger.error(`[OverduePayment] emergency email failed for thread ${conversation.threadId}: ${e.message}`)
             );
         }
-        return !wasEmergency;
+        return !wasSame;
     }
 
     async clearEmergency(threadId: number): Promise<boolean> {

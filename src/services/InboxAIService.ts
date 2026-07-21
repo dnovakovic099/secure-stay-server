@@ -73,7 +73,7 @@ import {
  * human via the escalation keyword safety net.
  */
 
-export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v7.6"; // v7.6: Hostify occupancy framing, comps gate, no invented local/property facts
+export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v7.7"; // v7.7: extension pricing → urgent human quote (no AI rate)
 const INBOX_AI_MODEL = process.env.AI_MESSAGING_MODEL || "gpt-4.1";
 
 const textOrDefault = (value: string | null | undefined, fallback: string): string =>
@@ -553,6 +553,34 @@ export class InboxAIService {
             warnings.push(
                 "Contested listing fact conflict in context — do not assert check-in/out time or capacity; team must confirm."
             );
+        }
+
+        // Extension pricing security: pin thread to Urgent for a human rate quote.
+        // Hostify calendar prices are not trusted for guest-facing extension quotes.
+        if (this.detectExtensionAsk(guestAskText)) {
+            output.escalation_required = true;
+            output.escalation_reason = output.escalation_reason
+                ? `${output.escalation_reason}; extension_price_needs_human`
+                : "extension_price_needs_human";
+            warnings.push(
+                "Extension pricing must come from a teammate — do not quote Hostify calendar nightly rates. Thread pinned to Urgent."
+            );
+            if (/[$€£]\s?\d/.test(reply)) {
+                // Strip AI-quoted dollars from the draft; keep a safe holding reply.
+                output.suggested_reply =
+                    "Thanks for asking about extending your stay — I'm checking availability with the team and we'll confirm the exact rate shortly.";
+                warnings.push("Removed AI-quoted extension price from draft; human must supply the rate.");
+            }
+            try {
+                const reason = `Guest asked about extending their stay — please confirm availability and reply with the exact extension price. Do not rely on Hostify calendar rates alone.`;
+                await this.overduePaymentService.raiseEmergency(conversation, reason, "extension_price", {
+                    notify: false,
+                });
+            } catch (err: any) {
+                logger.warn(
+                    `[InboxAIService] extension_price urgent flag failed (thread ${threadId}): ${err?.message}`
+                );
+            }
         }
         output.warnings = warnings;
 
@@ -2095,6 +2123,15 @@ export class InboxAIService {
                 return { sent: false, reason: "already_queued", suggestionId: suggestion.id };
             }
 
+            // Any urgent flag (payment, extension price, etc.) blocks auto-send.
+            if (Number(conversation.emergency) === 1) {
+                return this.autosendSkip(
+                    threadId,
+                    suggestion.id,
+                    `emergency:${conversation.emergencyType || "unknown"}`
+                );
+            }
+
             // ---- Unpaid-arrival emergency (non-Airbnb only) ----
             // If the guest is arriving/staying on a non-Airbnb channel with an
             // outstanding balance, do NOT auto-answer. Flag the conversation as an
@@ -2109,6 +2146,27 @@ export class InboxAIService {
                 }
             } catch (err: any) {
                 logger.warn(`[InboxAIService] payment-emergency check failed (thread ${threadId}): ${err.message}`);
+            }
+
+            // Extension asks: never auto-quote Hostify calendar rates — pin Urgent for a human price.
+            // generateSuggestion already raises this flag; this is a belt-and-suspenders autosend block.
+            try {
+                const fresh = await this.conversationRepo.findOne({ where: { threadId } });
+                if (Number(fresh?.emergency) === 1 && String(fresh?.emergencyType || "") === "extension_price") {
+                    return this.autosendSkip(threadId, suggestion.id, "extension_price_urgent");
+                }
+                const guestBody = conversation.lastMessageText || "";
+                if (this.detectExtensionAsk(guestBody)) {
+                    await this.overduePaymentService.raiseEmergency(
+                        conversation,
+                        "Guest asked about extending their stay — please confirm availability and reply with the exact extension price. Do not rely on Hostify calendar rates alone.",
+                        "extension_price",
+                        { notify: false }
+                    );
+                    return this.autosendSkip(threadId, suggestion.id, "extension_price_urgent");
+                }
+            } catch (err: any) {
+                logger.warn(`[InboxAIService] extension_price urgent check failed (thread ${threadId}): ${err.message}`);
             }
 
             // ---- Auto-send is a separate, stricter gate (default OFF) ----
@@ -2672,13 +2730,14 @@ export class InboxAIService {
             "- Reply in the same language the guest used.",
             "",
             "AVAILABILITY / EXTENSIONS:",
-            "- If a 'Live availability' section is present, it is real calendar data. You MAY state those specific open dates and nightly prices to the guest and answer availability/extension questions directly — do NOT say 'let me check' or 'I'll get back to you' when this data is present.",
-            "- When a date range shows a price band (e.g. ~$40–$55/night), do NOT collapse it to a single number — say rates vary by date in that range, or quote the extension-check night's exact price when present.",
-            "- For an extension request, if the relevant night is available, confirm it and its nightly price, then say the team will finalize the booking/charge (you cannot modify the reservation yourself). This does NOT require escalation.",
-            "- If the requested night is NOT available per the calendar, tell the guest it's unavailable and, if helpful, mention the nearest open dates.",
+            "- If a 'Live availability' section is present without the extension-pricing security banner, it is real calendar data — you MAY state open dates and nightly prices for general availability questions.",
+            "- When a date range shows a price band (e.g. ~$40–$55/night), do NOT collapse it to a single number — say rates vary by date in that range.",
+            "- EXTENSION PRICING (hard security rule): if the guest wants to extend / add nights, NEVER quote a nightly rate, total, or dollar amount — even if a calendar price appears elsewhere in context. Acknowledge → say a teammate will confirm availability and the exact price → escalation_required=true. A human must price extensions.",
+            "- For an extension request you MAY say whether the night after checkout looks open/closed from Live availability (dates only). You cannot modify the reservation yourself.",
+            "- If the requested night is NOT available per the calendar, tell the guest it's unavailable and, if helpful, mention the nearest open dates (still no prices on extensions).",
             "- If NO 'Live availability' data is present for an extension/date request, do NOT express eagerness that presumes the night is open (avoid 'we'd love to extend your stay!'). Give a neutral reply that you'll confirm availability, keep confidence <= 0.4, and do not imply the night is likely available.",
             "- NEVER answer an availability question by telling the guest to rely on the platform calendar (no 'if the platform lets you select the dates, they're available', no claims that 'our calendar/system is always up to date'). Without Live availability data, the ONLY correct availability answer is that the team will confirm the specific dates.",
-            "- Only escalate availability/extension messages when the guest is negotiating price/discounts or the calendar data is absent.",
+            "- Escalate every extension request (pricing must come from a human). Escalate other availability messages when the guest is negotiating discounts or the calendar data is absent.",
             "",
             "LOCAL AREA, DIRECTIONS & TRAVEL TIME:",
             "- For general questions about distance, drive time, or directions between the property and a well-known place (airports, downtowns, cities, landmarks, neighborhoods), give a helpful APPROXIMATE estimate from general geographic knowledge — do NOT defer to the team and do NOT escalate. Ground it in the property's city/area from the listing context.",
@@ -2761,15 +2820,29 @@ export class InboxAIService {
     }
 
     /**
+     * Guest is asking to extend / add nights. Nightly rates from Hostify calendar
+     * have been wrong_info — these must go to a human for pricing (urgent pin).
+     */
+    private detectExtensionAsk(text: string): boolean {
+        return /\b(extend(?:ing|ed)?|extension|extra\s+night|another\s+night|one\s+more\s+night|1\s+more\s+night|stay\s+(?:longer|another)|add\s+(?:a\s+|another\s+)?night|additional\s+night|stay\s+an\s+extra)\b/i.test(
+            String(text || "")
+        );
+    }
+
+    /**
      * Fetch the live Hostify calendar for the conversation's listing and render a
      * compact availability summary the model can quote. Window: from today (or
      * check-in, whichever is earlier-relevant) through ~45 days out; when we know
      * the checkout date we specifically flag the nights right after it (the exact
      * dates an extension request is about).
      */
-    private async buildAvailabilityBlock(conversation: InboxConversationEntity): Promise<string | null> {
+    private async buildAvailabilityBlock(
+        conversation: InboxConversationEntity,
+        opts: { hidePrices?: boolean } = {}
+    ): Promise<string | null> {
         if (!conversation.listingId || !this.hostifyApiKey) return null;
 
+        const hidePrices = Boolean(opts.hidePrices);
         const toKey = (d: Date) => d.toISOString().slice(0, 10);
         const today = new Date();
         const start = new Date(today);
@@ -2818,16 +2891,24 @@ export class InboxAIService {
         }
 
         const fmtRangePrice = (r: { minPrice: number; maxPrice: number }): string => {
+            if (hidePrices) return "";
             if (!r.minPrice && !r.maxPrice) return "";
             if (!r.maxPrice || r.minPrice === r.maxPrice) return ` (~${currency} ${r.minPrice}/night)`;
             return ` (~${currency} ${r.minPrice}–${r.maxPrice}/night, varies by date)`;
         };
 
         const out: string[] = [];
+        if (hidePrices) {
+            out.push(
+                "EXTENSION PRICING SECURITY (hard rule): Hostify calendar nightly rates are NOT guest-quotable for extensions — they have been wrong. " +
+                    "You may say whether nights look open/closed. You must NEVER quote a dollar amount, nightly rate, or total. " +
+                    "Acknowledge the extension ask, say a teammate will confirm availability and the exact price, set escalation_required=true."
+            );
+        }
         if (ranges.length === 0) {
             out.push("No open nights in the next 45 days — the calendar is fully booked/blocked.");
         } else {
-            out.push("Open date ranges (next 45 days):");
+            out.push(hidePrices ? "Open date ranges (next 45 days) — dates only, no prices:" : "Open date ranges (next 45 days):");
             for (const r of ranges.slice(0, 12)) {
                 const label = r.from === r.to ? r.from : `${r.from} → ${r.to}`;
                 out.push(`- ${label}${fmtRangePrice(r)}`);
@@ -2843,7 +2924,9 @@ export class InboxAIService {
                 if (day) {
                     out.push(
                         isAvailable(day)
-                            ? `Extension check: the night of ${nextNightKey} (right after current checkout) IS available${day.price ? ` at ~${currency} ${Number(day.price)}/night` : ""}.`
+                            ? hidePrices
+                                ? `Extension check: the night of ${nextNightKey} (right after current checkout) IS available — do NOT quote a rate; team prices it.`
+                                : `Extension check: the night of ${nextNightKey} (right after current checkout) IS available${day.price ? ` at ~${currency} ${Number(day.price)}/night` : ""}.`
                             : `Extension check: the night of ${nextNightKey} (right after current checkout) is NOT available.`
                     );
                 }
@@ -4184,10 +4267,15 @@ export class InboxAIService {
                     } catch { /* fall through to the warning below */ }
                 }
                 if (conversation.listingId) {
-                    const avail = await this.buildAvailabilityBlock(conversation);
+                    const extensionAsk = this.detectExtensionAsk(guestText);
+                    const avail = await this.buildAvailabilityBlock(conversation, { hidePrices: extensionAsk });
                     if (avail) {
                         lines.push("");
-                        lines.push("## Live availability (from the calendar — you MAY state these facts to the guest)");
+                        lines.push(
+                            extensionAsk
+                                ? "## Live availability (dates only — NEVER quote Hostify nightly prices for extensions; a human prices them)"
+                                : "## Live availability (from the calendar — you MAY state these facts to the guest)"
+                        );
                         lines.push(avail);
                     } else {
                         logger.warn(`[InboxAI] Availability intent on thread ${conversation.threadId} but calendar fetch returned nothing (listing ${conversation.listingId})`);

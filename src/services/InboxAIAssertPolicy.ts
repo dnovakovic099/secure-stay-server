@@ -336,6 +336,19 @@ export function detectUnsafeSpeechActs(reply: string, opts: SpeechActGateOpts): 
         }
     }
 
+    // Extension nightly rates must be quoted by a human (Hostify calendar prices
+    // have been wrong_info). Any $ quote on an extension topic is unsafe.
+    const extensionTopic =
+        /\b(extend(?:ing|ed)?|extension|extra night|another night|one more night|stay longer|add (?:a |another )?night)\b/i.test(
+            guestOrReply
+        );
+    if (
+        extensionTopic &&
+        /[$€£]\s?\d|\b\d+\s*(?:dollars?|usd|\/\s*night|per\s*night)\b/i.test(text)
+    ) {
+        hits.push("extension_price_quote");
+    }
+
     // Complimentary / free / goodwill approvals without explicit ops/team confirm.
     if (!opts.hasExplicitOpsConfirmation) {
         const compTopic =
