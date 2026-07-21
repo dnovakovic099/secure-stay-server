@@ -2,6 +2,7 @@ import { In } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { ListingKnowledgeEntryEntity } from "../entity/ListingKnowledgeEntry";
+import { ListingGroupService } from "./ListingGroupService";
 
 export interface KnowledgeInput {
     listingId: number;
@@ -25,11 +26,32 @@ const normalizeVisibility = (v?: string | null): "internal" | "external" =>
 export class ListingKnowledgeService {
     private repo = appDatabase.getRepository(ListingKnowledgeEntryEntity);
 
-    async list(listingId: number, opts: { includeArchived?: boolean; visibility?: string } = {}) {
-        const where: any = { listingId };
+    async list(
+        listingId: number,
+        opts: { includeArchived?: boolean; visibility?: string; includeGroup?: boolean } = {}
+    ) {
+        let listingIds = [Number(listingId)];
+        if (opts.includeGroup) {
+            try {
+                listingIds = await new ListingGroupService().groupIds(listingId);
+            } catch (err: any) {
+                logger.warn(`[ListingKnowledge] group expand failed for ${listingId}: ${err.message}`);
+            }
+        }
+        const where: any = {
+            listingId: listingIds.length === 1 ? (listingIds[0] as any) : In(listingIds),
+        };
         if (!opts.includeArchived) where.isArchived = 0;
         if (opts.visibility) where.visibility = normalizeVisibility(opts.visibility);
-        return this.repo.find({ where, order: { updatedAt: "DESC", id: "DESC" } });
+        const rows = await this.repo.find({ where, order: { updatedAt: "DESC", id: "DESC" } });
+        // Dedup identical content mirrored across channel-split siblings.
+        const seen = new Set<string>();
+        return rows.filter((e) => {
+            const key = `${e.visibility}|${(e.title || "").toLowerCase()}|${(e.content || "").slice(0, 120).toLowerCase()}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
     }
 
     async create(input: KnowledgeInput) {

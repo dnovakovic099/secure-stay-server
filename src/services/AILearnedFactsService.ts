@@ -69,6 +69,52 @@ const slug = (s: string) =>
         .replace(/^-+|-+$/g, "")
         .slice(0, 120) || "general";
 
+const humanizeTopic = (topic: string) =>
+    String(topic || "")
+        .replace(/[-_]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/\b\w/g, (c) => c.toUpperCase()) || "General";
+
+/**
+ * Map a learned-fact topic/Q&A into the listing-page Knowledge Base main
+ * categories (Amenity, Access, …) plus a short sub-label for the chip UI.
+ */
+export function mapLearnedTopicToKbCategory(
+    topic: string,
+    question?: string | null,
+    answer?: string | null
+): { main: string; sub: string } {
+    const sub = humanizeTopic(topic);
+    const hay = `${topic} ${question || ""} ${answer || ""}`.toLowerCase();
+    if (
+        /\b(wifi|wi-?fi|internet|parking|pool|hot\s*tub|spa|kitchen|laundry|washer|dryer|tv|television|netflix|air\s*cond|\bac\b|heating|heater|gym|fitness|ev\s*charg|grill|bbq|dishwasher|coffee|oven|stove|fridge|microwave|amenit|balcony|patio|fireplace|crib|high\s*chair)/.test(
+            hay
+        )
+    ) {
+        return { main: "Amenity", sub };
+    }
+    if (/\b(code|lock|lockbox|gate|keypad|key|access|check-?in|check-?out|door|entry|arrival|directions|parking\s*pass)/.test(hay)) {
+        return { main: "Access", sub };
+    }
+    if (/\b(trash|garbage|recycling|cleaner|cleaning|turnover|linen|towel|supplies|restock)/.test(hay)) {
+        return { main: "Operations", sub };
+    }
+    if (/\b(broken|repair|maintenance|outage|leak|clog|not\s*working|issue)/.test(hay)) {
+        return { main: "Maintenance", sub };
+    }
+    if (/\b(pet|quiet|party|parties|smoking|smoke|rule|noise|guest\s*limit|max\s*guest)/.test(hay)) {
+        return { main: "House Rules", sub };
+    }
+    if (/\b(upsell|early\s*check|late\s*check|mid-?stay|extra\s*night|fee|deposit|pricing)/.test(hay)) {
+        return { main: "Upsells", sub };
+    }
+    if (/\b(recommend|nearby|restaurant|grocery|beach|attraction|experience)/.test(hay)) {
+        return { main: "Guest Experience", sub };
+    }
+    return { main: "General", sub };
+}
+
 /**
  * Per-property and portfolio-wide "frequently asked" fact store.
  *
@@ -195,22 +241,22 @@ export class AILearnedFactsService {
     }
 
     /**
-     * Mirror an approved, property-scoped, guest-shareable QA fact into the
-     * property's Knowledge Base so it lives alongside curated listing info.
-     * Internal facts and style_rule / topic_to_avoid facts stay in the learned
-     * store only — the KB is guest-facing and must not leak internal guidance.
+     * Mirror an approved, property-scoped QA fact into the listing Knowledge
+     * Base (All Listings → Knowledge Base tab). External facts stay guest-
+     * shareable; internal facts land as staff-only KB notes (never used in
+     * guest AI replies). style_rule / topic_to_avoid stay in Learned only.
      * Idempotent by (listingId, knowledgeEntryId).
      */
-    private async syncFactToKnowledge(fact: AILearnedFactEntity): Promise<AILearnedFactEntity> {
+    async syncFactToKnowledge(fact: AILearnedFactEntity): Promise<AILearnedFactEntity> {
         const shouldMirror =
             fact.status === "approved" &&
             fact.scope === "property" &&
             fact.listingId != null &&
-            fact.factType === "qa" &&
-            fact.visibility === "external";
+            (fact.factType || "qa") === "qa" &&
+            !!(fact.answer && String(fact.answer).trim());
 
         // If the fact no longer qualifies (rejected, promoted to portfolio,
-        // switched to internal / style rule), archive the linked KB entry.
+        // switched to style rule / avoid), archive the linked KB entry.
         if (!shouldMirror) {
             if (fact.knowledgeEntryId) {
                 try {
@@ -227,9 +273,15 @@ export class AILearnedFactsService {
             return fact;
         }
 
-        const title = (fact.question || fact.topic || "").replace(/\s+/g, " ").trim().slice(0, 255) || "Learned";
-        const category = fact.topic || "Learned";
-        const content = fact.answer || "";
+        const { main, sub } = mapLearnedTopicToKbCategory(fact.topic, fact.question, fact.answer);
+        const question = (fact.question || "").replace(/\s+/g, " ").trim();
+        const title = (question || sub || "Learned").slice(0, 255);
+        const tag = slug(sub || fact.topic || "fact").replace(/-/g, "") || "fact";
+        const answer = String(fact.answer || "").trim();
+        // Match the Amenity form layout staff already use on the listing page.
+        const content =
+            main === "Amenity" ? `Amenity: ${sub}\n\n${answer}\n\n#${tag}` : `${answer}\n\n#${tag}`;
+        const visibility = fact.visibility === "internal" ? "internal" : "external";
 
         try {
             let entry = fact.knowledgeEntryId
@@ -237,17 +289,17 @@ export class AILearnedFactsService {
                 : null;
             if (entry) {
                 entry.title = title;
-                entry.category = category.slice(0, 120);
+                entry.category = main.slice(0, 120);
                 entry.content = content;
-                entry.visibility = "external";
+                entry.visibility = visibility;
                 entry.isArchived = 0;
                 entry.source = "ai_suggested";
                 await this.kbRepo.save(entry);
             } else {
                 entry = this.kbRepo.create({
                     listingId: Number(fact.listingId),
-                    category: category.slice(0, 120),
-                    visibility: "external",
+                    category: main.slice(0, 120),
+                    visibility,
                     title,
                     content,
                     source: "ai_suggested",
@@ -264,6 +316,70 @@ export class AILearnedFactsService {
     }
 
     /**
+     * One-shot: promote every approved property Q&A into listing KB entries
+     * (creates missing rows, refreshes categories/content on linked ones).
+     */
+    async backfillKnowledgeFromLearned(opts: { approvePending?: boolean } = {}): Promise<{
+        approvedPending: number;
+        synced: number;
+        skipped: number;
+        linked: number;
+    }> {
+        let approvedPending = 0;
+        if (opts.approvePending) {
+            const pending = await this.repo.find({
+                where: { status: "pending", scope: "property", factType: "qa" as any },
+            });
+            const toApprove: AILearnedFactEntity[] = [];
+            for (const f of pending) {
+                if (!f.listingId || !(f.answer && String(f.answer).trim())) continue;
+                // Only auto-promote pending facts that already cleared the
+                // frequency gate (or were manually taught / high-signal).
+                const trusted =
+                    f.source === "manual" ||
+                    f.source === "learning_prompt" ||
+                    f.source === "simulator" ||
+                    (f.frequency || 0) >= AILearnedFactsService.AUTO_APPROVE_MIN_FREQUENCY;
+                if (!trusted) continue;
+                f.status = "approved";
+                toApprove.push(f);
+            }
+            if (toApprove.length) {
+                await this.repo.save(toApprove);
+                approvedPending = toApprove.length;
+            }
+        }
+
+        const facts = await this.repo.find({
+            where: { status: "approved", scope: "property", factType: "qa" as any },
+        });
+        let synced = 0;
+        let skipped = 0;
+        for (const f of facts) {
+            if (!f.listingId || !(f.answer && String(f.answer).trim())) {
+                skipped++;
+                continue;
+            }
+            await this.syncFactToKnowledge(f);
+            synced++;
+        }
+        const linked = await this.repo.count({
+            where: { status: "approved", scope: "property", factType: "qa" as any },
+        });
+        const withKb = await this.repo
+            .createQueryBuilder("f")
+            .where("f.status = :s", { s: "approved" })
+            .andWhere("f.scope = :sc", { sc: "property" })
+            .andWhere("f.factType = :t", { t: "qa" })
+            .andWhere("f.knowledgeEntryId IS NOT NULL")
+            .getCount();
+        logger.info(
+            `[LearnedFacts] KB backfill: approvedPending=${approvedPending} synced=${synced} skipped=${skipped} linked=${withKb}/${linked}`
+        );
+        return { approvedPending, synced, skipped, linked: withKb };
+    }
+
+    /**
      * Reverse sync: called from ListingKnowledgeController when a KB entry is
      * edited or removed. Keeps the paired learned fact in step so curators
      * can't get the two views out of sync.
@@ -275,13 +391,30 @@ export class AILearnedFactsService {
             fact.status = "rejected";
             fact.knowledgeEntryId = null;
         } else {
-            fact.answer = entry.content;
+            // Strip amenity header / trailing tags we added on promote so the
+            // Learned tab stays readable.
+            const raw = String(entry.content || "");
+            const cleaned = raw
+                .replace(/^Amenity:\s*[^\n]+\n(?:Category:\s*[^\n]+\n)?\n?/i, "")
+                .replace(/\n*#[a-z0-9_-]+\s*$/i, "")
+                .trim();
+            fact.answer = cleaned || raw;
             fact.question = entry.title;
-            fact.topic = slug(entry.category || fact.topic);
+            // Prefer keeping the existing topic slug; only overwrite from a
+            // free-text category when it isn't one of the main UI buckets.
+            const cat = String(entry.category || "").trim();
+            const mainBuckets = new Set([
+                "General",
+                "Amenity",
+                "Access",
+                "Operations",
+                "Maintenance",
+                "Guest Experience",
+                "House Rules",
+                "Upsells",
+            ]);
+            if (cat && !mainBuckets.has(cat)) fact.topic = slug(cat);
             fact.visibility = entry.visibility === "internal" ? "internal" : "external";
-            // If the KB curator flipped it to internal, drop the KB link since
-            // learned facts marked internal never mirror to KB.
-            if (fact.visibility === "internal") fact.knowledgeEntryId = null;
         }
         await this.repo.save(fact);
     }
@@ -373,6 +506,10 @@ export class AILearnedFactsService {
             f.reviewedByUserId = userId ?? f.reviewedByUserId ?? null;
         }
         if (pending.length) await this.repo.save(pending);
+        // Mirror each approved property Q&A into listing KB (was previously skipped).
+        for (const f of pending) {
+            await this.syncFactToKnowledge(f);
+        }
         return { approved: pending.length };
     }
 

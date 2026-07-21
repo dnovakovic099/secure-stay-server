@@ -494,6 +494,47 @@ export class AICopilotController {
         }
     }
 
+    /**
+     * Promote approved (and trusted-pending) property Q&A learned facts into
+     * each listing's Knowledge Base so they appear on All Listings → KB and
+     * ground future guest replies. Optionally also re-seed Hostify listing data.
+     */
+    async promoteLearnedFactsToKb(request: Request, response: Response, next: NextFunction) {
+        try {
+            const approvePending = request.body?.approvePending !== false && request.query.approvePending !== "false";
+            const seedListings = request.body?.seedListings === true || request.query.seedListings === "true";
+            const facts = new AILearnedFactsService();
+            // Run async so the request returns quickly on large portfolios.
+            (async () => {
+                try {
+                    const result = await facts.backfillKnowledgeFromLearned({ approvePending });
+                    logger.info("[LearnedFacts] promote-to-KB done", result);
+                    if (seedListings) {
+                        const seeded = await new ListingKnowledgeSeeder().seedAll({ fetchHostify: true });
+                        logger.info("[KBSeeder] promote companion seed done", seeded);
+                    }
+                    // Refresh RAG so newly promoted KB is retrievable.
+                    try {
+                        const n = await new RetrievalService().embedKnowledge();
+                        logger.info(`[LearnedFacts] embedded ${n} KB vectors after promote`);
+                    } catch (err: any) {
+                        logger.warn(`[LearnedFacts] KB embed after promote failed: ${err.message}`);
+                    }
+                } catch (err: any) {
+                    logger.error(`[LearnedFacts] promote-to-KB failed: ${err.message}`);
+                }
+            })();
+            return response.status(202).json({
+                status: true,
+                message: "Promoting learned facts into listing Knowledge Base",
+                approvePending,
+                seedListings,
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     /** Rebuild the channel-split listing→group map from Hostify. */
     async rebuildListingGroups(_request: Request, response: Response, next: NextFunction) {
         try {

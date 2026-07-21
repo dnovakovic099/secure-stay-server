@@ -64,6 +64,8 @@ router.post("/conflicts/scan", verifySession, controller.conflictScan);
 
 // Seed KB from structured listing data + one-shot full-history learning.
 router.post("/kb/seed-from-listings", verifySession, controller.seedKnowledgeFromListings);
+// Promote Learned (Q&A) facts into each listing's Knowledge Base tab.
+router.post("/kb/promote-learned-facts", verifySession, controller.promoteLearnedFactsToKb);
 router.post("/audit/backfill-history", verifySession, controller.backfillHistory);
 router.post("/listing-groups/rebuild", verifySession, controller.rebuildListingGroups);
 router.post("/embeddings/backfill", verifySession, controller.backfillExemplars);

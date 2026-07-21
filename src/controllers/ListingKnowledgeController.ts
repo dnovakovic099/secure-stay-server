@@ -33,6 +33,8 @@ export class ListingKnowledgeController {
             const data = await service.list(listingId, {
                 includeArchived: request.query.includeArchived === "true",
                 visibility: (request.query.visibility as string) || undefined,
+                // Default on: channel-split siblings share one Knowledge Base.
+                includeGroup: request.query.includeGroup !== "false",
             });
             return response.status(200).json({ status: true, data });
         } catch (error) {
