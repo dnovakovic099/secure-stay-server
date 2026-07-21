@@ -1,7 +1,3 @@
-// Force the TypeORM entity glob that points at src/*.ts (production NODE_ENV
-// on EC2 would otherwise look for dist/out-tsc/entity/*.js and fail under ts-node).
-process.env.NODE_ENV = "development";
-
 import "reflect-metadata";
 import "dotenv/config";
 import { appDatabase } from "../utils/database.util";
