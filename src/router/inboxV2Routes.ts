@@ -90,4 +90,12 @@ router.post("/learning-prompt/:id/answer", verifySession, inboxV2Controller.answ
 router.post("/learning-prompt/:id/recommend-answer", verifySession, inboxV2Controller.recommendLearningPromptAnswer);
 router.post("/learning-prompt/:id/dismiss", verifySession, inboxV2Controller.dismissLearningPrompt);
 
+// Per-message escalate → AI suggests steps → confirm → notify assignee
+router.post(
+    "/conversations/:threadId/escalate/suggest",
+    verifySession,
+    inboxV2Controller.escalateSuggest
+);
+router.post("/escalate/confirm", verifySession, inboxV2Controller.escalateConfirm);
+
 export default router;

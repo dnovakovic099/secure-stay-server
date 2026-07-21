@@ -5,6 +5,7 @@ import { MessagingService } from "../services/MessagingServices";
 import { AILearningPromptService } from "../services/AILearningPromptService";
 import { AIProposedActionService } from "../services/AIProposedActionService";
 import { OverduePaymentService } from "../services/OverduePaymentService";
+import { InboxMessageEscalationService } from "../services/InboxMessageEscalationService";
 import logger from "../utils/logger.utils";
 
 interface CustomRequest extends Request {
@@ -580,6 +581,74 @@ export class InboxV2Controller {
             });
             return response.status(200).json({ status: true, data: result });
         } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * Per-message escalate step 1: pick assignee + note → AI suggests steps to try first.
+     */
+    async escalateSuggest(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const threadId = Number(request.params.threadId);
+            if (!Number.isFinite(threadId)) {
+                return response.status(400).json({ status: false, message: "Invalid threadId" });
+            }
+            const user = request.user || {};
+            const actorUid = String(user.id || "").trim();
+            if (!actorUid) return response.status(401).json({ status: false, message: "Unauthorized" });
+            const meta = user.user_metadata || {};
+            const actorName =
+                [meta.firstName || meta.first_name, meta.lastName || meta.last_name]
+                    .filter(Boolean)
+                    .join(" ")
+                    .trim() ||
+                meta.full_name ||
+                user.email ||
+                null;
+            const body = request.body || {};
+            const data = await new InboxMessageEscalationService().suggest({
+                threadId,
+                messageExternalId: body.messageExternalId != null ? Number(body.messageExternalId) : null,
+                category: body.category || null,
+                note: String(body.note || ""),
+                assigneeUid: String(body.assigneeUid || ""),
+                assigneeName: body.assigneeName || null,
+                actorUid,
+                actorName,
+            });
+            return response.status(200).json({ status: true, data });
+        } catch (error: any) {
+            if (error?.message && /required|not found/i.test(error.message)) {
+                return response.status(400).json({ status: false, message: error.message });
+            }
+            return next(error);
+        }
+    }
+
+    /**
+     * Per-message escalate step 2: staff already tried AI steps → notify assignee.
+     */
+    async escalateConfirm(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const user = request.user || {};
+            const actorUid = String(user.id || "").trim();
+            if (!actorUid) return response.status(401).json({ status: false, message: "Unauthorized" });
+            const body = request.body || {};
+            const escalationId = Number(body.escalationId ?? request.params.escalationId);
+            if (!Number.isFinite(escalationId)) {
+                return response.status(400).json({ status: false, message: "Invalid escalationId" });
+            }
+            const data = await new InboxMessageEscalationService().confirm({
+                escalationId,
+                actorUid,
+                alreadyTried: body.alreadyTried !== false && body.alreadyTried !== "false",
+            });
+            return response.status(200).json({ status: true, data });
+        } catch (error: any) {
+            if (error?.message && /not found/i.test(error.message)) {
+                return response.status(404).json({ status: false, message: error.message });
+            }
             return next(error);
         }
     }

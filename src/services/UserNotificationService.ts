@@ -1,5 +1,7 @@
+import { MoreThanOrEqual } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import { UserNotificationSettingsEntity } from "../entity/UserNotificationSettings";
+import { UserDirectedNotificationEntity } from "../entity/UserDirectedNotification";
 import logger from "../utils/logger.utils";
 
 export type NotificationSettingsDto = {
@@ -13,7 +15,7 @@ export type NotificationSettingsDto = {
 
 export type NotificationEvent = {
     id: string;
-    type: "message" | "reservation" | "action_item";
+    type: "message" | "reservation" | "action_item" | "escalation";
     title: string;
     body: string;
     href: string;
@@ -115,6 +117,30 @@ export class UserNotificationService {
 
         const events: NotificationEvent[] = [];
         try {
+            // Directed notifications (e.g. message escalations assigned to this user).
+            try {
+                const directed = await appDatabase.getRepository(UserDirectedNotificationEntity).find({
+                    where: {
+                        userUid,
+                        createdAt: MoreThanOrEqual(since) as any,
+                    },
+                    order: { createdAt: "DESC" },
+                    take: limit,
+                });
+                for (const d of directed) {
+                    events.push({
+                        id: `directed:${d.id}`,
+                        type: (d.type as NotificationEvent["type"]) || "escalation",
+                        title: d.title,
+                        body: d.body || "",
+                        href: d.href,
+                        createdAt: new Date(d.createdAt).toISOString(),
+                    });
+                }
+            } catch (dirErr: any) {
+                logger.warn(`[UserNotification] directed fetch failed: ${dirErr?.message}`);
+            }
+
             if (settings.notifyMessages) {
                 const rows: any[] = await appDatabase.query(
                     `SELECT m.id AS messageId, m.threadId, m.sentAt, m.body,
