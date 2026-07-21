@@ -255,40 +255,9 @@ function displayValue(field: ContestedField, v: string): string {
     return v;
 }
 
-/** Detect discretionary approvals / pre-arrival code leaks in a draft. */
-export function detectUnsafeAsserts(reply: string, opts: { codesAllowed: boolean }): string[] {
-    const text = String(reply || "");
-    const hits: string[] = [];
-    const discretionary =
-        /\b(late|extended?)[\s-]*check[\s-]*out\b|\bearly[\s-]*check[\s-]*in\b|\bextension\b/i.test(text);
-    if (discretionary) {
-        if (
-            /\b(yes[,.]?\s+you can|that (?:should |will )?work|i can (?:offer|arrange|approve)|you(?:'re| are) (?:approved|good|set) for|is possible since)\b/i.test(
-                text
-            )
-        ) {
-            hits.push("discretionary_approval");
-        }
-    }
-    if (!opts.codesAllowed) {
-        if (
-            /\b(?:door|lock|gate|access|entry)\s*code\b[^.\n]{0,40}\b\d{3,}/i.test(text) ||
-            /\bcode(?:\s+is|\s*:)\s*[A-Za-z0-9#-]{4,}\b/i.test(text) ||
-            /\b\d{2,}[-–]\d{2,}(?:[-–]\d{2,})?\b/.test(text)
-        ) {
-            hits.push("prearrival_access_code");
-        }
-    }
-    return hits;
-}
-
-export function guestReportsLockout(text: string): boolean {
-    return /\b(lock(?:ed)?\s*out|can'?t get in|cannot get in|code (?:is )?(?:not )?work|door won'?t|won'?t (?:open|unlock)|access(?:\s+code)? (?:is )?(?:wrong|invalid|not working))\b/i.test(
-        String(text || "")
-    );
-}
-
-export function stayAllowsAccessCodes(stayStageLine: string | null): boolean {
-    const s = String(stayStageLine || "");
-    return /CHECK-IN IS TODAY|MID-STAY|CHECKOUT IS TODAY/i.test(s);
-}
+export {
+    detectUnsafeSpeechActs as detectUnsafeAsserts,
+    guestReportsLockout,
+    isBookingConfirmedStatus,
+    isCheckinDayOrMidStay as stayAllowsAccessCodes,
+} from "./InboxAIAssertPolicy";

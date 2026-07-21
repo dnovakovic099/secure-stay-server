@@ -133,6 +133,20 @@ export class AIMessagingSettingsEntity {
     @Column({ type: "tinyint", default: 0 })
     selfServiceTroubleshootingEnabled: number;
 
+    /**
+     * How the AI handles early check-in asks:
+     * defer_to_team | deny | quote_fee_and_defer | accept_with_fee
+     */
+    @Column({ length: 32, default: "defer_to_team" })
+    earlyCheckinHandling: string;
+
+    /**
+     * How the AI handles late check-out asks:
+     * defer_to_team | deny | quote_fee_and_defer | accept_with_fee
+     */
+    @Column({ length: 32, default: "defer_to_team" })
+    lateCheckoutHandling: string;
+
     // Comma/newline-separated recipients for payment-emergency alert emails
     // ("guest needs to pay" on non-Airbnb reservations arriving unpaid).
     @Column({ type: "text", nullable: true })

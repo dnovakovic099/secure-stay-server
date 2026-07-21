@@ -312,7 +312,14 @@ export class InboxService {
         conversation.listingName = summary?.listing ?? summary?.listing_title ?? conversation.listingName ?? null;
         conversation.lastMessageText = summary?.preview ?? conversation.lastMessageText ?? null;
         conversation.lastMessageAt = toDateOrNull(summary?.last_message) ?? conversation.lastMessageAt ?? null;
-        conversation.answered = summary?.answered ? 1 : 0;
+        // Hostify's `answered` flag lags (stays 0 after host reply / preapproval).
+        // Never force answered back to 0 from the summary — refreshConversationPreview
+        // recomputes it from the latest guest/host message after messages sync.
+        if (summary?.answered) {
+            conversation.answered = 1;
+        } else if (conversation.answered == null) {
+            conversation.answered = 0;
+        }
         conversation.unread = summary?.channel_unread ? 1 : 0;
         conversation.isArchived = summary?.is_archived ? 1 : 0;
         conversation.nights = toNumberOrNull(summary?.nights);
@@ -348,7 +355,9 @@ export class InboxService {
                 conversation.guestName = conversation.guestName || reservation.guestName || null;
                 conversation.guestPhone = conversation.guestPhone || (reservation.phone ?? null);
                 conversation.guestEmail = conversation.guestEmail || (reservation.guestEmail ?? null);
-                conversation.reservationStatus = conversation.reservationStatus || reservation.status || null;
+                // Reservation row is booking-state source of truth. Hostify thread
+                // summaries often lag as "inquiry" after preapproval/offer.
+                conversation.reservationStatus = reservation.status || conversation.reservationStatus || null;
                 conversation.checkin = conversation.checkin || toDateKey(reservation.arrivalDate);
                 conversation.checkout = conversation.checkout || toDateKey(reservation.departureDate);
                 if (conversation.price == null && reservation.totalPrice != null) {
@@ -851,27 +860,48 @@ export class InboxService {
     }
 
     /**
-     * Keep the list preview honest: Hostify's thread `preview` field can lag
-     * behind the real conversation (the team flagged previews not showing the
-     * latest message). After a sync, recompute the preview from the newest
-     * stored message for the thread.
+     * Keep the list preview + answered flag honest after sync.
+     * Hostify's thread `preview`/`answered` fields lag (and Hostify notes like
+     * "Pre-approval sent" must not put a thread back into awaiting-reply).
      */
     private async refreshConversationPreview(conversation: InboxConversationEntity): Promise<void> {
         try {
+            let dirty = false;
+
+            // Answered = guest is NOT waiting on us. Only guest/host messages count;
+            // system / Hostify notes never flip answered back to 0.
+            const latestGuestOrHost = await this.messageRepo
+                .createQueryBuilder("m")
+                .where("m.threadId = :tid", { tid: conversation.threadId })
+                .andWhere("m.direction IN ('incoming', 'outgoing')")
+                .orderBy("m.sentAt", "DESC")
+                .addOrderBy("m.id", "DESC")
+                .getOne();
+            if (latestGuestOrHost) {
+                const nextAnswered = latestGuestOrHost.direction === "outgoing" ? 1 : 0;
+                if (Number(conversation.answered) !== nextAnswered) {
+                    conversation.answered = nextAnswered;
+                    dirty = true;
+                }
+            }
+
             const latest = await this.messageRepo.findOne({
                 where: { threadId: conversation.threadId },
                 order: { sentAt: "DESC", id: "DESC" },
             });
-            if (!latest) return;
-            const body = (latest.body || latest.note || "").replace(/\s+/g, " ").trim();
-            if (!body) return;
-            const latestAt = latest.sentAt ? new Date(latest.sentAt) : null;
-            const knownAt = conversation.lastMessageAt ? new Date(conversation.lastMessageAt) : null;
-            if (knownAt && latestAt && latestAt < knownAt) return;
-            if (conversation.lastMessageText === body) return;
-            conversation.lastMessageText = body;
-            if (latestAt) conversation.lastMessageAt = latestAt;
-            await this.conversationRepo.save(conversation);
+            if (latest) {
+                const body = (latest.body || latest.note || "").replace(/\s+/g, " ").trim();
+                const latestAt = latest.sentAt ? new Date(latest.sentAt) : null;
+                const knownAt = conversation.lastMessageAt ? new Date(conversation.lastMessageAt) : null;
+                const previewIsNewer = !knownAt || !latestAt || latestAt >= knownAt;
+                if (body && previewIsNewer && conversation.lastMessageText !== body) {
+                    conversation.lastMessageText = body;
+                    if (latestAt) conversation.lastMessageAt = latestAt;
+                    dirty = true;
+                }
+            }
+
+            if (dirty) await this.conversationRepo.save(conversation);
         } catch (err: any) {
             logger.warn(
                 `[InboxService] preview refresh failed for thread ${conversation.threadId}: ${err.message}`
@@ -1221,7 +1251,14 @@ export class InboxService {
             // Only recent inquiries get pinned — months-old expired inquiries
             // shouldn't sit above today's conversations forever.
             .addOrderBy(
-                "(CASE WHEN c.answered = 0 AND LOWER(COALESCE(c.reservationStatus, '')) LIKE 'inquiry%' AND c.lastMessageAt >= NOW() - INTERVAL 14 DAY THEN 1 ELSE 0 END)",
+                `(CASE WHEN c.answered = 0
+                    AND LOWER(COALESCE(c.reservationStatus, '')) LIKE 'inquiry%'
+                    AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%preapproved%'
+                    AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%offer%'
+                    AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%denied%'
+                    AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%timedout%'
+                    AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%notpossible%'
+                    AND c.lastMessageAt >= NOW() - INTERVAL 14 DAY THEN 1 ELSE 0 END)`,
                 "DESC"
             )
             .addOrderBy("c.lastMessageAt", "DESC")

@@ -18,6 +18,25 @@ export interface ActionItemCategoryEntry {
     autoCreate?: boolean;
 }
 
+/** How inbox AI should handle early check-in / late check-out guest asks. */
+export type EarlyLateCheckHandling = "defer_to_team" | "deny" | "quote_fee_and_defer" | "accept_with_fee";
+
+const EARLY_LATE_HANDLING_VALUES: EarlyLateCheckHandling[] = [
+    "defer_to_team",
+    "deny",
+    "quote_fee_and_defer",
+    "accept_with_fee",
+];
+
+export function normalizeEarlyLateHandling(raw: any): EarlyLateCheckHandling {
+    const v = String(raw || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, "_");
+    if ((EARLY_LATE_HANDLING_VALUES as string[]).includes(v)) return v as EarlyLateCheckHandling;
+    return "defer_to_team";
+}
+
 export interface AIMessagingSettingsPatch {
     tone?: string | null;
     communicationRules?: string | null;
@@ -45,6 +64,8 @@ export interface AIMessagingSettingsPatch {
     inquirySalesRules?: string | null;
     inquiryAutoRespondEnabled?: boolean;
     selfServiceTroubleshootingEnabled?: boolean;
+    earlyCheckinHandling?: EarlyLateCheckHandling | string;
+    lateCheckoutHandling?: EarlyLateCheckHandling | string;
     paymentAlertEmails?: string | null;
     opsAlertEmails?: string | null;
     itemDetectionEnabled?: boolean;
@@ -94,8 +115,39 @@ export class AIMessagingSettingsService {
     private static cacheAt = 0;
     private static TTL_MS = 15000;
 
+    /** Best-effort schema ensure for new policy columns (prod may lag migrations). */
+    private static columnsEnsured = false;
+    private async ensureEarlyLateColumns(): Promise<void> {
+        if (AIMessagingSettingsService.columnsEnsured) return;
+        try {
+            const cols: any[] = await appDatabase.query(
+                `SELECT COLUMN_NAME AS name FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_messaging_settings'
+                   AND COLUMN_NAME IN ('earlyCheckinHandling','lateCheckoutHandling')`
+            );
+            const have = new Set((cols || []).map((c) => String(c.name)));
+            if (!have.has("earlyCheckinHandling")) {
+                await appDatabase.query(
+                    `ALTER TABLE ai_messaging_settings
+                     ADD COLUMN earlyCheckinHandling VARCHAR(32) NOT NULL DEFAULT 'defer_to_team'`
+                );
+            }
+            if (!have.has("lateCheckoutHandling")) {
+                await appDatabase.query(
+                    `ALTER TABLE ai_messaging_settings
+                     ADD COLUMN lateCheckoutHandling VARCHAR(32) NOT NULL DEFAULT 'defer_to_team'`
+                );
+            }
+            AIMessagingSettingsService.columnsEnsured = true;
+        } catch (err: any) {
+            logger.warn(`[AIMessagingSettings] ensureEarlyLateColumns: ${err?.message}`);
+            AIMessagingSettingsService.columnsEnsured = true; // don't tight-loop on failure
+        }
+    }
+
     /** The single global settings row, created with defaults if missing. */
     async getGlobal(): Promise<AIMessagingSettingsEntity> {
+        await this.ensureEarlyLateColumns();
         let row = await this.repo.findOne({ where: { listingId: null as any } });
         if (!row) {
             row = this.repo.create({
@@ -107,9 +159,13 @@ export class AIMessagingSettingsService {
                 quoAutoRespondEnabled: 0,
                 autosendMinConfidence: 85,
                 autosendChannels: null,
+                earlyCheckinHandling: "defer_to_team",
+                lateCheckoutHandling: "defer_to_team",
             });
             row = await this.repo.save(row);
         }
+        row.earlyCheckinHandling = normalizeEarlyLateHandling(row.earlyCheckinHandling);
+        row.lateCheckoutHandling = normalizeEarlyLateHandling(row.lateCheckoutHandling);
         return row;
     }
 
@@ -166,6 +222,12 @@ export class AIMessagingSettingsService {
         if (patch.inquirySalesRules !== undefined) row.inquirySalesRules = patch.inquirySalesRules ?? null;
         if (patch.inquiryAutoRespondEnabled !== undefined) row.inquiryAutoRespondEnabled = patch.inquiryAutoRespondEnabled ? 1 : 0;
         if (patch.selfServiceTroubleshootingEnabled !== undefined) row.selfServiceTroubleshootingEnabled = patch.selfServiceTroubleshootingEnabled ? 1 : 0;
+        if (patch.earlyCheckinHandling !== undefined) {
+            row.earlyCheckinHandling = normalizeEarlyLateHandling(patch.earlyCheckinHandling);
+        }
+        if (patch.lateCheckoutHandling !== undefined) {
+            row.lateCheckoutHandling = normalizeEarlyLateHandling(patch.lateCheckoutHandling);
+        }
         if (patch.paymentAlertEmails !== undefined) row.paymentAlertEmails = patch.paymentAlertEmails ?? null;
         if (patch.opsAlertEmails !== undefined) row.opsAlertEmails = patch.opsAlertEmails ?? null;
         if (patch.itemDetectionEnabled !== undefined) row.itemDetectionEnabled = patch.itemDetectionEnabled ? 1 : 0;
