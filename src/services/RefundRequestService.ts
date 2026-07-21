@@ -34,6 +34,28 @@ import { ReviewDiscussionMessageEntity } from "../entity/ReviewDiscussionMessage
 const AIRBNB_RESOLUTIONS_CENTER_PAYMENT_METHOD = "airbnb resolutions center";
 const FERDY_SLACK_USER_ID = "U07P974D65P";
 const ANJ_SLACK_USER_ID = "U08END0JTBM";
+const PAID_RC_REPORT_TYPE = "paid_rc_refund_report";
+const DEFAULT_PAID_RC_REPORT_CHANNEL = "C09DMD2H3LG";
+
+type PaidRcRefundReportOptions = {
+    force?: boolean;
+    dryRun?: boolean;
+    includeGroupDm?: boolean;
+    channel?: string;
+    recordExternalSend?: boolean;
+};
+
+type PaidRcRefundReportResult = {
+    skipped: boolean;
+    dryRun: boolean;
+    reportKey: string;
+    startLabel: string;
+    endLabel: string;
+    transactionCount: number;
+    targets: string[];
+    message?: string;
+    lines: string[];
+};
 
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
@@ -1698,6 +1720,89 @@ export class RefundRequestService {
         };
     }
 
+    private getPaidRcReportKey(window: { start: Date; end: Date }) {
+        return `${PAID_RC_REPORT_TYPE}:${window.start.toISOString()}:${window.end.toISOString()}`;
+    }
+
+    private parseRefundReportDate(value: Date | string | null | undefined) {
+        if (!value) return null;
+        if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+
+        const normalized = String(value).trim();
+        if (!normalized) return null;
+        const date = /^\d{4}-\d{2}-\d{2}$/.test(normalized)
+            ? easternDateTimeToUtc(normalized, 0, 0, 0, 0)
+            : new Date(normalized);
+        return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    private isRefundReportDateInWindow(date: Date | null, start: Date, end: Date) {
+        if (!date) return false;
+        const time = date.getTime();
+        return time >= start.getTime() && time <= end.getTime();
+    }
+
+    private async ensureScheduledReportRunsTable() {
+        await appDatabase.query(`
+            CREATE TABLE IF NOT EXISTS scheduled_report_runs (
+                id INT NOT NULL AUTO_INCREMENT,
+                report_key VARCHAR(255) NOT NULL,
+                report_type VARCHAR(100) NOT NULL,
+                window_start DATETIME NOT NULL,
+                window_end DATETIME NOT NULL,
+                status VARCHAR(50) NOT NULL DEFAULT 'sent',
+                target_channels TEXT NULL,
+                transaction_count INT NOT NULL DEFAULT 0,
+                slack_response TEXT NULL,
+                sent_at DATETIME NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY uq_scheduled_report_runs_report_key (report_key),
+                KEY idx_scheduled_report_runs_type_window (report_type, window_start, window_end)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+    }
+
+    private async getSentPaidRcReportRun(reportKey: string) {
+        await this.ensureScheduledReportRunsTable();
+        const rows = await appDatabase.query(
+            "SELECT report_key FROM scheduled_report_runs WHERE report_key = ? AND status = 'sent' LIMIT 1",
+            [reportKey]
+        );
+        return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    }
+
+    private async markPaidRcReportSent(
+        reportKey: string,
+        window: { start: Date; end: Date },
+        targets: string[],
+        transactionCount: number,
+        slackResponses: unknown[]
+    ) {
+        await this.ensureScheduledReportRunsTable();
+        await appDatabase.query(
+            `INSERT INTO scheduled_report_runs
+                (report_key, report_type, window_start, window_end, status, target_channels, transaction_count, slack_response, sent_at)
+             VALUES (?, ?, ?, ?, 'sent', ?, ?, ?, NOW())
+             ON DUPLICATE KEY UPDATE
+                status = 'sent',
+                target_channels = VALUES(target_channels),
+                transaction_count = VALUES(transaction_count),
+                slack_response = VALUES(slack_response),
+                sent_at = VALUES(sent_at)`,
+            [
+                reportKey,
+                PAID_RC_REPORT_TYPE,
+                window.start,
+                window.end,
+                JSON.stringify(targets),
+                transactionCount,
+                JSON.stringify(slackResponses),
+            ]
+        );
+    }
+
     private getPaidRcReportRecipientUserIds() {
         const configuredUserIds = String(process.env.REFUND_RC_REPORT_SLACK_USER_IDS || "")
             .split(",")
@@ -1708,8 +1813,10 @@ export class RefundRequestService {
 
     private async getPaidRcReportSlackChannel() {
         const configuredChannel = String(process.env.REFUND_RC_REPORT_SLACK_CHANNEL_ID || "").trim();
-        if (configuredChannel) return configuredChannel;
+        return configuredChannel || DEFAULT_PAID_RC_REPORT_CHANNEL;
+    }
 
+    private async getPaidRcReportGroupDmChannel() {
         const userIds = Array.from(new Set(this.getPaidRcReportRecipientUserIds()));
         if (!userIds.length || !process.env.SLACK_BOT_TOKEN) return null;
 
@@ -1737,7 +1844,42 @@ export class RefundRequestService {
         }
     }
 
+    private async getPaidRcReportTargets(options: PaidRcRefundReportOptions = {}) {
+        const primaryChannel = String(options.channel || "").trim() || await this.getPaidRcReportSlackChannel();
+        const targets = primaryChannel ? [primaryChannel] : [];
+
+        if (options.includeGroupDm) {
+            const dmChannel = await this.getPaidRcReportGroupDmChannel();
+            if (dmChannel) targets.push(dmChannel);
+        }
+
+        return Array.from(new Set(targets));
+    }
+
     private async getPaidRcRefundRequestsForReport(start: Date, end: Date) {
+        const refundRequests = await this.refundRequestRepo.createQueryBuilder("refundRequest")
+            .where("refundRequest.status = :status", { status: "Paid" })
+            .andWhere("refundRequest.deletedAt IS NULL")
+            .andWhere("LOWER(TRIM(COALESCE(refundRequest.paymentMethod, ''))) = :paymentMethod", {
+                paymentMethod: AIRBNB_RESOLUTIONS_CENTER_PAYMENT_METHOD,
+            })
+            .orderBy("refundRequest.guestName", "ASC")
+            .getMany();
+
+        if (!refundRequests.length) return [];
+
+        const refundRequestIds = new Set(refundRequests.map((request) => Number(request.id)));
+        const reservationIds = Array.from(new Set(refundRequests
+            .map((request) => Number(request.reservationId))
+            .filter((id) => Number.isFinite(id) && id > 0)));
+        const expenseIds = Array.from(new Set(refundRequests
+            .map((request) => Number(request.expenseId))
+            .filter((id) => Number.isFinite(id) && id > 0)));
+        const expenses = expenseIds.length
+            ? await this.expenseRepo.find({ where: { id: In(expenseIds) } })
+            : [];
+        const expenseMap = new Map(expenses.map((expense) => [Number(expense.id), expense]));
+
         const systemMessages = await this.reviewDiscussionMessageRepo.find({
             where: {
                 sourceType: "system",
@@ -1745,51 +1887,75 @@ export class RefundRequestService {
             },
             order: { createdAt: "ASC" },
         });
-        const paidRefundRequestIds = Array.from(new Set(systemMessages
-            .filter((message) => {
-                const metadata = message.metadata || {};
-                const source = String(metadata.source || "").trim();
-                const eventType = String(metadata.eventType || "").trim();
-                const newStatus = String(metadata.newStatus || metadata.status || "").trim();
-                return source === "refund_request"
-                    && eventType === "refund_request"
-                    && newStatus === "Paid"
-                    && metadata.refundRequestId;
-            })
-            .map((message) => Number(message.metadata?.refundRequestId))
-            .filter((id) => Number.isFinite(id) && id > 0)));
-
-        if (!paidRefundRequestIds.length) return [];
-
-        const refundRequests = await this.refundRequestRepo.find({
-            where: {
-                id: In(paidRefundRequestIds),
-                status: "Paid",
-                deletedAt: IsNull(),
-            },
-            order: { guestName: "ASC" },
+        const paidMessageDateByRequestId = new Map<number, Date>();
+        systemMessages.forEach((message) => {
+            const metadata = message.metadata || {};
+            const source = String(metadata.source || "").trim();
+            const eventType = String(metadata.eventType || "").trim();
+            const newStatus = String(metadata.newStatus || metadata.status || "").trim();
+            const requestId = Number(metadata.refundRequestId);
+            if (source === "refund_request"
+                && eventType === "refund_request"
+                && newStatus === "Paid"
+                && refundRequestIds.has(requestId)
+                && !paidMessageDateByRequestId.has(requestId)) {
+                paidMessageDateByRequestId.set(requestId, message.createdAt);
+            }
         });
 
-        return refundRequests.filter((request) => this.shouldSkipExpenseForRefundRequest(request));
+        const historyLogs = reservationIds.length
+            ? await this.reservationInfoLogRepo.find({
+                where: { reservationInfoId: In(reservationIds), action: "UPDATE" as any },
+                order: { changedAt: "ASC", id: "ASC" },
+            })
+            : [];
+        const paidHistoryDatesByReservationId = new Map<number, Date[]>();
+        historyLogs.forEach((log) => {
+            const newStatus = String(log.diff?.refundStatus?.new || "").trim();
+            if (newStatus !== "Paid") return;
+            const changedAt = this.parseRefundReportDate(log.changedAt);
+            if (!this.isRefundReportDateInWindow(changedAt, start, end)) return;
+            const reservationId = Number(log.reservationInfoId);
+            const dates = paidHistoryDatesByReservationId.get(reservationId) || [];
+            dates.push(changedAt as Date);
+            paidHistoryDatesByReservationId.set(reservationId, dates);
+        });
+
+        return refundRequests.filter((request) => {
+            const expensePaidAt = this.parseRefundReportDate(expenseMap.get(Number(request.expenseId))?.datePaid);
+            if (expensePaidAt) return this.isRefundReportDateInWindow(expensePaidAt, start, end);
+
+            const exactMessagePaidAt = paidMessageDateByRequestId.get(Number(request.id)) || null;
+            if (exactMessagePaidAt) return true;
+
+            const historyPaidDates = paidHistoryDatesByReservationId.get(Number(request.reservationId)) || [];
+            const requestCreatedAt = this.parseRefundReportDate(request.createdAt);
+            const requestUpdatedAt = this.parseRefundReportDate(request.updatedAt);
+            const matchingHistoryDate = historyPaidDates.find((paidAt) =>
+                !requestCreatedAt || paidAt.getTime() >= requestCreatedAt.getTime()
+            );
+            if (matchingHistoryDate) return true;
+
+            if (this.isRefundReportDateInWindow(requestUpdatedAt, start, end)) return true;
+            return this.isRefundReportDateInWindow(requestCreatedAt, start, end);
+        });
     }
 
-    async sendWeeklyPaidRcRefundReport(now = new Date()) {
-        const window = this.getPaidRcReportWindow(now);
-        const channel = await this.getPaidRcReportSlackChannel();
-        if (!channel) {
-            logger.error("[RefundRequestService] Paid RC refund report skipped because Slack channel could not be resolved.");
-            return;
-        }
-
-        const refundRequests = await this.getPaidRcRefundRequestsForReport(window.start, window.end);
-        const reportLines = refundRequests.length
+    private buildPaidRcRefundReportLines(refundRequests: RefundRequestEntity[]) {
+        return refundRequests.length
             ? refundRequests.map((request) => {
                 const refundUrl = `https://securestay.ai/luxury-lodging/refund-requests?id=${request.id}`;
                 return `• <${refundUrl}|${request.guestName}> - ${formatCurrency(Number(request.refundAmount || 0))}`;
-            }).join("\n")
-            : "No Paid Airbnb Resolutions Center refund transactions for this cutoff.";
+            })
+            : ["No Paid Airbnb Resolutions Center refund transactions for this cutoff."];
+    }
 
-        await sendSlackMessage({
+    private buildPaidRcRefundReportSlackMessage(
+        channel: string,
+        window: { startLabel: string; endLabel: string },
+        reportLines: string[]
+    ) {
+        return {
             channel,
             text: `Paid RC Refund Transactions Report (${window.startLabel} - ${window.endLabel})`,
             blocks: [
@@ -1804,11 +1970,107 @@ export class RefundRequestService {
                     type: "section",
                     text: {
                         type: "mrkdwn",
-                        text: reportLines,
+                        text: reportLines.join("\n"),
                     },
                 },
             ],
-        });
+        };
+    }
+
+    async sendWeeklyPaidRcRefundReport(now = new Date(), options: PaidRcRefundReportOptions = {}): Promise<PaidRcRefundReportResult> {
+        const window = this.getPaidRcReportWindow(now);
+        const reportKey = this.getPaidRcReportKey(window);
+        const targets = await this.getPaidRcReportTargets(options);
+        if (!targets.length) {
+            logger.error("[RefundRequestService] Paid RC refund report skipped because Slack channel could not be resolved.");
+            return {
+                skipped: true,
+                dryRun: Boolean(options.dryRun),
+                reportKey,
+                startLabel: window.startLabel,
+                endLabel: window.endLabel,
+                transactionCount: 0,
+                targets,
+                message: "Slack channel could not be resolved.",
+                lines: [],
+            };
+        }
+
+        if (!options.force && !options.dryRun) {
+            const existing = await this.getSentPaidRcReportRun(reportKey);
+            if (existing) {
+                logger.info(`[RefundRequestService] Paid RC refund report already sent for ${reportKey}; skipping.`);
+                return {
+                    skipped: true,
+                    dryRun: false,
+                    reportKey,
+                    startLabel: window.startLabel,
+                    endLabel: window.endLabel,
+                    transactionCount: 0,
+                    targets,
+                    message: "Report already sent for this cutoff window.",
+                    lines: [],
+                };
+            }
+        }
+
+        const refundRequests = await this.getPaidRcRefundRequestsForReport(window.start, window.end);
+        const reportLines = this.buildPaidRcRefundReportLines(refundRequests);
+
+        if (options.dryRun) {
+            return {
+                skipped: false,
+                dryRun: true,
+                reportKey,
+                startLabel: window.startLabel,
+                endLabel: window.endLabel,
+                transactionCount: refundRequests.length,
+                targets,
+                lines: reportLines,
+            };
+        }
+
+        if (options.recordExternalSend) {
+            await this.markPaidRcReportSent(reportKey, window, targets, refundRequests.length, [{
+                ok: true,
+                external: true,
+                recordedAt: new Date().toISOString(),
+            }]);
+
+            return {
+                skipped: false,
+                dryRun: false,
+                reportKey,
+                startLabel: window.startLabel,
+                endLabel: window.endLabel,
+                transactionCount: refundRequests.length,
+                targets,
+                message: "Recorded externally sent report.",
+                lines: reportLines,
+            };
+        }
+
+        const slackResponses = [];
+        for (const target of targets) {
+            const response = await sendSlackMessage(this.buildPaidRcRefundReportSlackMessage(target, window, reportLines));
+            if (!response?.ok) {
+                throw new Error(`Paid RC refund report Slack send failed for ${target}: ${response?.error || "unknown error"}`);
+            }
+            slackResponses.push(response);
+        }
+
+        await this.markPaidRcReportSent(reportKey, window, targets, refundRequests.length, slackResponses);
+
+        return {
+            skipped: false,
+            dryRun: false,
+            reportKey,
+            startLabel: window.startLabel,
+            endLabel: window.endLabel,
+            transactionCount: refundRequests.length,
+            targets,
+            lines: reportLines,
+        };
     }
 
     public async deleteRefundRequest(id: number, userId: string){

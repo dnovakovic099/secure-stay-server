@@ -71,7 +71,10 @@ export function scheduleGetReservation() {
       try {
         logger.info("Sending weekly Paid RC refund report...");
         const refundRequestService = new RefundRequestService();
-        await refundRequestService.sendWeeklyPaidRcRefundReport();
+        const result = await refundRequestService.sendWeeklyPaidRcRefundReport();
+        if (result.skipped) {
+          logger.info(`Weekly Paid RC refund report skipped: ${result.message || result.reportKey}`);
+        }
         logger.info("Weekly Paid RC refund report completed.");
       } catch (error) {
         logger.error("Error sending weekly Paid RC refund report:", error);
