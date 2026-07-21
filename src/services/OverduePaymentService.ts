@@ -186,25 +186,54 @@ export class OverduePaymentService {
         total: number | null;
         due: number | null;
     } {
-        const paidPart = live?.paid_part != null ? String(live.paid_part) : null;
+        const root = live || {};
+        const nested = root.finance || root.payment || root.billing || {};
+        let paidPart =
+            root.paid_part != null
+                ? String(root.paid_part)
+                : nested.paid_part != null
+                  ? String(nested.paid_part)
+                  : null;
+        const paidFlag =
+            root.is_paid === true ||
+            root.is_paid === 1 ||
+            root.is_paid === "1" ||
+            nested.is_paid === true ||
+            nested.is_paid === 1 ||
+            /^(full|all|paid|complete)$/i.test(String(root.payment_status || root.paid_status || ""));
+        if (paidFlag && !paidPart) paidPart = "full";
+
         const paid =
-            this.toNum(live?.paid_sum) ??
-            this.toNum(live?.total_paid) ??
-            this.toNum(live?.amount_paid) ??
-            this.toNum(live?.paid) ??
+            this.toNum(root.paid_sum) ??
+            this.toNum(root.total_paid) ??
+            this.toNum(root.amount_paid) ??
+            this.toNum(nested.paid_sum) ??
+            this.toNum(nested.total_paid) ??
+            // Only treat bare `paid` as an amount when it looks like money, not a 0/1 flag.
+            (this.toNum(root.paid) != null && Number(root.paid) > 1 ? this.toNum(root.paid) : null) ??
             null;
         const total = this.expectedTotal(
-            live?.payout_price,
-            this.toNum(live?.total_price) ??
-                this.toNum(live?.price) ??
-                this.toNum(live?.payment) ??
-                this.toNum(live?.revenue)
+            root.payout_price ?? nested.payout_price,
+            this.toNum(root.total_price) ??
+                this.toNum(root.price) ??
+                this.toNum(root.payment) ??
+                this.toNum(root.revenue) ??
+                this.toNum(nested.total_price)
         );
+        const percent =
+            this.toNum(root.paid_percent) ??
+            this.toNum(root.percent_paid) ??
+            this.toNum(nested.paid_percent) ??
+            (paid != null && total != null && total > 0 ? (paid / total) * 100 : null);
+        // Hostify UI "100% paid" sometimes arrives as a percent without paid_sum.
+        if (percent != null && percent >= 99.5 && !paidPart) paidPart = "full";
+
         const due =
-            this.toNum(live?.due) ??
-            this.toNum(live?.balance) ??
-            this.toNum(live?.amount_due) ??
-            this.toNum(live?.remaining) ??
+            this.toNum(root.due) ??
+            this.toNum(root.balance) ??
+            this.toNum(root.amount_due) ??
+            this.toNum(root.remaining) ??
+            this.toNum(nested.due) ??
             (paid != null && total != null ? Math.max(0, total - paid) : null);
         return { paidPart, paid, total, due };
     }
@@ -242,14 +271,63 @@ export class OverduePaymentService {
     }
 
     /**
-     * Clear stale payment pins (cancelled + Ozzie Booking.com ≥85%). Safe to call
-     * from inbox list so pins drop without waiting for the 3-hour payment sweep.
+     * Clear stale payment pins (cancelled + past stays + Ozzie Booking.com).
+     * Safe to call from inbox list so pins drop without waiting for the 3h sweep.
      */
     async clearStalePaymentPins(): Promise<{ cleared: number }> {
         const cleared =
             (await this.clearPaymentEmergenciesForInactiveReservations()) +
+            (await this.clearPastStayPaymentEmergencies()) +
             (await this.clearOzzieBookingComTaxRemainderEmergencies());
         return { cleared };
+    }
+
+    /**
+     * "Needs payment before access" is meaningless after checkout — drop those pins.
+     */
+    private async clearPastStayPaymentEmergencies(): Promise<number> {
+        try {
+            const today = this.todayStr();
+            const pinned = await this.conversationRepo
+                .createQueryBuilder("c")
+                .select(["c.threadId", "c.reservationId", "c.checkout", "c.emergencyType"])
+                .where("c.emergency = 1")
+                .andWhere("(c.emergencyType = :type OR c.emergencyType IS NULL OR c.emergencyType = '')", {
+                    type: "payment",
+                })
+                .getMany();
+            if (!pinned.length) return 0;
+
+            const reservationIds = pinned
+                .map((c) => Number(c.reservationId))
+                .filter((id) => Number.isFinite(id) && id > 0);
+            const reservations = reservationIds.length
+                ? await this.reservationRepo.find({
+                      where: { id: In(reservationIds) },
+                      select: ["id", "departureDate"],
+                  })
+                : [];
+            const departureById = new Map(
+                reservations.map((r) => [Number(r.id), this.dateStr(r.departureDate)])
+            );
+
+            let cleared = 0;
+            for (const conversation of pinned) {
+                const checkout =
+                    departureById.get(Number(conversation.reservationId)) ||
+                    this.dateStr(conversation.checkout);
+                if (!checkout || checkout >= today) continue;
+                const ok = await this.clearEmergency(Number(conversation.threadId));
+                if (ok) cleared++;
+            }
+            if (cleared > 0) {
+                logger.info(`[OverduePayment] Cleared ${cleared} payment emergency(ies) on past stays`);
+            }
+            return cleared;
+        } catch (err: any) {
+            logger.warn(`[OverduePayment] clearPastStayPaymentEmergencies failed: ${err.message}`);
+            return 0;
+        }
     }
 
     private paymentLabel(
