@@ -54,6 +54,9 @@ router.post("/sync", verifySession, inboxV2Controller.sync);
 // AI_MESSAGING_ENABLED inside the controller.
 // -------------------------------------------------------------------------
 router.get("/ai/config", verifySession, inboxV2Controller.aiConfig);
+router.post("/conversations/:threadId/ai/sentiment", verifySession, inboxV2Controller.scoreSentiment);
+router.get("/conversations/:threadId/rescue", verifySession, inboxV2Controller.getRescue);
+router.post("/conversations/:threadId/rescue/dismiss", verifySession, inboxV2Controller.dismissRescue);
 router.post("/conversations/:threadId/ai/suggest", verifySession, inboxV2Controller.aiSuggest);
 router.get("/conversations/:threadId/ai/suggestion", verifySession, inboxV2Controller.aiGetSuggestion);
 router.get("/conversations/:threadId/ai/suggestions", verifySession, inboxV2Controller.aiListSuggestions);

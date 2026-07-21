@@ -201,6 +201,8 @@ export class AICopilotController {
                 guestIssueCategories: Array.isArray(b.guestIssueCategories) ? b.guestIssueCategories : undefined,
                 ticketCategories: Array.isArray(b.ticketCategories) ? b.ticketCategories : undefined,
                 detectionFeedback: b.detectionFeedback,
+                rescueCopilotEnabled:
+                    typeof b.rescueCopilotEnabled === "boolean" ? b.rescueCopilotEnabled : undefined,
                 proposedActionsEnabled:
                     typeof b.proposedActionsEnabled === "boolean" ? b.proposedActionsEnabled : undefined,
                 proposedActionInstructions: b.proposedActionInstructions,

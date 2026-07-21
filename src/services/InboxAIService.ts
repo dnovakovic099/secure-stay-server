@@ -678,6 +678,14 @@ export class InboxAIService {
             /* non-fatal */
         }
 
+        // Rescue Copilot: re-evaluate after mood/suggestion update (best-effort).
+        try {
+            const { RescueCopilotService } = await import("./RescueCopilotService");
+            await new RescueCopilotService().evaluate(threadId);
+        } catch {
+            /* non-fatal */
+        }
+
         // Proposed one-click actions (late checkout, lock code resend, ops
         // ticket) for the guest message that triggered this suggestion.
         // Best-effort; never blocks or fails the suggestion.
@@ -2313,6 +2321,16 @@ export class InboxAIService {
                 return this.autosendSkip(threadId, suggestion.id, mute.reason || "autosend_muted");
             }
 
+            // Rescue Copilot: never auto-send while a stay is in active rescue.
+            try {
+                const { RescueCopilotService } = await import("./RescueCopilotService");
+                if (await new RescueCopilotService().shouldBlockAutosend(conversation)) {
+                    return this.autosendSkip(threadId, suggestion.id, "rescue_copilot_active");
+                }
+            } catch (err: any) {
+                logger.warn(`[InboxAIService] rescue autosend gate failed (thread ${threadId}): ${err?.message}`);
+            }
+
             // ---- Unpaid-arrival emergency (non-Airbnb only) ----
             // If the guest is arriving/staying on a non-Airbnb channel with an
             // outstanding balance, do NOT auto-answer. Flag the conversation as an
@@ -2836,6 +2854,23 @@ export class InboxAIService {
         return "delighted";
     }
 
+    private heuristicSentimentScore(text: string): number {
+        const t = String(text || "").toLowerCase();
+        if (/\b(lawsuit|attorney|lawyer|sue|scam|fraud|awful|horrible|worst|furious|unacceptable)\b/.test(t)) {
+            return 2;
+        }
+        if (/\b(angry|upset|frustrated|disappointed|complaint|refund|manager|terrible|ridiculous)\b/.test(t)) {
+            return 3;
+        }
+        if (/\b(worried|concerned|issue|problem|not working|broken|help)\b/.test(t)) {
+            return 5;
+        }
+        if (/\b(thank|thanks|perfect|great|awesome|love|appreciate|wonderful)\b/.test(t)) {
+            return 9;
+        }
+        return 7;
+    }
+
     /** Persist latest guest mood on the conversation for inbox list / header. */
     private async persistGuestSentiment(
         conversation: InboxConversationEntity,
@@ -2846,21 +2881,7 @@ export class InboxAIService {
         if (!guestAskText || !String(guestAskText).trim()) return;
 
         let score = this.clampSentimentScore(output.guest_sentiment_score);
-        if (score == null) {
-            // Lightweight fallback if the model omitted the field.
-            const t = String(guestAskText).toLowerCase();
-            if (/\b(lawsuit|attorney|lawyer|sue|scam|fraud|awful|horrible|worst|furious|unacceptable)\b/.test(t)) {
-                score = 2;
-            } else if (/\b(angry|upset|frustrated|disappointed|complaint|refund|manager|terrible|ridiculous)\b/.test(t)) {
-                score = 3;
-            } else if (/\b(worried|concerned|issue|problem|not working|broken|help)\b/.test(t)) {
-                score = 5;
-            } else if (/\b(thank|thanks|perfect|great|awesome|love|appreciate|wonderful)\b/.test(t)) {
-                score = 9;
-            } else {
-                score = 7;
-            }
-        }
+        if (score == null) score = this.heuristicSentimentScore(guestAskText);
 
         const label =
             (output.guest_sentiment_label && String(output.guest_sentiment_label).trim()) ||
@@ -2880,6 +2901,83 @@ export class InboxAIService {
                 `[InboxAIService] persist guest sentiment failed (thread ${conversation.threadId}): ${err?.message}`
             );
         }
+    }
+
+    /**
+     * Lightweight guest-mood score for a thread (used when opening unscored
+     * conversations). Does not generate a reply suggestion.
+     */
+    async scoreGuestSentiment(threadId: number): Promise<{
+        score: number;
+        label: string;
+        note: string | null;
+    } | null> {
+        const conversation = await this.conversationRepo.findOne({ where: { threadId } });
+        if (!conversation) return null;
+
+        const recent = await this.messageRepo.find({
+            where: { threadId, direction: "incoming" as any },
+            order: { sentAt: "DESC" as any },
+            take: 8,
+        });
+        const guestText = recent
+            .map((m) => String(m.body || "").trim())
+            .filter(Boolean)
+            .reverse()
+            .join("\n")
+            .slice(0, 2500);
+        if (!guestText) return null;
+
+        let score: number | null = null;
+        let label: string | null = null;
+        let note: string | null = null;
+        try {
+            if (process.env.OPENAI_API_KEY) {
+                const client = this.getClient();
+                const completion = await client.chat.completions.create({
+                    model: process.env.OPENAI_MODEL_FAST || process.env.OPENAI_MODEL || "gpt-4o-mini",
+                    temperature: 0.2,
+                    response_format: { type: "json_object" },
+                    messages: [
+                        {
+                            role: "system",
+                            content:
+                                "Score the guest's current mood from their messages. " +
+                                "Return JSON: {\"guest_sentiment_score\":1-10,\"guest_sentiment_label\":\"furious|upset|concerned|neutral|positive|delighted\",\"guest_sentiment_note\":\"short phrase\"}. " +
+                                "1–2 furious, 3–4 upset, 5 concerned, 6–7 neutral, 8 positive, 9–10 delighted.",
+                        },
+                        {
+                            role: "user",
+                            content: JSON.stringify({
+                                guestName: conversation.guestName,
+                                listingName: conversation.listingName,
+                                messages: guestText,
+                            }),
+                        },
+                    ],
+                });
+                const raw = completion.choices?.[0]?.message?.content || "{}";
+                const parsed = JSON.parse(raw);
+                score = this.clampSentimentScore(parsed.guest_sentiment_score);
+                label = parsed.guest_sentiment_label
+                    ? String(parsed.guest_sentiment_label).trim().slice(0, 32)
+                    : null;
+                note = parsed.guest_sentiment_note
+                    ? String(parsed.guest_sentiment_note).trim().slice(0, 255)
+                    : null;
+            }
+        } catch (err: any) {
+            logger.warn(`[InboxAIService] scoreGuestSentiment AI failed (thread ${threadId}): ${err?.message}`);
+        }
+
+        if (score == null) score = this.heuristicSentimentScore(guestText);
+        const finalLabel = label || this.sentimentLabelFromScore(score);
+        conversation.guestSentimentScore = score;
+        conversation.guestSentimentLabel = finalLabel;
+        conversation.guestSentimentNote = note;
+        conversation.guestSentimentAt = new Date();
+        await this.conversationRepo.save(conversation);
+        return { score, label: finalLabel, note };
     }
 
     /**

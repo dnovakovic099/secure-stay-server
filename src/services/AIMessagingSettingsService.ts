@@ -76,6 +76,7 @@ export interface AIMessagingSettingsPatch {
     /** Unified list that replaces the actionItem/guestIssue split. */
     ticketCategories?: ActionItemCategoryEntry[] | null;
     detectionFeedback?: string | null;
+    rescueCopilotEnabled?: boolean;
     proposedActionsEnabled?: boolean;
     proposedActionInstructions?: string | null;
     proposedActionApproveInstructions?: string | null;
@@ -243,6 +244,7 @@ export class AIMessagingSettingsService {
             row.ticketCategories = stringifyList(patch.ticketCategories);
         }
         if (patch.detectionFeedback !== undefined) row.detectionFeedback = patch.detectionFeedback ?? null;
+        if (patch.rescueCopilotEnabled !== undefined) row.rescueCopilotEnabled = patch.rescueCopilotEnabled ? 1 : 0;
         if (patch.proposedActionsEnabled !== undefined) row.proposedActionsEnabled = patch.proposedActionsEnabled ? 1 : 0;
         if (patch.proposedActionInstructions !== undefined) row.proposedActionInstructions = patch.proposedActionInstructions ?? null;
         if (patch.proposedActionApproveInstructions !== undefined) {

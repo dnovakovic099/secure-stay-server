@@ -6,6 +6,7 @@ import { AILearningPromptService } from "../services/AILearningPromptService";
 import { AIProposedActionService } from "../services/AIProposedActionService";
 import { OverduePaymentService } from "../services/OverduePaymentService";
 import { InboxMessageEscalationService } from "../services/InboxMessageEscalationService";
+import { RescueCopilotService } from "../services/RescueCopilotService";
 import { isAdminEmail } from "../services/AdminInsightsService";
 import logger from "../utils/logger.utils";
 
@@ -125,6 +126,14 @@ export class InboxV2Controller {
                     return response.status(201).json({ status: true, data: saved });
                 }
             }
+
+            // Rescue Copilot: human replied while rescuing → recovering.
+            try {
+                await new RescueCopilotService().markRecovering(threadId);
+            } catch {
+                /* non-fatal */
+            }
+
             return response.status(201).json({ status: true, data: saved });
         } catch (error) {
             return next(error);
@@ -272,6 +281,52 @@ export class InboxV2Controller {
                 autosend: await InboxAIService.autosendConfigAsync(),
             },
         });
+    }
+
+    /** Score guest mood for a thread (lightweight; no reply draft). */
+    async scoreSentiment(request: Request, response: Response, next: NextFunction) {
+        try {
+            const threadId = Number(request.params.threadId);
+            if (!Number.isFinite(threadId)) {
+                return response.status(400).json({ status: false, message: "Invalid threadId" });
+            }
+            const data = await new InboxAIService().scoreGuestSentiment(threadId);
+            if (!data) {
+                return response.status(200).json({ status: true, data: null });
+            }
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** Rescue Copilot pack for an open thread. */
+    async getRescue(request: Request, response: Response, next: NextFunction) {
+        try {
+            const threadId = Number(request.params.threadId);
+            if (!Number.isFinite(threadId)) {
+                return response.status(400).json({ status: false, message: "Invalid threadId" });
+            }
+            const data = await new RescueCopilotService().getPack(threadId);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** Dismiss Rescue Copilot for this thread (default 24h). */
+    async dismissRescue(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const threadId = Number(request.params.threadId);
+            if (!Number.isFinite(threadId)) {
+                return response.status(400).json({ status: false, message: "Invalid threadId" });
+            }
+            const hours = toNum(request.body?.hours) ?? 24;
+            const data = await new RescueCopilotService().dismiss(threadId, hours);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
     }
 
     /** Generate (or return cached) AI suggestion for the latest guest message. */

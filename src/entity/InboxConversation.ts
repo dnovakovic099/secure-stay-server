@@ -141,6 +141,25 @@ export class InboxConversationEntity {
     @Column({ type: "datetime", nullable: true })
     guestSentimentAt: Date | null;
 
+    // Rescue Copilot state: watching | active | recovering | resolved | dismissed
+    @Column({ length: 24, nullable: true })
+    rescueStatus: string | null;
+
+    @Column({ length: 64, nullable: true })
+    rescueCause: string | null;
+
+    @Column({ length: 500, nullable: true })
+    rescueWhy: string | null;
+
+    @Column({ length: 500, nullable: true })
+    rescueGesture: string | null;
+
+    @Column({ type: "datetime", nullable: true })
+    rescueActivatedAt: Date | null;
+
+    @Column({ type: "datetime", nullable: true })
+    rescueDismissedUntil: Date | null;
+
     @CreateDateColumn({ type: "timestamp" })
     createdAt: Date;
 

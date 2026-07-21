@@ -189,6 +189,12 @@ export class AIMessagingSettingsEntity {
     @Column({ type: "text", nullable: true })
     detectionFeedback: string | null;
 
+    // ---- Rescue Copilot ----
+    // When ON, Inbox V2 surfaces a rescue pack for upset / review-risk stays
+    // and blocks AI auto-send while rescue is active. Default ON.
+    @Column({ type: "tinyint", default: 1 })
+    rescueCopilotEnabled: number;
+
     // ---- Inbox V2 proposed actions ----
     // Human-approved operation cards shown inside Inbox V2 when a guest message
     // looks like an early check-in, late checkout, access-code, or ops request.
