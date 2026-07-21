@@ -148,7 +148,7 @@ export class OverduePaymentService {
         return /\bOzzie\b/i.test(haystack) || /Pirzada/i.test(ownerName || "");
     }
 
-    /** Parse "paid 227.12 of 251.04" from an emergency reason when local paidAmount is stale. */
+    /** Parse "paid 227.12 of 251.04" from an emergency reason — only useful as a ≥85% clear signal. */
     private paidRatioFromReason(reason?: string | null): { paid: number; total: number } | null {
         const m = String(reason || "").match(/paid\s+([\d.]+)\s+of\s+([\d.]+)/i);
         if (!m) return null;
@@ -176,6 +176,39 @@ export class OverduePaymentService {
         return this.toNum(totalPrice);
     }
 
+    /**
+     * Normalize Hostify payment fields. UI "Paid" can come from paid_sum OR
+     * total_paid depending on channel/integration — check both, plus due/balance.
+     */
+    private extractHostifyPayment(live: any): {
+        paidPart: string | null;
+        paid: number | null;
+        total: number | null;
+        due: number | null;
+    } {
+        const paidPart = live?.paid_part != null ? String(live.paid_part) : null;
+        const paid =
+            this.toNum(live?.paid_sum) ??
+            this.toNum(live?.total_paid) ??
+            this.toNum(live?.amount_paid) ??
+            this.toNum(live?.paid) ??
+            null;
+        const total = this.expectedTotal(
+            live?.payout_price,
+            this.toNum(live?.total_price) ??
+                this.toNum(live?.price) ??
+                this.toNum(live?.payment) ??
+                this.toNum(live?.revenue)
+        );
+        const due =
+            this.toNum(live?.due) ??
+            this.toNum(live?.balance) ??
+            this.toNum(live?.amount_due) ??
+            this.toNum(live?.remaining) ??
+            (paid != null && total != null ? Math.max(0, total - paid) : null);
+        return { paidPart, paid, total, due };
+    }
+
     /** Fully paid if Hostify says full/all, or the collected amount covers the total. */
     private isFullyPaid(
         paidPart?: string | null,
@@ -186,10 +219,12 @@ export class OverduePaymentService {
             channelName?: string | null;
             listingName?: string | null;
             ownerName?: string | null;
+            due?: number | null;
         }
     ): boolean {
         const pp = String(paidPart || "").toLowerCase();
         if (pp === "full" || pp === "all") return true;
+        if (ctx?.due != null && ctx.due <= 0.5) return true;
         if (paid != null && total != null && total > 0 && paid + 0.5 >= total) return true;
         // Ozzie + Booking.com only: remaining balance is platform tax, not owed to us.
         if (
@@ -529,25 +564,25 @@ export class OverduePaymentService {
                     }
                 }
 
-                const paidPart = live.paid_part != null ? String(live.paid_part) : null;
-                const paidSum = this.toNum(live.paid_sum);
+                const extracted = this.extractHostifyPayment(live);
                 const payoutPrice = this.toNum(live.payout_price);
-                if (paidPart == null && paidSum == null && payoutPrice == null) continue;
+                if (extracted.paidPart == null && extracted.paid == null && payoutPrice == null) continue;
 
-                r.paidPart = paidPart ?? r.paidPart;
-                if (paidSum != null) r.paidAmount = paidSum;
+                r.paidPart = extracted.paidPart ?? r.paidPart;
+                if (extracted.paid != null) r.paidAmount = extracted.paid;
                 if (payoutPrice != null) r.payoutPrice = payoutPrice;
                 r.paymentSyncedAt = new Date();
                 await this.reservationRepo.save(r);
                 updated++;
 
-                const expectedTotal = this.expectedTotal(r.payoutPrice, r.totalPrice);
+                const expectedTotal = extracted.total ?? this.expectedTotal(r.payoutPrice, r.totalPrice);
                 const listing = r.listingMapId != null ? listingById.get(Number(r.listingMapId)) || null : null;
                 const payCtx = {
                     source: r.source,
                     channelName: r.channelName,
                     listingName: r.listingName || listing?.internalListingName || null,
                     ownerName: listing?.ownerName || null,
+                    due: extracted.due,
                 };
                 const fullyPaid = this.isFullyPaid(r.paidPart, r.paidAmount, expectedTotal, payCtx);
 
@@ -642,23 +677,25 @@ export class OverduePaymentService {
                 return { isEmergency: false, reason: null };
             }
 
-            const paidPart = r.paid_part != null ? String(r.paid_part) : null;
-            const paidSum = this.toNum(r.paid_sum);
-            // Hostify's Paid % denominator is payout_price (per their support);
-            // subtotal + tax is only a fallback for records that don't carry it.
+            const extracted = this.extractHostifyPayment(r);
             const payoutPrice = this.toNum(r.payout_price);
-            const subtotal = this.toNum(r.subtotal);
-            const tax = this.toNum(r.tax_amount);
-            let total: number | null =
-                payoutPrice != null && payoutPrice > 0
-                    ? payoutPrice
-                    : subtotal != null
-                        ? subtotal + (tax ?? 0)
-                        : this.toNum(r.total_price);
+            let total = extracted.total;
+            if (total == null) {
+                const subtotal = this.toNum(r.subtotal);
+                const tax = this.toNum(r.tax_amount);
+                total =
+                    payoutPrice != null && payoutPrice > 0
+                        ? payoutPrice
+                        : subtotal != null
+                          ? subtotal + (tax ?? 0)
+                          : this.toNum(r.total_price);
+            }
             if (total == null) {
                 const stored = await this.reservationRepo.findOne({ where: { id: reservationId } });
                 total = this.expectedTotal(stored?.payoutPrice, stored?.totalPrice);
             }
+            const paidSum = extracted.paid;
+            const paidPart = extracted.paidPart;
 
             // Persist what we learned regardless of the emergency outcome.
             try {
@@ -692,6 +729,7 @@ export class OverduePaymentService {
                     r.listing_name ||
                     null,
                 ownerName: listing?.ownerName || null,
+                due: extracted.due,
             };
 
             if (this.isFullyPaid(paidPart, paidSum, total, payCtx)) {
@@ -711,7 +749,7 @@ export class OverduePaymentService {
             const arrivingOrStaying = arrival != null && arrival <= tomorrow && (departure == null || departure >= today);
             if (!arrivingOrStaying) return { isEmergency: false, reason: null };
 
-            const due = total != null ? Math.max(0, total - (paidSum ?? 0)) : null;
+            const due = extracted.due ?? (total != null ? Math.max(0, total - (paidSum ?? 0)) : null);
             const money = due != null
                 ? `${due.toFixed(2)}${r.currency ? " " + r.currency : ""} still due`
                 : "an outstanding balance";
@@ -785,18 +823,27 @@ export class OverduePaymentService {
     }
 
     /**
-     * Ozzie + Booking.com: once >= 85% is collected, the remainder is tax paid
-     * to Booking.com — clear any leftover "needs payment" pins.
-     *
-     * Uses (in order): local paidAmount, "paid X of Y" in the emergency reason
-     * (written at raise time from live Hostify), then a live Hostify refresh.
+     * Ozzie + Booking.com: once Hostify shows paid (full / due≈0 / ≥85%), clear
+     * leftover "needs payment" pins. Always re-fetches live Hostify — never trust
+     * a stale raise-time "paid 0.00 of …" snapshot to keep the pin.
      */
     private async clearOzzieBookingComTaxRemainderEmergencies(): Promise<number> {
         try {
-            const pinned = await this.conversationRepo.find({
-                where: { emergency: 1, emergencyType: "payment" },
-                select: ["threadId", "reservationId", "listingName", "channel", "emergencyReason"],
-            });
+            const pinned = await this.conversationRepo
+                .createQueryBuilder("c")
+                .select([
+                    "c.threadId",
+                    "c.reservationId",
+                    "c.listingName",
+                    "c.channel",
+                    "c.emergencyReason",
+                    "c.emergencyType",
+                ])
+                .where("c.emergency = 1")
+                .andWhere("(c.emergencyType = :type OR c.emergencyType IS NULL OR c.emergencyType = '')", {
+                    type: "payment",
+                })
+                .getMany();
             if (!pinned.length) return 0;
 
             const reservationIds = pinned
@@ -823,7 +870,13 @@ export class OverduePaymentService {
                     reservation?.listingMapId != null
                         ? listingById.get(Number(reservation.listingMapId)) || null
                         : null;
-                const payCtx = {
+                const payCtx: {
+                    source?: string | null;
+                    channelName?: string | null;
+                    listingName?: string | null;
+                    ownerName?: string | null;
+                    due?: number | null;
+                } = {
                     source: reservation?.source || null,
                     channelName: reservation?.channelName || conversation.channel,
                     listingName:
@@ -840,36 +893,26 @@ export class OverduePaymentService {
                     continue;
                 }
 
+                let paidPart = reservation?.paidPart ?? null;
                 let paid = this.toNum(reservation?.paidAmount);
                 let total = this.expectedTotal(reservation?.payoutPrice, reservation?.totalPrice);
-                let paidPart = reservation?.paidPart ?? null;
+                let qualifies = false;
 
-                // Emergency reason usually has the Hostify snapshot from raise time
-                // ("paid 227.12 of 251.04") even when reservation_info.paidAmount is null.
-                if (paid == null || total == null || total <= 0) {
-                    const fromReason = this.paidRatioFromReason(conversation.emergencyReason);
-                    if (fromReason) {
-                        paid = fromReason.paid;
-                        total = fromReason.total;
-                    }
-                }
-
-                let qualifies = this.isFullyPaid(paidPart, paid, total, payCtx);
-
-                // Last resort: live Hostify check for Ozzie B.com pins still unsettled locally.
-                if (!qualifies && this.apiKey && conversation.reservationId) {
+                // Always prefer live Hostify for Ozzie B.com — local/reason snapshots go stale.
+                if (this.apiKey && conversation.reservationId) {
                     try {
                         const data: any = await this.hostify.getReservationInfo(
                             this.apiKey,
                             Number(conversation.reservationId)
                         );
-                        const live = data?.reservation || {};
-                        paidPart = live.paid_part != null ? String(live.paid_part) : paidPart;
-                        paid = this.toNum(live.paid_sum) ?? paid;
-                        total =
-                            this.expectedTotal(this.toNum(live.payout_price), this.toNum(live.total_price)) ?? total;
+                        const live = data?.reservation || data || {};
+                        const extracted = this.extractHostifyPayment(live);
+                        paidPart = extracted.paidPart ?? paidPart;
+                        paid = extracted.paid ?? paid;
+                        total = extracted.total ?? total;
+                        payCtx.due = extracted.due;
                         qualifies = this.isFullyPaid(paidPart, paid, total, payCtx);
-                        if (qualifies && reservation) {
+                        if (reservation) {
                             reservation.paidPart = paidPart ?? reservation.paidPart;
                             if (paid != null) reservation.paidAmount = paid;
                             const payout = this.toNum(live.payout_price);
@@ -877,10 +920,26 @@ export class OverduePaymentService {
                             reservation.paymentSyncedAt = new Date();
                             await this.reservationRepo.save(reservation);
                         }
+                        logger.info(
+                            `[OverduePayment] Ozzie B.com live check thread=${conversation.threadId} res=${conversation.reservationId} paidPart=${paidPart} paid=${paid} total=${total} due=${extracted.due} qualifies=${qualifies}`
+                        );
                     } catch (err: any) {
                         logger.warn(
                             `[OverduePayment] Ozzie B.com live check failed for reservation ${conversation.reservationId}: ${err.message}`
                         );
+                    }
+                }
+
+                // Offline / API failure fallback: reason snapshot only if it already shows ≥85%.
+                if (!qualifies) {
+                    const fromReason = this.paidRatioFromReason(conversation.emergencyReason);
+                    if (
+                        fromReason &&
+                        fromReason.paid / fromReason.total >= OverduePaymentService.OZZIE_BOOKING_COM_PAID_THRESHOLD
+                    ) {
+                        qualifies = true;
+                    } else {
+                        qualifies = this.isFullyPaid(paidPart, paid, total, payCtx);
                     }
                 }
 
@@ -890,7 +949,7 @@ export class OverduePaymentService {
             }
             if (cleared > 0) {
                 logger.info(
-                    `[OverduePayment] Cleared ${cleared} Ozzie Booking.com payment emergency(ies) (≥85% = tax remainder)`
+                    `[OverduePayment] Cleared ${cleared} Ozzie Booking.com payment emergency(ies) (live Hostify paid / ≥85%)`
                 );
             }
             return cleared;

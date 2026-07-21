@@ -29,8 +29,10 @@ const STALE_PAYMENT_PIN_CLEAR_MS = 60_000;
 export class InboxV2Controller {
     async listConversations(request: Request, response: Response, next: NextFunction) {
         try {
+            const page = parseInt(request.query.page as string) || 1;
             const now = Date.now();
-            if (now - lastStalePaymentPinClearAt >= STALE_PAYMENT_PIN_CLEAR_MS) {
+            // Always attempt on first page (inbox open/refresh); throttle deeper pages.
+            if (page === 1 || now - lastStalePaymentPinClearAt >= STALE_PAYMENT_PIN_CLEAR_MS) {
                 lastStalePaymentPinClearAt = now;
                 try {
                     const { cleared } = await new OverduePaymentService().clearStalePaymentPins();
@@ -44,7 +46,7 @@ export class InboxV2Controller {
 
             const inboxService = new InboxService();
             const result = await inboxService.listConversations({
-                page: parseInt(request.query.page as string) || 1,
+                page,
                 perPage: parseInt(request.query.per_page as string) || 30,
                 keyword: (request.query.keyword as string) || undefined,
                 channel: (request.query.channel as string) || undefined,

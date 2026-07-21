@@ -1384,6 +1384,32 @@ export class MessagingService {
             transaction_fee: liveReservation?.transaction_fee ?? null,
             subtotal: liveReservation?.subtotal ?? null,
             payout_price: liveReservation?.payout_price ?? reservation.payoutPrice ?? null,
+            // Actual Hostify collection status (do NOT confuse with totalPrice / booking total).
+            paid_sum:
+                liveReservation?.paid_sum ??
+                liveReservation?.total_paid ??
+                liveReservation?.amount_paid ??
+                (reservation as any).paidAmount ??
+                null,
+            paid_part: liveReservation?.paid_part ?? (reservation as any).paidPart ?? null,
+            amount_due: (() => {
+                const paid = Number(
+                    liveReservation?.paid_sum ??
+                        liveReservation?.total_paid ??
+                        liveReservation?.amount_paid ??
+                        (reservation as any).paidAmount
+                );
+                const total = Number(
+                    liveReservation?.payout_price ??
+                        liveReservation?.total_price ??
+                        reservation.payoutPrice ??
+                        reservation.totalPrice
+                );
+                const dueDirect = Number(liveReservation?.due ?? liveReservation?.balance ?? liveReservation?.amount_due);
+                if (Number.isFinite(dueDirect)) return dueDirect;
+                if (Number.isFinite(paid) && Number.isFinite(total)) return Math.max(0, total - paid);
+                return null;
+            })(),
             confirmedAt: liveReservation?.confirmed_at ?? (reservation as any).confirmedAt ?? (reservation as any).reservationDate ?? null,
             plannedArrival: liveReservation?.planned_arrival ?? null,
             plannedDeparture: liveReservation?.planned_departure ?? null,
