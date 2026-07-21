@@ -2737,6 +2737,7 @@ export class InboxAIService {
             "- SHARING ACCESS DETAILS WITH CONFIRMED GUESTS: when the guest has a confirmed reservation and it is their check-in day or they are mid-stay, and the context contains documented guest-shareable access/arrival instructions (garage code, door code, lockbox, parking from EXTERNAL knowledge, reservation access codes, or the access block), you SHOULD give them the exact steps and codes when they ask how to get in. Never use or infer from staff-only/internal notes — those are not in your context. Never share access codes with pre-booking inquiries or guests whose stay has not reached check-in day.",
             "- If needed information is missing, say so in `warnings` and write a safe reply that asks the guest for clarification or says the team will follow up — do not guess.",
             "- Prefer the property's documented house rules / check-in info when present in context.",
+            "- If a 'Knowledge conflicts under staff review' section is present, those topics have contradictory Q&A/KB vs listing data. Prefer live listing data; never use the conflicting learned/KB value; if listing data is silent, say the team will confirm.",
             "- WHEN THE GUEST ASKS FOR THE RULES OR INSTRUCTIONS THEMSELVES (house rules, check-in/checkout instructions, house manual): if the actual content is in context (e.g. a 'House rules' or check-in entry), SEND IT — reproduce the documented rules/steps in the reply rather than telling the guest where to find them or offering to send them later. Only point to a physical location or defer if the actual content is not in context.",
             "- Reply in the same language the guest used.",
             "",
@@ -4004,6 +4005,34 @@ export class InboxAIService {
             /* non-fatal — fall back to the raw listingId */
         }
 
+        // Conflicts page (AI Assistant → Conflicts): open contradictions between
+        // listing data / learned Q&A / KB. Until staff clears them, suppress the
+        // non-listing side(s) so the guest never hears the bad value. Live
+        // listing_info below remains the source of truth.
+        let conflictExcludeFactIds = new Set<number>();
+        let conflictExcludeKbIds = new Set<number>();
+        let conflictTopics: string[] = [];
+        if (includeKnowledge && groupIds.length) {
+            try {
+                const { AIConflictDetectorService } = require("./AIConflictDetectorService");
+                const suppressed = await new AIConflictDetectorService().getGuestReplySuppressions(groupIds);
+                conflictExcludeFactIds = suppressed.factIds;
+                conflictExcludeKbIds = suppressed.kbIds;
+                conflictTopics = suppressed.topics;
+                if (conflictTopics.length) {
+                    lines.push("");
+                    lines.push("## Knowledge conflicts under staff review (Conflicts page)");
+                    lines.push(
+                        `Open conflicts for: ${conflictTopics.join(", ")}. Prefer LIVE LISTING DATA below. ` +
+                            `Do NOT use learned answers or Knowledge Base entries that disagree on these topics. ` +
+                            `If listing data is silent on a conflicted topic, say the team will confirm — never guess.`
+                    );
+                }
+            } catch {
+                /* non-fatal */
+            }
+        }
+
         // Internal operations context: what the team already has in motion for
         // this guest (open tasks, property issues). The team's replies are often
         // driven by this, so the bot must see it to stay consistent with them.
@@ -4180,7 +4209,10 @@ export class InboxAIService {
             // Prefer semantic KB retrieval (embedding-ranked, group-scoped,
             // visibility-split) when RAG is enabled and the KB has been indexed.
             if (ExemplarService.isEnabled() && guestQuery.trim()) {
-                const kbSem = await new RetrievalService().retrieveKb(canonicalListingId, guestQuery, { k: 4 });
+                const kbSem = await new RetrievalService().retrieveKb(canonicalListingId, guestQuery, {
+                    k: 4,
+                    excludeKbIds: conflictExcludeKbIds,
+                });
                 // Chunks are embedded at up to ~1350 chars (1200 + overlap); render
                 // them whole. Slicing at 700 dropped trailing caveats like "Note:
                 // Pool and hot tub heating are available for an additional fee",
@@ -4212,7 +4244,11 @@ export class InboxAIService {
             }
             // Fallback to the keyword render path (RAG off, or KB not yet indexed).
             if (!rendered) {
-                const kb = await new ListingKnowledgeService().renderForBot(conversation.listingId, { query: guestQuery, listingIds: groupIds });
+                const kb = await new ListingKnowledgeService().renderForBot(conversation.listingId, {
+                    query: guestQuery,
+                    listingIds: groupIds,
+                    excludeKbIds: conflictExcludeKbIds,
+                });
                 if (kb) {
                     lines.push("");
                     lines.push("## Listing Knowledge Base");
@@ -4233,6 +4269,7 @@ export class InboxAIService {
                 const facts = await new RetrievalService().retrieveFacts(canonicalListingId, guestQuery, {
                     k: 6,
                     channel: conversation.channel,
+                    excludeFactIds: conflictExcludeFactIds,
                 });
                 learned = new RetrievalService().renderFacts(facts);
             }
@@ -4241,6 +4278,7 @@ export class InboxAIService {
                     query: guestQuery,
                     listingIds: groupIds,
                     channel: conversation.channel,
+                    excludeFactIds: conflictExcludeFactIds,
                 });
             }
             if (learned) {

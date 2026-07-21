@@ -93,13 +93,23 @@ export class ListingKnowledgeService {
      */
     async renderForBot(
         listingId: number | null | undefined,
-        opts: { query?: string; maxChars?: number; listingIds?: number[] } | number = {}
+        opts:
+            | {
+                  query?: string;
+                  maxChars?: number;
+                  listingIds?: number[];
+                  /** Open Conflicts-page KB entry ids — never inject into guest replies. */
+                  excludeKbIds?: Set<number> | number[];
+              }
+            | number = {}
     ): Promise<string | null> {
         if (!listingId) return null;
         // Back-compat: allow renderForBot(id, maxChars).
         const o = typeof opts === "number" ? { maxChars: opts } : opts;
         const maxChars = o.maxChars ?? 5000;
         const qTokens = tokenize(o.query);
+        const excluded =
+            o.excludeKbIds instanceof Set ? o.excludeKbIds : new Set((o.excludeKbIds || []).map(Number));
         // Search across the whole property group (channel-split siblings) when
         // provided, so a conversation on a child listing still finds the KB.
         const ids = (o.listingIds && o.listingIds.length ? o.listingIds : [Number(listingId)]).map(Number);
@@ -113,6 +123,7 @@ export class ListingKnowledgeService {
             logger.error(`[ListingKnowledge] renderForBot failed for listing ${listingId}: ${err.message}`);
             return null;
         }
+        if (excluded.size) entries = entries.filter((e) => !excluded.has(Number(e.id)));
         if (!entries.length) return null;
 
         // Dedup identical entries shared across sibling listings in the group.

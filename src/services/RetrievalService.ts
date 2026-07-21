@@ -145,17 +145,27 @@ export class RetrievalService {
     async retrieveKb(
         groupId: number | null | undefined,
         queryText: string,
-        opts: { k?: number; minSim?: number } = {}
+        opts: { k?: number; minSim?: number; excludeKbIds?: Set<number> | number[] } = {}
     ): Promise<{ external: { text: string; sim: number }[]; internal: { text: string; sim: number }[] }> {
         const empty = { external: [], internal: [] };
         if (!groupId || !queryText?.trim()) return empty;
         const k = opts.k ?? 4;
         const minSim = opts.minSim ?? 0.3;
+        const excluded =
+            opts.excludeKbIds instanceof Set
+                ? opts.excludeKbIds
+                : new Set((opts.excludeKbIds || []).map(Number));
         const qv = await this.embed.embedOne(focusQuery(queryText));
         const rows = await this.repo.find({ where: { kind: "kb", groupId: Number(groupId) as any }, take: 4000 });
         const scored = rows
-            .map((r) => ({ text: r.payload || "", vis: r.visibility || "external", sim: EmbeddingService.cosine(qv, EmbeddingService.parseVector(r.vector) || []) }))
+            .map((r) => ({
+                text: r.payload || "",
+                vis: r.visibility || "external",
+                refId: r.refId != null ? Number(r.refId) : null,
+                sim: EmbeddingService.cosine(qv, EmbeddingService.parseVector(r.vector) || []),
+            }))
             .filter((s) => s.text && s.sim >= minSim)
+            .filter((s) => s.refId == null || !excluded.has(s.refId))
             .sort((a, b) => b.sim - a.sim);
         const external: { text: string; sim: number }[] = [];
         const internal: { text: string; sim: number }[] = [];
@@ -194,13 +204,24 @@ export class RetrievalService {
     async retrieveFacts(
         groupId: number | null | undefined,
         queryText: string,
-        opts: { k?: number; minSim?: number; channel?: string | null } = {}
+        opts: {
+            k?: number;
+            minSim?: number;
+            channel?: string | null;
+            excludeFactIds?: Set<number> | number[];
+        } = {}
     ): Promise<RetrievedFact[]> {
         if (!queryText?.trim()) return [];
         const k = opts.k ?? 6;
         const minSim = opts.minSim ?? 0.4;
         const qv = await this.embed.embedOne(focusQuery(queryText));
         const blockedIds = await this.internalFactIds();
+        // Open Conflicts-page suppressions (bad Q&A still approved until staff clears it).
+        const conflictBlocked =
+            opts.excludeFactIds instanceof Set
+                ? opts.excludeFactIds
+                : new Set((opts.excludeFactIds || []).map(Number));
+        for (const id of conflictBlocked) blockedIds.add(id);
         const scored: RetrievedFact[] = [];
 
         if (groupId) {

@@ -488,16 +488,29 @@ export class AILearnedFactsService {
      */
     async renderForBot(
         listingId: number | null | undefined,
-        opts: { query?: string; maxChars?: number; listingIds?: number[]; channel?: string | null } | number = {}
+        opts:
+            | {
+                  query?: string;
+                  maxChars?: number;
+                  listingIds?: number[];
+                  channel?: string | null;
+                  /** Open Conflicts-page fact ids — never inject these into guest replies. */
+                  excludeFactIds?: Set<number> | number[];
+              }
+            | number = {}
     ): Promise<string | null> {
         const o = typeof opts === "number" ? { maxChars: opts } : opts;
         const maxChars = o.maxChars ?? 3500;
         const qTokens = tokenizeFacts(o.query);
         const channel = o.channel ?? null;
+        const excluded =
+            o.excludeFactIds instanceof Set
+                ? o.excludeFactIds
+                : new Set((o.excludeFactIds || []).map(Number));
         // Gather property facts across the whole channel-split group when provided.
         const ids = (o.listingIds && o.listingIds.length ? o.listingIds : listingId ? [Number(listingId)] : []).map(Number);
         try {
-            const [property, portfolio] = await Promise.all([
+            const [propertyRaw, portfolioRaw] = await Promise.all([
                 ids.length
                     ? this.repo.find({
                           where: { status: "approved", scope: "property", listingId: ids.length === 1 ? (ids[0] as any) : In(ids) },
@@ -511,6 +524,8 @@ export class AILearnedFactsService {
                     take: 100,
                 }),
             ]);
+            const property = excluded.size ? propertyRaw.filter((f) => !excluded.has(Number(f.id))) : propertyRaw;
+            const portfolio = excluded.size ? portfolioRaw.filter((f) => !excluded.has(Number(f.id))) : portfolioRaw;
 
             if (!property.length && !portfolio.length) return null;
 

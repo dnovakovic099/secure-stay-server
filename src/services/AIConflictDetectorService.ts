@@ -80,6 +80,54 @@ export class AIConflictDetectorService {
         return qb.getMany();
     }
 
+    /**
+     * Sources that must NOT be fed into a guest-facing reply while a Conflicts
+     * row is still open. Live listing_data always wins: the conflicting
+     * learned_fact / kb_entry is suppressed. Fact-vs-KB (no listing side)
+     * suppresses both until staff clears the Conflicts page — better to defer
+     * than tell the guest the wrong checkout time.
+     *
+     * listingIds should be the full channel-split group for the conversation.
+     */
+    async getGuestReplySuppressions(listingIds: number[]): Promise<{
+        factIds: Set<number>;
+        kbIds: Set<number>;
+        topics: string[];
+    }> {
+        const factIds = new Set<number>();
+        const kbIds = new Set<number>();
+        const topics: string[] = [];
+        const ids = [...new Set((listingIds || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
+        if (!ids.length) return { factIds, kbIds, topics };
+
+        const conflicts = await this.repo
+            .createQueryBuilder("c")
+            .where("c.status = 'open'")
+            .andWhere("c.listingId IN (:...ids)", { ids })
+            .take(200)
+            .getMany();
+
+        const suppressSide = (type: string, id: number | null) => {
+            if (id == null) return;
+            if (type === "learned_fact") factIds.add(Number(id));
+            else if (type === "kb_entry") kbIds.add(Number(id));
+        };
+
+        for (const c of conflicts) {
+            const aIsListing = c.sourceAType === "listing_data";
+            const bIsListing = c.sourceBType === "listing_data";
+            if (aIsListing && !bIsListing) suppressSide(c.sourceBType, c.sourceBId);
+            else if (bIsListing && !aIsListing) suppressSide(c.sourceAType, c.sourceAId);
+            else {
+                // Neither side is live listing data — hold both out of guest context.
+                suppressSide(c.sourceAType, c.sourceAId);
+                suppressSide(c.sourceBType, c.sourceBId);
+            }
+            if (c.topic) topics.push(String(c.topic));
+        }
+        return { factIds, kbIds, topics: [...new Set(topics)].slice(0, 12) };
+    }
+
     async summary() {
         const rows: any[] = await appDatabase.query(
             `SELECT status, severity, COUNT(*) n FROM ai_knowledge_conflicts GROUP BY status, severity`
