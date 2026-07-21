@@ -21,8 +21,10 @@ export type UrgentPinType =
     | "early_checkout"
     | "late_checkout";
 
+// Note: match "working"/"works" as whole words — a bare `work` + trailing `\b`
+// fails on "not working" (no boundary between "work" and "ing").
 const ACCESS_RE =
-    /\b(lock(?:ed)?\s*out|can'?t\s+(get|figure)\s+(in|inside|into|the\s+door)|cannot\s+(get|enter)|unable\s+to\s+(get\s+in|enter|access)|won'?t\s+let\s+me\s+in|door\s+(won'?t|wont|will\s+not)\s+open|(code|keypad|lock|door)\b[^.!?\n]{0,50}\b(not|isn'?t|doesn'?t|won'?t|wont|stopped)\s*work|wrong\s+code|code\s+(is\s+)?(invalid|incorrect|wrong)|access(?:\s+code)?\s+(is\s+)?(wrong|invalid|not\s+working)|key\s+(doesn'?t|does\s+not|won'?t)\s+work)\b/i;
+    /\b(?:lock(?:ed)?\s*out|can'?t\s+(?:get|figure)\s+(?:in|inside|into|the\s+door)|cannot\s+(?:get\s+in|enter|access)|unable\s+to\s+(?:get\s+in|enter|access)|won'?t\s+let\s+(?:me|us)\s+in|door\s+(?:won'?t|wont|will\s+not)\s+open|(?:door\s+|gate\s+|garage\s+|access\s+|lock\s+)?code\b[^.!?\n]{0,60}\b(?:not|isn'?t|doesn'?t|won'?t|wont|stopped)\s+work(?:ing|s)?\b|(?:keypad|lock|door)\b[^.!?\n]{0,60}\b(?:not|isn'?t|doesn'?t|won'?t|wont|stopped)\s+work(?:ing|s)?\b|wrong\s+code|code\s+(?:is\s+)?(?:invalid|incorrect|wrong)|access(?:\s+code)?\s+(?:is\s+)?(?:wrong|invalid|not\s+working)|key\s+(?:doesn'?t|does\s+not|won'?t)\s+work(?:ing|s)?\b|(?:keypad|digit|code).{0,40}\b(?:red|won'?t\s+accept|doesn'?t\s+accept)|can'?t\s+(?:access|get\s+into)\s+(?:the\s+)?(?:property|unit|house|place|back\s+house|cottage)|locked\s+out|no\s+(?:access|entry))\b/i;
 
 /** Real emergencies only — not generic "urgent" / ops annoyances. */
 const SAFETY_RE =
