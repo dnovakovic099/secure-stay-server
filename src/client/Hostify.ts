@@ -808,7 +808,14 @@ export class Hostify {
             const response = await axios.post(url, { thread_id: threadId, message }, {
                 headers: { "x-api-key": apiKey },
             });
-            return response.data || null;
+            const data = response.data || null;
+            // Hostify sometimes returns HTTP 200 with success:false — treat as failure.
+            if (data && data.success === false) {
+                const errMsg = data.error || data.message || "Hostify rejected the reply";
+                logger.error(`Hostify reply rejected for thread ${threadId}: ${errMsg}`);
+                throw new Error(errMsg);
+            }
+            return data;
         } catch (error) {
             logger.error(`Error posting reply to thread ${threadId}:`, error.message);
             throw error;
