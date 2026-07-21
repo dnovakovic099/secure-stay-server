@@ -24,7 +24,6 @@ jobs:
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
           port: ${{ secrets.EC2_PORT }}
-          script_stop: true
           command_timeout: 60m
           script: |
             set -e
@@ -32,11 +31,11 @@ jobs:
             echo ">>> Pulling latest..."
             git pull origin dev-new
             echo ">>> Ensuring ts-node available..."
-            npm install --no-save ts-node typescript 2>/dev/null || npm install
+            npm install --no-save ts-node typescript reflect-metadata 2>/dev/null || npm install
             ARGS=""
             if [ "${{ github.event.inputs.seed_listings }}" = "true" ]; then
               ARGS="--seed"
             fi
             echo ">>> Running promoteLearnedFactsToKb.ts $ARGS"
-            npx ts-node --transpile-only src/scripts/promoteLearnedFactsToKb.ts $ARGS
+            NODE_ENV=development npx ts-node --transpile-only src/scripts/promoteLearnedFactsToKb.ts $ARGS
             echo ">>> Done"
