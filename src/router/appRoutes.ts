@@ -69,6 +69,7 @@ import rentalAgreementRoutes from "./rentalAgreementRoutes";
 import rentalAgreementTemplateRoutes from "./rentalAgreementTemplateRoutes";
 import vendorProfileRoutes from "./vendorProfileRoutes";
 import oauthRoutes from "./oauthRoutes";
+import userNotificationRoutes from "./userNotificationRoutes";
 
 import { roomifyListingsRouter, roomifyReviewsRouter, roomifyCleanerReportRouter } from "./roomifyRoutes";
 const router = Router();
@@ -82,6 +83,7 @@ router.use('/oauth', oauthRoutes);
 router.use('/device', deviceRoutes);
 router.use('/messaging', messagingRoutes);
 router.use('/inbox-v2', inboxV2Routes);
+router.use('/user-notifications', userNotificationRoutes);
 router.use('/listing-knowledge', listingKnowledgeRoutes);
 router.use('/listing-documents', listingDocumentRoutes);
 router.use('/ai', aiCopilotRoutes);
