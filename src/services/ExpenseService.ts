@@ -945,13 +945,20 @@ export class ExpenseService {
         const statusPlaceholders = validStatuses.map(() => "?").join(",");
         reservationParams.push(...validStatuses);
 
+        // Per-reservation `resortFee` (populated from Hostify's fees array when the
+        // sync runs with fees=1) is the primary source. For any reservation where
+        // that column is NULL — e.g. pre-backfill rows, or listings whose Hostify
+        // integration doesn't return the fee — fall back to the flat configured
+        // fee on property_info.claimFee. COUNT(col) counts non-NULL rows in MySQL,
+        // so populatedCount tells us how many rows the app-layer sum already covers.
         const reservationRows = await this.reservationInfoRepo.query(
             `
                 SELECT
                     r.listingMapId,
                     MAX(r.listingName) AS listingName,
                     COUNT(*) AS reservationCount,
-                    ${resortFeeColumn ? `SUM(COALESCE(r.\`${resortFeeColumn}\`, 0))` : "NULL"} AS reservationClaimsFeeTotal,
+                    ${resortFeeColumn ? `SUM(r.\`${resortFeeColumn}\`)` : "NULL"} AS resortFeeSum,
+                    ${resortFeeColumn ? `COUNT(r.\`${resortFeeColumn}\`)` : "0"} AS resortFeePopulatedCount,
                     MAX(NULLIF(pi.claimFee, '')) AS configuredClaimsFee
                 FROM reservation_info r
                 LEFT JOIN client_properties cp
@@ -996,12 +1003,14 @@ export class ExpenseService {
         return listingIds
             .map((listingMapId) => {
                 const reservationRow = reservationByListing.get(listingMapId);
-                const reservationClaimsFeeTotal = Number(reservationRow?.reservationClaimsFeeTotal || 0);
                 const configuredClaimsFee = this.parseClaimsFeeAmount(reservationRow?.configuredClaimsFee);
                 const reservationCount = Number(reservationRow?.reservationCount || 0);
-                const totalClaimsFee = resortFeeColumn
-                    ? reservationClaimsFeeTotal
-                    : configuredClaimsFee * reservationCount;
+                const resortFeeSum = Number(reservationRow?.resortFeeSum || 0);
+                const populatedCount = Number(reservationRow?.resortFeePopulatedCount || 0);
+                const unpopulatedCount = Math.max(0, reservationCount - populatedCount);
+                // Row-level COALESCE: per-reservation resortFee wins where populated;
+                // any remaining reservations fall back to the configured claim fee.
+                const totalClaimsFee = resortFeeSum + configuredClaimsFee * unpopulatedCount;
                 const usedClaimsFee = Number(expenseByListing.get(listingMapId)?.usedClaimsFee || 0);
                 return {
                     listingMapId,
