@@ -162,7 +162,7 @@ export class InboxAnalyticsController {
         }
     }
 
-    /** Listings that appear in the analytics window — powers the property filter dropdown. */
+    /** Active SecureStay listings (Hostify channel siblings grouped) — property filter dropdown. */
     async listings(request: Request, response: Response, next: NextFunction) {
         try {
             const sinceDays = request.query.sinceDays ? Number(request.query.sinceDays) : 60;

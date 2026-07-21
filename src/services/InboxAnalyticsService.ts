@@ -1211,12 +1211,11 @@ export class InboxAnalyticsService {
     }
 
         /**
-     * Expand compound (group) ids from the property filter into every Hostify
-     * channel listing under that compound. Selecting "Drummond (#01)" must
-     * match Airbnb + Booking + Vrbo threads without forcing staff to tick
-     * each channel row.
+     * Expand a selected SecureStay listing id into every Hostify channel listing
+     * under the same real property. Selecting one SS listing must match Airbnb +
+     * Booking + Vrbo threads without forcing staff to tick each channel row.
      */
-    private async expandCompoundListingIds(selected: number[]): Promise<Set<number>> {
+    private async expandGroupedListingIds(selected: number[]): Promise<Set<number>> {
         const ids = [...new Set((selected || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
         if (!ids.length) return new Set();
         const ph = ids.map(() => "?").join(",");
@@ -1244,55 +1243,41 @@ export class InboxAnalyticsService {
 
     private async listingFilterSet(filters?: AnalyticsFilters): Promise<Set<number> | null> {
         if (!filters?.listingIds?.length) return null;
-        return this.expandCompoundListingIds(filters.listingIds);
+        return this.expandGroupedListingIds(filters.listingIds);
     }
 
     /**
-     * Distinct COMPOUNDS (Hostify channel-groups) that appear in the analytics
-     * window — powers the property filter. One row per real property so staff
-     * pick "Drummond (#01)" once instead of Airbnb + Booking + Vrbo siblings.
-     * The returned `id` is the canonical groupId; filters expand it to every
-     * channel listing under that compound server-side.
+     * Active SecureStay listings for the property filter — one row per real
+     * property. Hostify creates multiple channel listing IDs for the same house;
+     * we collapse those via listing_group_map and only surface listings that
+     * exist in SecureStay and are not soft-deleted. Selecting a row expands to
+     * every Hostify channel sibling server-side when filtering analytics.
      */
-    async listListings(source: AnalyticsSource = "hostify", sinceDays = 60): Promise<any> {
-        const days = Math.min(Math.max(sinceDays, 7), 365);
-        const rows: any[] =
-            source === "quo"
-                ? await appDatabase.query(
-                      `SELECT COALESCE(g.groupId, q.listingId) AS compoundId,
-                              MAX(COALESCE(li_parent.internalListingName, li.internalListingName, g.name)) AS compoundName,
-                              MAX(NULLIF(TRIM(q.listingName), '')) AS convoName
-                       FROM quo_conversations q
-                       JOIN ai_message_suggestions s ON s.threadId = q.id AND s.source = 'quo'
-                       LEFT JOIN listing_group_map g ON g.listingId = q.listingId
-                       LEFT JOIN listing_info li ON li.id = q.listingId
-                       LEFT JOIN listing_info li_parent ON li_parent.id = COALESCE(g.groupId, q.listingId)
-                       WHERE q.listingId IS NOT NULL
-                         AND s.generatedAt >= (NOW() - INTERVAL ? DAY)
-                       GROUP BY COALESCE(g.groupId, q.listingId)`,
-                      [days]
-                  )
-                : await appDatabase.query(
-                      `SELECT COALESCE(g.groupId, c.listingId) AS compoundId,
-                              MAX(COALESCE(li_parent.internalListingName, li.internalListingName, g.name)) AS compoundName,
-                              MAX(NULLIF(TRIM(c.listingName), '')) AS convoName
-                       FROM inbox_conversations c
-                       JOIN ai_message_suggestions s ON s.threadId = c.threadId AND s.source = 'hostify'
-                       LEFT JOIN listing_group_map g ON g.listingId = c.listingId
-                       LEFT JOIN listing_info li ON li.id = c.listingId
-                       LEFT JOIN listing_info li_parent ON li_parent.id = COALESCE(g.groupId, c.listingId)
-                       WHERE c.listingId IS NOT NULL
-                         AND s.generatedAt >= (NOW() - INTERVAL ? DAY)
-                       GROUP BY COALESCE(g.groupId, c.listingId)`,
-                      [days]
-                  );
+    async listListings(_source: AnalyticsSource = "hostify", _sinceDays = 60): Promise<any> {
+        const rows: any[] = await appDatabase.query(
+            `SELECT COALESCE(g.groupId, li.id) AS listingId,
+                    MAX(COALESCE(
+                        li_parent.internalListingName,
+                        li.internalListingName,
+                        g.name,
+                        CONCAT('Property ', COALESCE(g.groupId, li.id))
+                    )) AS listingName
+             FROM listing_info li
+             LEFT JOIN listing_group_map g ON g.listingId = li.id
+             LEFT JOIN listing_info li_parent
+                    ON li_parent.id = COALESCE(g.groupId, li.id)
+                   AND li_parent.deletedAt IS NULL
+             WHERE li.deletedAt IS NULL
+             GROUP BY COALESCE(g.groupId, li.id)
+             ORDER BY listingName ASC`
+        );
         const listings = rows
-            .filter((r) => r.compoundId != null)
+            .filter((r) => r.listingId != null)
             .map((r) => ({
-                id: Number(r.compoundId),
-                name: String(r.compoundName || r.convoName || `Property ${r.compoundId}`).trim(),
+                id: Number(r.listingId),
+                name: String(r.listingName || `Property ${r.listingId}`).trim(),
             }))
-            .sort((a, b) => a.name.localeCompare(b.name));
+            .filter((r) => Number.isFinite(r.id) && r.id > 0 && r.name.length > 0);
         return { listings };
     }
 
