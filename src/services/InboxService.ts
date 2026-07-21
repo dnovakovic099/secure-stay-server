@@ -333,8 +333,39 @@ export class InboxService {
         conversation.listingThumb = summary?.listing_thumb ?? conversation.listingThumb ?? null;
         conversation.source = "hostify";
         conversation.syncedAt = syncedAt;
+        this.clearStalePaymentEmergency(conversation);
 
         return this.conversationRepo.save(conversation);
+    }
+
+    /** Cancelled/voided bookings should never stay pinned as "needs payment". */
+    private clearStalePaymentEmergency(conversation: InboxConversationEntity) {
+        if (Number(conversation.emergency) !== 1 || conversation.emergencyType !== "payment") return;
+        const status = String(conversation.reservationStatus || "")
+            .trim()
+            .toLowerCase()
+            .replace(/[\s_-]/g, "");
+        const inactive = [
+            "cancelled",
+            "canceled",
+            "declined",
+            "denied",
+            "expired",
+            "withdrawn",
+            "deleted",
+            "noshow",
+            "voided",
+            "inquirydenied",
+            "inquirytimedout",
+            "inquirynotpossible",
+            "timedout",
+            "notpossible",
+        ];
+        if (!inactive.includes(status)) return;
+        conversation.emergency = 0;
+        conversation.emergencyType = null;
+        conversation.emergencyReason = null;
+        conversation.emergencyAt = null;
     }
 
     /**
@@ -368,6 +399,7 @@ export class InboxService {
                 conversation.listingName =
                     conversation.listingName || listing.internalListingName || listing.name || null;
             }
+            this.clearStalePaymentEmergency(conversation);
         } catch (error: any) {
             logger.warn(`[InboxService] enrichConversation failed for thread ${conversation.threadId}: ${error.message}`);
         }

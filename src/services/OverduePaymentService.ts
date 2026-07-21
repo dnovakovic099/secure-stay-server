@@ -92,11 +92,29 @@ export class OverduePaymentService {
     // Reservation statuses that are not real, active bookings (cancelled, inquiry,
     // etc.). Mirrors ReservationInfoService.excludedStatus.
     private excludedStatus = [
-        "cancelled", "pending", "awaitingPayment", "declined", "expired", "inquiry",
+        "cancelled", "canceled", "pending", "awaitingPayment", "declined", "expired", "inquiry",
         "inquiryPreapproved", "inquiryDenied", "inquiryTimedout", "inquiryNotPossible",
         "denied", "no_show", "awaiting_payment", "declined_inq", "preapproved", "offer",
         "withdrawn", "timedout", "not_possible", "deleted", "voided",
     ];
+
+    private excludedStatusLower = new Set(this.excludedStatus.map((s) => s.toLowerCase()));
+
+    /** Cancelled / inquiry / denied / etc. — never need a payment emergency. */
+    private isInactiveReservationStatus(status?: string | null): boolean {
+        const normalized = String(status || "")
+            .trim()
+            .toLowerCase()
+            .replace(/[\s-]/g, "_");
+        if (!normalized) return false;
+        if (this.excludedStatusLower.has(normalized)) return true;
+        // Hostify sometimes uses camelCase (awaitingPayment) or spaced labels.
+        const compact = normalized.replace(/_/g, "");
+        for (const s of this.excludedStatusLower) {
+            if (s.replace(/_/g, "") === compact) return true;
+        }
+        return false;
+    }
 
     static isAirbnb(source?: string | null, channelName?: string | null): boolean {
         const s = `${source || ""} ${channelName || ""}`.toLowerCase();
@@ -356,9 +374,13 @@ export class OverduePaymentService {
         emergenciesRaised: number;
         emergenciesCleared: number;
     }> {
+        // Local-only: drop stale payment pins on cancelled/inactive reservations
+        // even when Hostify sync can't run.
+        let emergenciesCleared = await this.clearPaymentEmergenciesForInactiveReservations();
+
         if (!this.apiKey) {
             logger.warn("[OverduePayment] No Hostify API key configured; skipping payment sweep");
-            return { checked: 0, updated: 0, emergenciesRaised: 0, emergenciesCleared: 0 };
+            return { checked: 0, updated: 0, emergenciesRaised: 0, emergenciesCleared };
         }
         const lookback = opts.lookbackDays ?? 21;
         const lookahead = opts.lookaheadDays ?? 120;
@@ -387,7 +409,6 @@ export class OverduePaymentService {
         let checked = 0;
         let updated = 0;
         let emergenciesRaised = 0;
-        let emergenciesCleared = 0;
 
         const today = this.todayStr();
         const tomorrowDate = new Date();
@@ -399,6 +420,20 @@ export class OverduePaymentService {
             try {
                 const data: any = await this.hostify.getReservationInfo(this.apiKey, r.id);
                 const live = data?.reservation || {};
+
+                // Hostify may have cancelled since our last local status sync.
+                const liveStatus = live.status != null ? String(live.status) : null;
+                if (liveStatus) {
+                    r.status = liveStatus;
+                    if (this.isInactiveReservationStatus(liveStatus)) {
+                        await this.reservationRepo.save(r);
+                        updated++;
+                        const cleared = await this.clearEmergencyForReservation(r.id, "payment");
+                        if (cleared) emergenciesCleared++;
+                        continue;
+                    }
+                }
+
                 const paidPart = live.paid_part != null ? String(live.paid_part) : null;
                 const paidSum = this.toNum(live.paid_sum);
                 const payoutPrice = this.toNum(live.payout_price);
@@ -446,8 +481,10 @@ export class OverduePaymentService {
      * during the sweep. Returns true only on a fresh raise (email sent).
      */
     private async raiseEmergencyForReservation(r: ReservationInfoEntity): Promise<boolean> {
+        if (this.isInactiveReservationStatus(r.status)) return false;
         const conversation = await this.conversationRepo.findOne({ where: { reservationId: r.id } });
         if (!conversation) return false;
+        if (this.isInactiveReservationStatus(conversation.reservationStatus)) return false;
         if (Number(conversation.emergency) === 1 && conversation.emergencyType === "payment") return false;
 
         const total = this.expectedTotal(r.payoutPrice, r.totalPrice);
@@ -483,8 +520,10 @@ export class OverduePaymentService {
             const r = data?.reservation || {};
             if (!r || Object.keys(r).length === 0) return { isEmergency: false, reason: null };
 
-            const status = String(r.status || "").toLowerCase();
-            if (this.excludedStatus.map((s) => s.toLowerCase()).includes(status)) {
+            const status = String(r.status || "");
+            if (this.isInactiveReservationStatus(status) || this.isInactiveReservationStatus(conversation.reservationStatus)) {
+                // Stale pin from before cancel/decline — drop it.
+                await this.clearEmergencyForReservation(reservationId, "payment");
                 return { isEmergency: false, reason: null };
             }
             // Double-check channel/source from the live record too.
@@ -561,6 +600,10 @@ export class OverduePaymentService {
         type = "payment",
         opts: { notify?: boolean } = {}
     ): Promise<boolean> {
+        // Cancelled / inquiry / etc. never need a payment pin.
+        if (type === "payment" && this.isInactiveReservationStatus(conversation.reservationStatus)) {
+            return false;
+        }
         // Never downgrade a payment emergency to a softer type.
         if (
             Number(conversation.emergency) === 1 &&
@@ -605,6 +648,50 @@ export class OverduePaymentService {
         conversation.emergencyAt = null;
         await this.conversationRepo.save(conversation);
         return true;
+    }
+
+    /**
+     * Drop "needs payment" pins on cancelled / inactive reservations. These are
+     * skipped by the active-reservation Hostify sweep, so without this they
+     * linger in the inbox forever after cancel.
+     */
+    private async clearPaymentEmergenciesForInactiveReservations(): Promise<number> {
+        try {
+            const pinned = await this.conversationRepo.find({
+                where: { emergency: 1, emergencyType: "payment" },
+                select: ["threadId", "reservationId", "reservationStatus"],
+            });
+            if (!pinned.length) return 0;
+
+            const reservationIds = pinned
+                .map((c) => Number(c.reservationId))
+                .filter((id) => Number.isFinite(id) && id > 0);
+            const reservations = reservationIds.length
+                ? await this.reservationRepo.find({
+                      where: { id: In(reservationIds) },
+                      select: ["id", "status"],
+                  })
+                : [];
+            const statusByReservationId = new Map(reservations.map((r) => [Number(r.id), r.status]));
+
+            let cleared = 0;
+            for (const conversation of pinned) {
+                const reservationStatus = conversation.reservationId
+                    ? statusByReservationId.get(Number(conversation.reservationId))
+                    : null;
+                const status = reservationStatus || conversation.reservationStatus;
+                if (!this.isInactiveReservationStatus(status)) continue;
+                const ok = await this.clearEmergency(Number(conversation.threadId));
+                if (ok) cleared++;
+            }
+            if (cleared > 0) {
+                logger.info(`[OverduePayment] Cleared ${cleared} payment emergency(ies) on inactive/cancelled reservations`);
+            }
+            return cleared;
+        } catch (err: any) {
+            logger.warn(`[OverduePayment] clearPaymentEmergenciesForInactiveReservations failed: ${err.message}`);
+            return 0;
+        }
     }
 
     async getAlertRecipients(): Promise<string[]> {
