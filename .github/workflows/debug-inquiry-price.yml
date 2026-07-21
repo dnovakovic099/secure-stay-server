@@ -26,4 +26,9 @@ jobs:
             git pull origin dev-new
             npm install
             npm run build
-            NODE_ENV=production node dist/out-tsc/scripts/debugInquiryPrice.js ${{ github.event.inputs.thread_id }}
+            # tsc may emit under dist/out-tsc/scripts or dist/out-tsc/src/scripts
+            if [ -f dist/out-tsc/src/scripts/debugInquiryPrice.js ]; then
+              NODE_ENV=production node dist/out-tsc/src/scripts/debugInquiryPrice.js ${{ github.event.inputs.thread_id }}
+            else
+              NODE_ENV=production node dist/out-tsc/scripts/debugInquiryPrice.js ${{ github.event.inputs.thread_id }}
+            fi
