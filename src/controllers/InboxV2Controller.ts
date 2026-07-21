@@ -497,6 +497,48 @@ export class InboxV2Controller {
     }
 
     /**
+     * Pre-approve an Airbnb inquiry (Hostify → Airbnb), same as Hostify inbox.
+     */
+    async preapproveInquiry(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const threadId = Number(request.params.threadId);
+            if (!Number.isFinite(threadId)) {
+                return response.status(400).json({ status: false, message: "Invalid threadId" });
+            }
+            const totalPrice = toNum(request.body?.totalPrice ?? request.body?.total_price);
+            const inboxService = new InboxService();
+            const result = await inboxService.preapproveInquiry(threadId, { totalPrice });
+            return response.status(200).json({ status: true, data: result });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * Send a special offer on an Airbnb inquiry (Hostify → Airbnb).
+     */
+    async specialOfferInquiry(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const threadId = Number(request.params.threadId);
+            if (!Number.isFinite(threadId)) {
+                return response.status(400).json({ status: false, message: "Invalid threadId" });
+            }
+            const totalPrice = toNum(request.body?.totalPrice ?? request.body?.total_price);
+            if (totalPrice == null || totalPrice <= 0) {
+                return response.status(400).json({
+                    status: false,
+                    message: "A total price greater than 0 is required for a special offer.",
+                });
+            }
+            const inboxService = new InboxService();
+            const result = await inboxService.specialOfferInquiry(threadId, { totalPrice });
+            return response.status(200).json({ status: true, data: result });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
      * Reservation details for the right-hand panel. Reuses the existing
      * messaging service (local reservation + live Hostify enrichment).
      */

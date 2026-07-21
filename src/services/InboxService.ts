@@ -1972,4 +1972,164 @@ export class InboxService {
         }
         return { userId: secureStayUserId, userName };
     }
+
+    /**
+     * Pre-approve an Airbnb inquiry via Hostify (same action as Hostify inbox).
+     */
+    async preapproveInquiry(threadId: number, opts: { totalPrice?: number | null } = {}) {
+        return this.runInquiryAction(threadId, "preapprove", opts);
+    }
+
+    /**
+     * Send a special offer on an Airbnb inquiry via Hostify.
+     */
+    async specialOfferInquiry(threadId: number, opts: { totalPrice?: number | null } = {}) {
+        return this.runInquiryAction(threadId, "special-offer", opts);
+    }
+
+    private async runInquiryAction(
+        threadId: number,
+        action: "preapprove" | "special-offer",
+        opts: { totalPrice?: number | null } = {}
+    ) {
+        const conversation = await this.conversationRepo.findOne({ where: { threadId } });
+        if (!conversation) throw new CustomErrorHandler(404, `Conversation ${threadId} not found`);
+        if (!conversation.reservationId) {
+            throw new CustomErrorHandler(400, "This thread has no linked reservation to pre-approve or offer.");
+        }
+
+        const payload = await this.buildInquiryActionPayload(conversation, opts);
+        const reservationId = Number(conversation.reservationId);
+
+        logger.info(
+            `[InboxService] ${action} thread=${threadId} reservation=${reservationId} listing=${payload.listing_id} ${payload.start_date}→${payload.end_date} total=${payload.total_price} guests=${payload.guests}`
+        );
+
+        let result: any;
+        try {
+            result =
+                action === "preapprove"
+                    ? await this.hostify.postReservationPreapprove(this.apiKey, reservationId, payload)
+                    : await this.hostify.postReservationSpecialOffer(this.apiKey, reservationId, payload);
+        } catch (err: any) {
+            const msg = String(err?.message || `Hostify ${action} failed`);
+            throw new CustomErrorHandler(502, msg);
+        }
+
+        // Refresh local conversation status/price from Hostify.
+        try {
+            await this.syncThread(threadId);
+        } catch (err: any) {
+            logger.warn(`[InboxService] post-${action} sync failed thread=${threadId}: ${err?.message}`);
+        }
+
+        const refreshed = await this.conversationRepo.findOne({ where: { threadId } });
+        return {
+            action,
+            hostify: result,
+            payload: {
+                listingId: payload.listing_id,
+                startDate: payload.start_date,
+                endDate: payload.end_date,
+                totalPrice: payload.total_price,
+                guests: payload.guests,
+                currency: payload.currency || null,
+            },
+            conversation: refreshed,
+        };
+    }
+
+    private async buildInquiryActionPayload(
+        conversation: InboxConversationEntity,
+        opts: { totalPrice?: number | null } = {}
+    ): Promise<Record<string, any>> {
+        const reservationId = Number(conversation.reservationId);
+        const liveResp = await this.hostify.getReservationInfo(this.apiKey, reservationId);
+        const live = liveResp?.reservation || liveResp?.data?.reservation || liveResp || {};
+
+        const listingId =
+            toNumberOrNull(live.listing_id) ||
+            toNumberOrNull(conversation.listingId);
+        const startDate =
+            this.dateOnly(live.checkIn || live.checkin || live.arrival_date || live.start_date) ||
+            this.dateOnly(conversation.checkin);
+        const endDate =
+            this.dateOnly(live.checkOut || live.checkout || live.departure_date || live.end_date) ||
+            this.dateOnly(conversation.checkout);
+        const guests =
+            toNumberOrNull(live.guests) ||
+            toNumberOrNull(live.adults) ||
+            toNumberOrNull(conversation.guests) ||
+            1;
+        const source = String(live.source || conversation.channel || "Airbnb").trim() || "Airbnb";
+
+        let totalPrice =
+            opts.totalPrice != null && Number.isFinite(Number(opts.totalPrice))
+                ? Number(opts.totalPrice)
+                : toNumberOrNull(live.payout_price) ??
+                  toNumberOrNull(live.subtotal) ??
+                  toNumberOrNull(live.base_price) ??
+                  toNumberOrNull(live.total_price) ??
+                  toNumberOrNull(conversation.price);
+
+        if (!listingId) throw new CustomErrorHandler(400, "Missing listing for this inquiry.");
+        if (!startDate || !endDate) {
+            throw new CustomErrorHandler(400, "Inquiry is missing check-in / check-out dates.");
+        }
+        if (totalPrice == null || !(totalPrice > 0)) {
+            throw new CustomErrorHandler(400, "Inquiry is missing a total price. Enter a price for the special offer.");
+        }
+
+        let name =
+            String(conversation.guestName || live.guest_name || live.name || "").trim() || "Guest";
+        let email = String(conversation.guestEmail || live.guest_email || live.email || "").trim();
+        let phone = String(conversation.guestPhone || live.guest_phone || live.phone || "").trim();
+
+        const guestId = toNumberOrNull(live.guest_id) || toNumberOrNull(conversation.guestId);
+        if (guestId && (!email || !phone || name === "Guest")) {
+            try {
+                const guest = await this.hostify.getGuest(this.apiKey, guestId);
+                if (guest) {
+                    if (!email) email = String(guest.email || "").trim();
+                    if (!phone) phone = String(guest.phone || "").trim();
+                    if (name === "Guest" && guest.name) name = String(guest.name).trim();
+                }
+            } catch {
+                /* optional */
+            }
+        }
+
+        // Hostify requires these keys; Airbnb inquiries often have null contact fields.
+        if (!email) email = "";
+        if (!phone) phone = "";
+
+        return {
+            listing_id: listingId,
+            start_date: startDate,
+            end_date: endDate,
+            total_price: totalPrice,
+            guests,
+            adults: toNumberOrNull(live.adults) || guests,
+            children: toNumberOrNull(live.children) || 0,
+            infants: toNumberOrNull(live.infants) || 0,
+            source,
+            name,
+            email,
+            phone,
+            currency: live.currency || conversation.currency || "USD",
+        };
+    }
+
+    private dateOnly(value: any): string | null {
+        if (!value) return null;
+        const s = String(value);
+        if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+        try {
+            const d = new Date(s);
+            if (Number.isNaN(d.getTime())) return null;
+            return d.toISOString().slice(0, 10);
+        } catch {
+            return null;
+        }
+    }
 }

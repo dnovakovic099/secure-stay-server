@@ -823,6 +823,44 @@ export class Hostify {
     }
 
     /**
+     * Airbnb inquiry actions (same payloads Hostify inbox uses).
+     * Required: listing_id, start_date, end_date, total_price, guests, source, name, email, phone.
+     */
+    async postReservationPreapprove(apiKey: string, reservationId: number | string, payload: Record<string, any>): Promise<any> {
+        return this.postReservationInquiryAction(apiKey, reservationId, "preapprove", payload);
+    }
+
+    async postReservationSpecialOffer(apiKey: string, reservationId: number | string, payload: Record<string, any>): Promise<any> {
+        return this.postReservationInquiryAction(apiKey, reservationId, "special-offer", payload);
+    }
+
+    private async postReservationInquiryAction(
+        apiKey: string,
+        reservationId: number | string,
+        action: "preapprove" | "special-offer",
+        payload: Record<string, any>
+    ): Promise<any> {
+        try {
+            const url = `https://api-rms.hostify.com/reservations/${reservationId}/${action}`;
+            const response = await axios.post(url, payload, {
+                headers: { "x-api-key": apiKey },
+            });
+            const data = response.data || null;
+            if (data && data.success === false) {
+                const errMsg = data.error || data.message || `Hostify ${action} rejected`;
+                logger.error(`Hostify ${action} rejected for reservation ${reservationId}: ${errMsg}`);
+                throw new Error(errMsg);
+            }
+            return data;
+        } catch (error: any) {
+            const apiErr = error?.response?.data?.error || error?.response?.data?.message;
+            logger.error(`Error posting ${action} for reservation ${reservationId}:`, apiErr || error.message);
+            if (apiErr) throw new Error(apiErr);
+            throw error;
+        }
+    }
+
+    /**
      * Get listing fees including tax rate from Hostify
      * Tax is stored as a percentage (e.g., 10.25 = 10.25%)
      */
