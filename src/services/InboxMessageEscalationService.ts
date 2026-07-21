@@ -59,6 +59,14 @@ export class InboxMessageEscalationService {
         }
     }
 
+    private categoryLabel(category?: string | null): string {
+        const key = String(category || "").toLowerCase();
+        if (key === "access") return "Access issue";
+        if (key === "guest_upset") return "Guest upset";
+        if (key === "manager") return "Needs manager";
+        return "Escalation";
+    }
+
     /**
      * AI suggests troubleshooting steps the staffer should try before escalating.
      * Persists an escalation row in status=suggested.
@@ -208,16 +216,43 @@ export class InboxMessageEscalationService {
             ? `/messages/inbox-v2?thread=${row.threadId}&message=${row.messageExternalId}`
             : `/messages/inbox-v2?thread=${row.threadId}`;
 
-        const title = `Escalation · ${guest}`;
-        const body = [
-            `${row.actorName || "A teammate"} needs help from you.`,
-            row.category ? `Category: ${row.category}.` : null,
-            `Note: ${row.note}`,
-            row.aiSummary ? `AI context: ${row.aiSummary}` : null,
-            `Listing: ${listing}`,
-        ]
+        const categoryLabel = this.categoryLabel(row.category);
+        const repName = (row.actorName || "A teammate").trim();
+        const repNote = String(row.note || "").trim();
+
+        let guestMessage = "";
+        if (row.messageExternalId != null) {
+            try {
+                const msg = await this.messageRepo().findOne({
+                    where: {
+                        threadId: Number(row.threadId),
+                        externalId: Number(row.messageExternalId),
+                    },
+                });
+                guestMessage = String(msg?.body || "")
+                    .replace(/\s+/g, " ")
+                    .trim()
+                    .slice(0, 280);
+            } catch {
+                /* ignore */
+            }
+        }
+
+        const stayBits = [conversation?.checkin, conversation?.checkout]
             .filter(Boolean)
-            .join(" ");
+            .join(" → ");
+
+        // Title: quick scan for manager (who / what kind).
+        const title = `${categoryLabel} · ${guest}`;
+
+        // Body: lead with rep note + issue context so the assignee can act fast.
+        const bodyParts = [
+            `From ${repName}`,
+            repNote ? `Rep note: ${repNote}` : null,
+            guestMessage ? `Guest said: “${guestMessage}”` : null,
+            `Listing: ${listing}${stayBits ? ` · ${stayBits}` : ""}`,
+            "Staff already tried suggested steps — open the thread to help.",
+        ].filter(Boolean);
 
         const notification = this.notificationRepo().create({
             userUid: row.assigneeUid,
@@ -225,7 +260,7 @@ export class InboxMessageEscalationService {
             actorName: row.actorName,
             type: "escalation",
             title,
-            body: body.slice(0, 2000),
+            body: bodyParts.join("\n").slice(0, 2000),
             href,
             threadId: Number(row.threadId),
             messageExternalId: row.messageExternalId,
