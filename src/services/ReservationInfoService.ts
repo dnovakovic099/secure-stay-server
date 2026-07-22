@@ -902,6 +902,10 @@ export class ReservationInfoService {
     const apiKey = process.env.HOSTIFY_API_KEY || "";
     const reservations = await this.hostifyClient.getReservations({ start_date }, apiKey);
 
+    // Track which reservations were touched by this sync so the fee-enrichment
+    // pass below only reaches for the detail endpoint for rows we just synced,
+    // not the whole table.
+    const syncedIds: number[] = [];
     for (const reservation of reservations) {
 
       const guestInfo = {
@@ -917,11 +921,72 @@ export class ReservationInfoService {
       };
       const reservationObj = await this.createReservationObjectFromHostify(reservation, guestInfo);
       await this.saveReservationInfo(reservationObj, "internal");
+      if (reservation?.id != null && Number.isFinite(Number(reservation.id))) {
+        syncedIds.push(Number(reservation.id));
+      }
     }
+
+    // Fee backfill: Hostify's list endpoint (`/reservations`) does not return
+    // the `fees` array even with fees=1&fees_costs=1, so accommodationFee /
+    // resortFee / cleaningFeeAmount / etc. stay NULL after a list-only sync.
+    // The single-reservation endpoint (`/reservations/{id}`) does return them,
+    // so we re-fetch each just-synced row that's still missing fees and let
+    // updateReservationInfo persist them. Bounded to avoid unbounded API load
+    // on very large syncs.
+    const enriched = await this.enrichFeeBreakdownForSyncedIds(syncedIds);
+
     return {
       success: true,
-      message: `Reservations synced successfully. No. of reservation: ${reservations.length}`
+      message: `Reservations synced successfully. No. of reservation: ${reservations.length}` +
+        (enriched.attempted > 0
+          ? ` (fees backfilled: ${enriched.ok}/${enriched.attempted})`
+          : ""),
     };
+  }
+
+  /**
+   * Post-sync enrichment: for the reservations we just processed via the list
+   * endpoint, check which ones ended up with a NULL fee breakdown and hit the
+   * detail endpoint to fill it in. Returns { attempted, ok, failed } counters.
+   */
+  private async enrichFeeBreakdownForSyncedIds(
+    syncedIds: number[]
+  ): Promise<{ attempted: number; ok: number; failed: number }> {
+    const summary = { attempted: 0, ok: 0, failed: 0 };
+    if (!syncedIds.length) return summary;
+
+    // Cap the per-sync enrichment to keep API pressure predictable. On the
+    // first-ever sync the whole batch will need enrichment, but subsequent
+    // syncs should only backfill a handful of newly-added rows.
+    const MAX_PER_SYNC = 200;
+
+    const missingFees = await this.reservationInfoRepository
+      .createQueryBuilder("r")
+      .select(["r.id"])
+      .where("r.id IN (:...ids)", { ids: syncedIds })
+      .andWhere("r.resortFee IS NULL")
+      .limit(MAX_PER_SYNC)
+      .getMany();
+
+    if (!missingFees.length) return summary;
+    summary.attempted = missingFees.length;
+
+    for (const row of missingFees) {
+      try {
+        await this.syncReservationById(row.id);
+        summary.ok += 1;
+      } catch (error: any) {
+        summary.failed += 1;
+        logger.warn(
+          `[syncReservations] fee enrichment failed for reservation ${row.id}: ${error?.message}`
+        );
+      }
+    }
+
+    logger.info(
+      `[syncReservations] fee enrichment: attempted=${summary.attempted} ok=${summary.ok} failed=${summary.failed}`
+    );
+    return summary;
   }
 
   async syncCurrentlyStayingReservations() {
@@ -1780,6 +1845,14 @@ export class ReservationInfoService {
     }
     const reservationInfo = reservation.reservation;
     const guestInfo = reservation.guest;
+    // Hostify's detail endpoint returns the `fees` array at the top level of
+    // the response (as a related object), not nested inside the reservation
+    // object. Hoist it so createReservationObjectFromHostify's
+    // extractHostifyFeeBreakdown(reservation?.fees) actually sees the fees and
+    // populates accommodationFee / resortFee / cleaningFeeAmount / etc.
+    if (!Array.isArray((reservationInfo as any).fees) && Array.isArray((reservation as any).fees)) {
+      (reservationInfo as any).fees = (reservation as any).fees;
+    }
     const reservationObj = await this.createReservationObjectFromHostify(reservationInfo, guestInfo);
     return await this.saveReservationInfo(reservationObj, "internal");
   }
@@ -2084,6 +2157,12 @@ export class ReservationInfoService {
 
     const reservationInfo = { ...hostifyReservationObj.reservation, integration_nickname: hostifyReservationObj?.listing?.integration_nickname ? hostifyReservationObj.listing.integration_nickname : null };
     const guestInfo = hostifyReservationObj.guest;
+    // Hoist the top-level `fees` array onto reservationInfo so the fee
+    // breakdown extraction picks it up. Hostify's detail endpoint returns
+    // fees at the top level, not nested inside the reservation object.
+    if (!Array.isArray((reservationInfo as any).fees) && Array.isArray((hostifyReservationObj as any).fees)) {
+      (reservationInfo as any).fees = (hostifyReservationObj as any).fees;
+    }
     const reservationObj = await this.createReservationObjectFromHostify(reservationInfo, guestInfo);
     await this.saveReservationInfo(reservationObj, "webhook");
   }
