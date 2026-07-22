@@ -47,6 +47,7 @@ router.route('/:id/ir-send-guest').post(verifySession, issuesController.irSendGu
 router.route('/:id/ir-send-sms').post(verifySession, issuesController.irSendSmsDraft);
 router.route('/:id/ir-log-note').post(verifySession, issuesController.irLogNote);
 router.route('/:id/ir-follow-up').post(verifySession, issuesController.irScheduleFollowUp);
+router.route('/:id/ir-teach-vendor').post(verifySession, issuesController.irTeachVendor);
 router.route('/:id/thread').get(verifySession, issuesController.getIssueThread);
 router.route('/:id/vendor-thread')
     .get(verifySession, issuesController.getIssueVendorThread)

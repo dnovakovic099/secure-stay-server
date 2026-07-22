@@ -794,6 +794,23 @@ export class IssuesController {
     }
   }
 
+  /** IR Copilot: teach portfolio vendor memory (name + phone) and regenerate. */
+  async irTeachVendor(request: any, response: Response, next: NextFunction) {
+    try {
+      const issueId = Number(request.params.id);
+      const body = request.body || {};
+      const data = await new IssueAIService().teachVendor(issueId, {
+        name: String(body.name || "").trim(),
+        phone: body.phone != null ? String(body.phone) : null,
+        email: body.email != null ? String(body.email) : null,
+        notes: body.notes != null ? String(body.notes) : null,
+      });
+      return response.status(200).json({ status: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async bulkUpdateIssues(request: any, response: Response, next: NextFunction) {
     try {
       const { ids, updateData } = request.body;
