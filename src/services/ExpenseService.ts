@@ -916,6 +916,13 @@ export class ExpenseService {
         const fromDate = String(request.query.fromDate || "");
         const toDate = String(request.query.toDate || "");
         const { hasResortFee, hasInsuranceFee } = await this.getClaimsFeeSourceColumns();
+        // TEMP DIAGNOSTIC: remove once claims-fee-funds parity issue is
+        // resolved. Logs the exact params + reservation-row snapshot for
+        // listing 300028033 so we can trace why known-good rows aren't
+        // reaching the dashboard.
+        logger.info(
+            `[ClaimsFeeFunds][DIAG] request received: fromDate=${fromDate || "(none)"} toDate=${toDate || "(none)"} hasResortFee=${hasResortFee} hasInsuranceFee=${hasInsuranceFee}`
+        );
         const reservationParams: any[] = [];
         const expenseParams: any[] = [];
         let reservationDateWhere = "";
@@ -964,6 +971,17 @@ export class ExpenseService {
                 GROUP BY r.listingMapId
             `,
             reservationParams
+        );
+        // TEMP DIAGNOSTIC: log reservation query outcome so we can see whether
+        // listing 300028033 is being returned as expected.
+        const targetRow = reservationRows.find(
+            (row: any) => Number(row.listingMapId) === 300028033
+        );
+        logger.info(
+            `[ClaimsFeeFunds][DIAG] reservation query returned ${reservationRows.length} row(s); ` +
+                `listing 300028033 present=${!!targetRow} ` +
+                `resortFeeSum=${targetRow?.resortFeeSum ?? "n/a"} ` +
+                `reservationCount=${targetRow?.reservationCount ?? "n/a"}`
         );
 
         // Used Claims Fee = expense + extras with `fromClaimsFee` ticked. Both live
