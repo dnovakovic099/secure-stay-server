@@ -1,4 +1,6 @@
 import axios from "axios";
+import fs from "fs";
+import FormData from "form-data";
 import logger from "../utils/logger.utils";
 
 // Module-level TTL cache for the /integrations endpoint. Shared across every `new Hostify()`
@@ -818,6 +820,46 @@ export class Hostify {
             return data;
         } catch (error) {
             logger.error(`Error posting reply to thread ${threadId}:`, error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Post an image reply to an inbox thread.
+     *
+     * Hostify's docs list image replies on the same /inbox/r endpoint with
+     * thread_id + image. We use multipart here so the OTA receives the actual
+     * file instead of a SecureStay-hosted URL pasted into the message body.
+     */
+    async postInboxImageReply(
+        apiKey: string,
+        threadId: number | string,
+        filePath: string,
+        options: { message?: string | null; filename?: string | null; mimeType?: string | null } = {}
+    ): Promise<any> {
+        try {
+            const url = "https://api-rms.hostify.com/inbox/reply";
+            const form = new FormData();
+            form.append("thread_id", String(threadId));
+            if (options.message?.trim()) {
+                form.append("message", options.message.trim());
+            }
+            form.append("image", fs.createReadStream(filePath), {
+                filename: options.filename || undefined,
+                contentType: options.mimeType || undefined,
+            });
+            const response = await axios.post(url, form, {
+                headers: { ...form.getHeaders(), "x-api-key": apiKey },
+            });
+            const data = response.data || null;
+            if (data && data.success === false) {
+                const errMsg = data.error || data.message || "Hostify rejected the image reply";
+                logger.error(`Hostify image reply rejected for thread ${threadId}: ${errMsg}`);
+                throw new Error(errMsg);
+            }
+            return data;
+        } catch (error) {
+            logger.error(`Error posting image reply to thread ${threadId}:`, error.message);
             throw error;
         }
     }

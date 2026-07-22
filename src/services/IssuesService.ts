@@ -531,7 +531,9 @@ export class IssuesService {
             mainIssueThread.channel,
             localFiles.map((f) => f.fileName),
             "issues",
-            slackResponse.ts
+            slackResponse.ts,
+            "",
+            { groupFilesInSingleMessage: true }
           );
         }
       } catch (uploadError) {

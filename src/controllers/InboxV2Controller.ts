@@ -100,16 +100,19 @@ export class InboxV2Controller {
     async reply(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const threadId = Number(request.params.threadId);
-            const { message, suggestionId, aiStatus, attachmentUrls } = request.body;
+            const { message, suggestionId, aiStatus, attachmentUrls, attachments } = request.body;
             if (!Number.isFinite(threadId)) {
                 return response.status(400).json({ status: false, message: "Invalid threadId" });
             }
-            if (!message?.trim()) {
+            const normalizedAttachmentUrls = Array.isArray(attachmentUrls) ? attachmentUrls.map(String).filter(Boolean) : [];
+            const normalizedAttachments = Array.isArray(attachments) ? attachments : [];
+            if (!String(message || "").trim() && normalizedAttachmentUrls.length === 0 && normalizedAttachments.length === 0) {
                 return response.status(400).json({ status: false, message: "Message is required" });
             }
             const inboxService = new InboxService();
-            const saved = await inboxService.sendReply(threadId, message.trim(), request.user, {
-                attachmentUrls: Array.isArray(attachmentUrls) ? attachmentUrls.map(String) : [],
+            const saved = await inboxService.sendReply(threadId, String(message || "").trim(), request.user, {
+                attachmentUrls: normalizedAttachmentUrls,
+                attachments: normalizedAttachments,
             });
 
             // If this reply came from an AI suggestion, record what the human did

@@ -1,4 +1,6 @@
 import { Brackets, In } from "typeorm";
+import fs from "fs";
+import path from "path";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { Hostify } from "../client/Hostify";
@@ -37,6 +39,14 @@ export interface HostifyWebhookMessage {
     type?: string;
     action?: string;
 }
+
+type InboxReplyAttachment = {
+    url?: string | null;
+    path?: string | null;
+    name?: string | null;
+    mimeType?: string | null;
+    size?: number | null;
+};
 
 interface SyncOptions {
     maxPages?: number;
@@ -1752,14 +1762,53 @@ export class InboxService {
         }
     }
 
-    async sendReply(threadId: number, body: string, user: any, opts: { attachmentUrls?: string[]; } = {}) {
+    private getLocalInboxAttachmentPath(attachment: InboxReplyAttachment): string | null {
+        const rawPath = String(attachment.path || "").trim();
+        if (!rawPath || !rawPath.startsWith("/public/inbox-v2/")) return null;
+        const relativePath = rawPath.replace(/^\/+/, "");
+        const candidates = [
+            path.join(process.cwd(), relativePath),
+            path.join(process.cwd(), "dist", relativePath),
+        ];
+        return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+    }
+
+    private isImageReplyAttachment(attachment: InboxReplyAttachment): boolean {
+        const mimeType = String(attachment.mimeType || "").toLowerCase();
+        const label = `${attachment.name || ""} ${attachment.url || ""} ${attachment.path || ""}`;
+        return mimeType.startsWith("image/") || /\.(png|jpe?g|gif|webp|avif|heic|heif)(\?|#|$)/i.test(label);
+    }
+
+    async sendReply(threadId: number, body: string, user: any, opts: { attachmentUrls?: string[]; attachments?: InboxReplyAttachment[]; } = {}) {
         const conversation = await this.conversationRepo.findOne({ where: { threadId } });
         if (!conversation) {
             throw new Error(`Conversation ${threadId} not found`);
         }
 
-        // 1) Deliver to the guest via Hostify.
-        const hostifyResult = await this.hostify.postInboxReply(this.apiKey, threadId, body);
+        const attachmentUrls = (opts.attachmentUrls || []).filter(Boolean);
+        const attachments = (opts.attachments || []).filter((attachment) => attachment?.url || attachment?.path);
+        const imageAttachments = attachments.filter((attachment) => this.isImageReplyAttachment(attachment));
+
+        // 1) Deliver to the guest via Hostify. Image attachments are posted as
+        // actual files when the uploaded local file is still available; this keeps
+        // the guest-visible message from becoming a SecureStay URL.
+        let hostifyResult: any = null;
+        if (imageAttachments.length > 0) {
+            for (let index = 0; index < imageAttachments.length; index += 1) {
+                const attachment = imageAttachments[index];
+                const localPath = this.getLocalInboxAttachmentPath(attachment);
+                if (!localPath) {
+                    throw new CustomErrorHandler(400, `Uploaded image ${attachment.name || attachment.url || ""} is no longer available to send.`);
+                }
+                hostifyResult = await this.hostify.postInboxImageReply(this.apiKey, threadId, localPath, {
+                    message: index === 0 ? body : null,
+                    filename: attachment.name,
+                    mimeType: attachment.mimeType,
+                });
+            }
+        } else {
+            hostifyResult = await this.hostify.postInboxReply(this.apiKey, threadId, body);
+        }
 
         // 2) Resolve the internal sender for attribution.
         const { userId, userName } = await this.resolveSender(user);
@@ -1769,7 +1818,6 @@ export class InboxService {
         const externalId =
             toNumberOrNull(hostifyResult?.message?.id ?? hostifyResult?.id) ?? -Date.now();
 
-        const attachmentUrls = (opts.attachmentUrls || []).filter(Boolean);
         const message = this.messageRepo.create({
             externalId,
             threadId,
@@ -1796,22 +1844,24 @@ export class InboxService {
         // 4) Hostify can accept a reply and still fail to push it to Airbnb
         //    (channel_message_id stays null, target_id negative). Fail loudly so
         //    SecureStay never shows "sent" when the guest never got it.
-        const delivered = await this.awaitHostifyChannelDelivery(threadId, body, {
-            preferredExternalId: externalId > 0 ? externalId : null,
-        });
-        if (!delivered) {
-            saved.sentVia = "inbox_v2_failed";
-            await this.messageRepo.save(saved);
-            logger.error(
-                `[InboxService] Hostify reply NOT channel-delivered thread=${threadId} externalId=${saved.externalId} sender=${userName}`
-            );
-            throw new CustomErrorHandler(
-                502,
-                "Hostify accepted the reply but it was not delivered to Airbnb. Resend from Hostify (or try again), then refresh this thread."
-            );
+        if (body.trim()) {
+            const delivered = await this.awaitHostifyChannelDelivery(threadId, body, {
+                preferredExternalId: externalId > 0 ? externalId : null,
+            });
+            if (!delivered) {
+                saved.sentVia = "inbox_v2_failed";
+                await this.messageRepo.save(saved);
+                logger.error(
+                    `[InboxService] Hostify reply NOT channel-delivered thread=${threadId} externalId=${saved.externalId} sender=${userName}`
+                );
+                throw new CustomErrorHandler(
+                    502,
+                    "Hostify accepted the reply but it was not delivered to Airbnb. Resend from Hostify (or try again), then refresh this thread."
+                );
+            }
         }
 
-        conversation.lastMessageText = body;
+        conversation.lastMessageText = body || (attachmentUrls.length ? "Photo attachment" : body);
         conversation.lastMessageAt = saved.sentAt;
         conversation.answered = 1;
         conversation.unread = 0;

@@ -12,13 +12,58 @@ const token = process.env.SLACK_BOT_TOKEN;
 // Initialize Slack client
 const web = new WebClient(token);
 
+interface UploadFileToSlackOptions {
+    groupFilesInSingleMessage?: boolean;
+}
+
 export async function uploadFileToSlack(
     channelId: string,
     fileNames: string[],
     moduleFolder: string,
     threadTs?: string,
-    initialComment = ""
+    initialComment = "",
+    options: UploadFileToSlackOptions = {}
 ): Promise<void> {
+    if (options.groupFilesInSingleMessage) {
+        const fileUploads = fileNames
+            .map((fileName) => {
+                const filePath = path.join(__dirname, `../../public/${moduleFolder}`, fileName);
+
+                if (!fs.existsSync(filePath)) {
+                    logger.warn(`File not found: ${filePath}`);
+                    return null;
+                }
+
+                return {
+                    file: fs.createReadStream(filePath),
+                    filename: fileName,
+                };
+            })
+            .filter((upload): upload is { file: fs.ReadStream; filename: string } => Boolean(upload));
+
+        if (fileUploads.length === 0) return;
+
+        try {
+            const uploadArgs: Parameters<typeof web.files.uploadV2>[0] = {
+                channel_id: channelId,
+                initial_comment: initialComment,
+                file_uploads: fileUploads,
+                ...(threadTs ? { thread_ts: threadTs } : {}),
+            };
+            const result = await web.files.uploadV2(uploadArgs);
+
+            if (result.ok) {
+                logger.info(`Uploaded ${fileUploads.length} file(s) to Slack successfully.`);
+            } else {
+                logger.warn(`Failed to upload grouped files to Slack. Slack response:`, result);
+            }
+        } catch (error) {
+            logger.error(`Error uploading grouped files to Slack:`, error);
+        }
+
+        return;
+    }
+
     for (const [index, fileName] of fileNames.entries()) {
         const filePath = path.join(__dirname, `../../public/${moduleFolder}`, fileName);
 
