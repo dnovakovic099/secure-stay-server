@@ -77,6 +77,7 @@ interface ListOptions {
     lastMessageFrom?: string | string[];
     repliedBy?: string | string[];
     mood?: string | string[];
+    guestIssue?: string | string[];
     unresponded?: boolean | string;
     dateType?: string;
     dateFrom?: string;
@@ -1285,6 +1286,29 @@ export class InboxService {
                       AND replied_by_message.sentByName IN (:...repliedByBuckets)
                 )`,
                 { repliedByBuckets }
+            );
+        }
+
+        const guestIssueBuckets = parseListParam(options.guestIssue).map((value) => value.toLowerCase());
+        if (guestIssueBuckets.length) {
+            const issueExistsCondition = `EXISTS (
+                SELECT 1
+                FROM issues guest_issue
+                WHERE guest_issue.deleted_at IS NULL
+                  AND c.reservationId IS NOT NULL
+                  AND guest_issue.reservation_id = CAST(c.reservationId AS CHAR)
+            )`;
+            qb.andWhere(
+                new Brackets((b) => {
+                    guestIssueBuckets.forEach((bucket, index) => {
+                        const method = index === 0 ? "where" : "orWhere";
+                        if (bucket === "with" || bucket === "has" || bucket === "yes") {
+                            b[method](issueExistsCondition);
+                        } else if (bucket === "without" || bucket === "none" || bucket === "no") {
+                            b[method](`NOT ${issueExistsCondition}`);
+                        }
+                    });
+                })
             );
         }
 

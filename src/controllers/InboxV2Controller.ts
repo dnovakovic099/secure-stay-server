@@ -59,6 +59,7 @@ export class InboxV2Controller {
                 lastMessageFrom: request.query.lastMessageFrom as any,
                 repliedBy: request.query.repliedBy as any,
                 mood: request.query.mood as any,
+                guestIssue: request.query.guestIssue as any,
                 unresponded: request.query.unresponded === "true",
                 dateType: (request.query.dateType as string) || undefined,
                 dateFrom: (request.query.dateFrom as string) || undefined,
