@@ -70,6 +70,103 @@ export class IssuesService {
     return undefined;
   }
 
+  private isValidTimeZone(timeZone?: string | null) {
+    if (!timeZone) return false;
+    try {
+      Intl.DateTimeFormat("en-US", { timeZone });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private getTimeZoneParts(date: Date, timeZone: string) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).formatToParts(date);
+
+    const getPart = (type: string) => parts.find((part) => part.type === type)?.value || "";
+    return {
+      hour: Number(getPart("hour")),
+      minute: Number(getPart("minute")),
+      dateKey: `${getPart("year")}-${getPart("month")}-${getPart("day")}`,
+    };
+  }
+
+  private normalizeStayDateKey(value: any): string | null {
+    if (!value) return null;
+    if (value instanceof Date) return value.toISOString().slice(0, 10);
+    const raw = String(value).trim();
+    const directMatch = raw.match(/\d{4}-\d{2}-\d{2}/);
+    if (directMatch?.[0]) return directMatch[0];
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  private parseStayHourValue(value: any, fallback: number | null = null): number | null {
+    if (value === null || value === undefined || value === "") return fallback;
+    if (typeof value === "number" && !Number.isNaN(value)) return value;
+    const raw = String(value).trim();
+    const match = raw.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?/i);
+    if (!match) return fallback;
+    let hour = Number(match[1]);
+    const minute = Number(match[2] || 0);
+    const period = String(match[3] || "").toUpperCase();
+    if (period === "PM" && hour < 12) hour += 12;
+    if (period === "AM" && hour === 12) hour = 0;
+    return hour + (minute / 60);
+  }
+
+  private getIssueStayTiming(input: {
+    arrivalDate?: any;
+    departureDate?: any;
+    timeZone?: string | null;
+    checkInTime?: any;
+    checkOutTime?: any;
+  }) {
+    const arrival = this.normalizeStayDateKey(input.arrivalDate);
+    const departure = this.normalizeStayDateKey(input.departureDate);
+    if (!arrival || !departure) return null;
+
+    const timeZone = this.isValidTimeZone(input.timeZone) ? String(input.timeZone) : "America/New_York";
+    const nowParts = this.getTimeZoneParts(new Date(), timeZone);
+    const currentHour = nowParts.hour + (nowParts.minute / 60);
+    const checkInHour = this.parseStayHourValue(input.checkInTime, 15) ?? 15;
+    const checkOutHour = this.parseStayHourValue(input.checkOutTime, 11) ?? 11;
+
+    if (nowParts.dateKey < arrival) return "Future";
+    if (nowParts.dateKey === arrival) return currentHour < checkInHour ? "Future" : "Ongoing";
+    if (nowParts.dateKey > departure) return "Past";
+    if (nowParts.dateKey === departure) return currentHour < checkOutHour ? "Ongoing" : "Past";
+    return "Ongoing";
+  }
+
+  private getLocalTodayDateKey(timeZone?: string | null) {
+    const tz = this.isValidTimeZone(timeZone) ? String(timeZone) : "America/New_York";
+    return this.getTimeZoneParts(new Date(), tz).dateKey;
+  }
+
+  private normalizeStayStatusValues(values: any[]) {
+    return new Set(
+      values.map((value: any) => {
+        if (value === "currently-staying") return "Ongoing";
+        if (value === "upcoming") return "Future";
+        if (value === "past") return "Past";
+        if (value === "ci-today") return "checkin_today";
+        if (value === "co-today") return "checkout_today";
+        return value;
+      })
+    );
+  }
+
   private parseSlackThreadLink(slackLink: string): { channel: string; threadTs: string; messageTs: string; url: string } {
     const trimmedLink = String(slackLink || "").trim();
     if (!trimmedLink) {
@@ -2244,8 +2341,6 @@ export class IssuesService {
 
     const issueStatus = status;
     const grIssueStatus = grStatus;
-    const currentDate = format(new Date(), "yyyy-MM-dd");
-
     // dateType=created/completed/gr_completed/due filters on the Issue table directly.
     // dateType=activity_updated resolves any update event from either issue.updated_at
     // or issue timeline entries. dateType=updated/last_updated resolves the latest
@@ -2260,7 +2355,17 @@ export class IssuesService {
     let resolvedReservationIds: number[] | undefined;
     if (needsReservationLookup) {
       const reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
-      const qb = reservationRepo.createQueryBuilder("r").select("r.id", "id");
+      const qb = reservationRepo
+        .createQueryBuilder("r")
+        .select("r.id", "id")
+        .addSelect("r.arrivalDate", "arrivalDate")
+        .addSelect("r.departureDate", "departureDate")
+        .addSelect("r.checkInTime", "checkInTime")
+        .addSelect("r.checkOutTime", "checkOutTime")
+        .addSelect("l.timeZoneName", "timeZoneName")
+        .addSelect("l.checkInTimeStart", "listingCheckInTimeStart")
+        .addSelect("l.checkOutTime", "listingCheckOutTime")
+        .leftJoin(Listing, "l", "l.id = r.listingMapId");
 
       if (dateType === "check_in") {
         if (fromDate && toDate) {
@@ -2280,27 +2385,40 @@ export class IssuesService {
         }
       }
 
-      if (Array.isArray(stayStatus) && stayStatus.length > 0) {
-        const stayConditions: string[] = [];
-        if (stayStatus.includes("currently-staying")) {
-          stayConditions.push("(DATE(r.arrivalDate) <= :today AND DATE(r.departureDate) > :today)");
-        }
-        if (stayStatus.includes("co-today")) {
-          stayConditions.push("DATE(r.departureDate) = :today");
-        }
-        if (stayStatus.includes("past")) {
-          stayConditions.push("DATE(r.departureDate) < :today");
-        }
-        if (stayStatus.includes("upcoming")) {
-          stayConditions.push("DATE(r.arrivalDate) > :today");
-        }
-        if (stayConditions.length > 0) {
-          qb.andWhere(`(${stayConditions.join(" OR ")})`, { today: currentDate });
-        }
-      }
-
-      const rows = await qb.getRawMany<{ id: number }>();
-      resolvedReservationIds = rows.map((r) => Number(r.id));
+      const rows = await qb.getRawMany<{
+        id: number;
+        arrivalDate: any;
+        departureDate: any;
+        checkInTime: any;
+        checkOutTime: any;
+        timeZoneName: string | null;
+        listingCheckInTimeStart: any;
+        listingCheckOutTime: any;
+      }>();
+      const normalizedStayStatus = Array.isArray(stayStatus) && stayStatus.length > 0
+        ? this.normalizeStayStatusValues(stayStatus)
+        : null;
+      const filteredRows = normalizedStayStatus
+        ? rows.filter((row) => {
+            const timeZone = row.timeZoneName || "America/New_York";
+            const arrival = this.normalizeStayDateKey(row.arrivalDate);
+            const departure = this.normalizeStayDateKey(row.departureDate);
+            const timing = this.getIssueStayTiming({
+              arrivalDate: row.arrivalDate,
+              departureDate: row.departureDate,
+              timeZone,
+              checkInTime: row.checkInTime ?? row.listingCheckInTimeStart,
+              checkOutTime: row.checkOutTime ?? row.listingCheckOutTime,
+            });
+            const localToday = this.getLocalTodayDateKey(timeZone);
+            return (
+              (timing && normalizedStayStatus.has(timing)) ||
+              (normalizedStayStatus.has("checkin_today") && arrival === localToday) ||
+              (normalizedStayStatus.has("checkout_today") && departure === localToday)
+            );
+          })
+        : rows;
+      resolvedReservationIds = filteredRows.map((r) => Number(r.id));
 
       if (reservationId && reservationId.length > 0) {
         const requested = new Set(reservationId.map((id: any) => Number(id)));
@@ -2542,6 +2660,7 @@ export class IssuesService {
 
     const transformedIssues = issues.map((issue) => {
       const listing = listingMap.get(Number(issue.listing_id));
+      const reservationInfo = (issue as any).reservationInfo;
       const parsedChecklist = (() => {
         try {
           return issue.ai_checklist ? JSON.parse(issue.ai_checklist) : [];
@@ -2578,6 +2697,17 @@ export class IssuesService {
           };
         }),
         fileInfo: fileInfoList.filter((file) => file.entityType === "issues" && file.entityId === issue.id),
+        reservationInfo: reservationInfo
+          ? {
+              ...reservationInfo,
+              timeZoneName: reservationInfo.timeZoneName || listing?.timeZoneName || null,
+              timezoneIdentifier: reservationInfo.timezoneIdentifier || listing?.timeZoneName || null,
+              checkInTime: reservationInfo.checkInTime ?? listing?.checkInTimeStart ?? null,
+              checkOutTime: reservationInfo.checkOutTime ?? listing?.checkOutTime ?? null,
+              listingCheckInTimeStart: listing?.checkInTimeStart ?? null,
+              listingCheckOutTime: listing?.checkOutTime ?? null,
+            }
+          : null,
         assigneeName: userMap.get(issue.assignee)?.name || issue.assignee,
         propertyTypeTag: this.extractPropertyTypeTag(listing?.tags),
         serviceTypeTag: this.extractServiceTypeTag(listing?.tags),

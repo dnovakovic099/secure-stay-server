@@ -231,7 +231,7 @@ export const validateGetIssues = (request: Request, response: Response, next: Ne
         keywordField: Joi.string().valid('all', 'description', 'guestName', 'guestContact', 'property', 'issueNotes', 'latestUpdate', 'resolutionNotes', 'managerNotes').optional(),
         channel: Joi.array().items(Joi.string()).min(1).optional(),
         dateType: Joi.string().valid('created', 'updated', 'last_updated', 'activity_updated', 'completed', 'gr_completed', 'due', 'check_in', 'check_out').optional(),
-        stayStatus: Joi.array().items(Joi.string().valid('currently-staying', 'co-today', 'past', 'upcoming')).min(1).optional(),
+        stayStatus: Joi.array().items(Joi.string().valid('Past', 'Ongoing', 'Future', 'checkin_today', 'checkout_today', 'currently-staying', 'ci-today', 'co-today', 'past', 'upcoming')).min(1).optional(),
         assignee: Joi.array().items(Joi.string()).min(1).optional(),
         vendor: Joi.array().items(Joi.string()).min(1).optional(),
         urgency: Joi.array().items(Joi.number()).min(1).optional(),
