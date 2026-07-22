@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import { IssuesService } from "../services/IssuesService";
+import { IssueAIService } from "../services/IssueAIService";
 import path from "path";
 import fs from "fs";
 
@@ -685,6 +686,55 @@ export class IssuesController {
         status: true,
         data: result,
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** IR Copilot: get latest playbook suggestion (no regenerate). */
+  async getIrSuggestion(request: any, response: Response, next: NextFunction) {
+    try {
+      const issueId = Number(request.params.id);
+      if (!Number.isFinite(issueId)) {
+        return response.status(400).json({ status: false, message: "Invalid issue id" });
+      }
+      const data = await new IssueAIService().getLatestSuggestion(issueId);
+      return response.status(200).json({ status: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** IR Copilot: generate (or return recent) suggestion + ranked contacts. */
+  async suggestIrCopilot(request: any, response: Response, next: NextFunction) {
+    try {
+      const issueId = Number(request.params.id);
+      if (!Number.isFinite(issueId)) {
+        return response.status(400).json({ status: false, message: "Invalid issue id" });
+      }
+      const force = request.body?.force === true || request.query?.force === "true";
+      const data = await new IssueAIService().suggest(issueId, { force });
+      return response.status(200).json({ status: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** IR Copilot: structured thumbs / categories / corrected playbook feedback. */
+  async irCopilotFeedback(request: any, response: Response, next: NextFunction) {
+    try {
+      const body = request.body || {};
+      const userId = Number(request.user?.secureStayUserId ?? request.user?.id) || null;
+      const data = await new IssueAIService().submitFeedback({
+        suggestionId: body.suggestionId != null ? Number(body.suggestionId) : null,
+        issueId: body.issueId != null ? Number(body.issueId) : Number(request.params.id) || null,
+        userId,
+        rating: body.rating === "up" || body.rating === "down" ? body.rating : null,
+        categories: Array.isArray(body.categories) ? body.categories.map(String) : [],
+        feedbackText: body.feedbackText ?? body.feedback_text ?? null,
+        correctedResponse: body.correctedResponse ?? body.corrected_response ?? null,
+      });
+      return response.status(201).json({ status: true, data });
     } catch (error) {
       next(error);
     }

@@ -39,6 +39,10 @@ router.route('/slack-file').get(verifySession, issuesController.proxySlackFile);
 router.route('/:id/ai-summary').post(verifySession, issuesController.generateAiSummary);
 router.route('/:id/resolution-analysis').post(verifySession, issuesController.generateResolutionAnalysis);
 router.route('/:id/resolution-analysis/refresh-if-stale').post(verifySession, issuesController.refreshResolutionAnalysisIfStale);
+// IR Copilot (suggestion-only playbook + contacts + feedback)
+router.route('/:id/ir-suggest').get(verifySession, issuesController.getIrSuggestion);
+router.route('/:id/ir-suggest').post(verifySession, issuesController.suggestIrCopilot);
+router.route('/:id/ir-feedback').post(verifySession, issuesController.irCopilotFeedback);
 router.route('/:id/thread').get(verifySession, issuesController.getIssueThread);
 router.route('/:id/vendor-thread')
     .get(verifySession, issuesController.getIssueVendorThread)
