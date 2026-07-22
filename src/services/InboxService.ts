@@ -66,6 +66,7 @@ interface ListOptions {
     stayTiming?: string;
     lastMessageFrom?: string | string[];
     repliedBy?: string | string[];
+    mood?: string | string[];
     unresponded?: boolean | string;
     dateType?: string;
     dateFrom?: string;
@@ -1240,6 +1241,28 @@ export class InboxService {
             `);
         }
 
+        const moodBuckets = parseListParam(options.mood).map((value) => value.toLowerCase());
+        if (moodBuckets.length) {
+            qb.andWhere(
+                new Brackets((b) => {
+                    moodBuckets.forEach((bucket, index) => {
+                        const method = index === 0 ? "where" : "orWhere";
+                        if (bucket === "low" || bucket === "upset") {
+                            b[method]("c.guestSentimentScore BETWEEN 1 AND 4");
+                        } else if (bucket === "mid" || bucket === "neutral") {
+                            b[method]("c.guestSentimentScore BETWEEN 5 AND 6");
+                        } else if (bucket === "good") {
+                            b[method]("c.guestSentimentScore BETWEEN 7 AND 8");
+                        } else if (bucket === "high" || bucket === "happy") {
+                            b[method]("c.guestSentimentScore BETWEEN 9 AND 10");
+                        } else if (bucket === "unrated") {
+                            b[method]("c.guestSentimentScore IS NULL");
+                        }
+                    });
+                })
+            );
+        }
+
         const repliedByBuckets = parseListParam(options.repliedBy).filter(Boolean);
         if (repliedByBuckets.length) {
             qb.andWhere(
@@ -1351,7 +1374,18 @@ export class InboxService {
             .map((value) => Number(value))
             .filter((value) => Number.isFinite(value) && value > 0);
         if (selectedListingIds.length) {
-            qb.andWhere("c.listingId IN (:...selectedListingIds)", { selectedListingIds });
+            const expandedListingIds = Array.from(
+                new Set(
+                    (
+                        await Promise.all(
+                            selectedListingIds.map((listingId) => this.listingGroupService.groupIds(listingId))
+                        )
+                    ).flat()
+                )
+            );
+            qb.andWhere("c.listingId IN (:...selectedListingIds)", {
+                selectedListingIds: expandedListingIds.length ? expandedListingIds : selectedListingIds,
+            });
         }
 
         if (options.keyword) {

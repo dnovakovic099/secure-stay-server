@@ -25,6 +25,11 @@ const parseIssueFileNames = (value: unknown): string[] => {
   }
 };
 
+const getIssueAttachmentFiles = (request: any): Express.Multer.File[] => {
+  const attachments = request.files?.["attachments"];
+  return Array.isArray(attachments) ? attachments : [];
+};
+
 export class IssuesController {
   async getIssues(request: Request, response: Response) {
     const issuesService = new IssuesService();
@@ -91,20 +96,16 @@ export class IssuesController {
           }[]
         | null = null;
 
-      if (
-        Array.isArray(request.files["attachments"]) &&
-        request.files["attachments"].length > 0
-      ) {
-        fileInfo = (request.files["attachments"] as Express.Multer.File[]).map(
-          (file) => {
-            return {
-              fileName: file.filename,
-              filePath: file.path,
-              mimeType: file.mimetype,
-              originalName: file.originalname,
-            };
-          }
-        );
+      const uploadedAttachments = getIssueAttachmentFiles(request);
+      if (uploadedAttachments.length > 0) {
+        fileInfo = uploadedAttachments.map((file) => {
+          return {
+            fileName: file.filename,
+            filePath: file.path,
+            mimeType: file.mimetype,
+            originalName: file.originalname,
+          };
+        });
       }
 
       const result = await issuesService.createIssue(
@@ -163,20 +164,16 @@ export class IssuesController {
           }[]
         | null = null;
 
-      if (
-        Array.isArray(request.files["attachments"]) &&
-        request.files["attachments"].length > 0
-      ) {
-        fileInfo = (request.files["attachments"] as Express.Multer.File[]).map(
-          (file) => {
-            return {
-              fileName: file.filename,
-              filePath: file.path,
-              mimeType: file.mimetype,
-              originalName: file.originalname,
-            };
-          }
-        );
+      const uploadedAttachments = getIssueAttachmentFiles(request);
+      if (uploadedAttachments.length > 0) {
+        fileInfo = uploadedAttachments.map((file) => {
+          return {
+            fileName: file.filename,
+            filePath: file.path,
+            mimeType: file.mimetype,
+            originalName: file.originalname,
+          };
+        });
       }
       // Combine existing and new files
       const finalFileNames = [
