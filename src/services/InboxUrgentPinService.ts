@@ -26,6 +26,13 @@ export type UrgentPinType =
 const ACCESS_RE =
     /\b(?:lock(?:ed)?\s*out|can'?t\s+(?:get|figure)\s+(?:in|inside|into|the\s+door)|cannot\s+(?:get\s+in|enter|access)|unable\s+to\s+(?:get\s+in|enter|access)|won'?t\s+let\s+(?:me|us)\s+in|door\s+(?:won'?t|wont|will\s+not)\s+open|(?:door\s+|gate\s+|garage\s+|access\s+|lock\s+)?code\b[^.!?\n]{0,60}\b(?:not|isn'?t|doesn'?t|won'?t|wont|stopped)\s+work(?:ing|s)?\b|(?:keypad|lock|door)\b[^.!?\n]{0,60}\b(?:not|isn'?t|doesn'?t|won'?t|wont|stopped)\s+work(?:ing|s)?\b|wrong\s+code|code\s+(?:is\s+)?(?:invalid|incorrect|wrong)|access(?:\s+code)?\s+(?:is\s+)?(?:wrong|invalid|not\s+working)|key\s+(?:doesn'?t|does\s+not|won'?t)\s+work(?:ing|s)?\b|(?:keypad|digit|code).{0,40}\b(?:red|won'?t\s+accept|doesn'?t\s+accept)|can'?t\s+(?:access|get\s+into)\s+(?:the\s+)?(?:property|unit|house|place|back\s+house|cottage)|locked\s+out|no\s+(?:access|entry))\b/i;
 
+/**
+ * Guest confirms they got in — clear access pins.
+ * Avoids "I'm in transit" / mid-lockout "I'm in front of the house".
+ */
+const ACCESS_RESOLVED_RE =
+    /\b(?:i(?:'?m|\s+am)|we(?:'?re|\s+are))\s+in(?:side)?(?:\s*[,!.]|\s+(?:now|thanks|thank\s*you|ok|okay|all\s+good)|$)|(?:thank(?:s|\s*you)|all\s+good).{0,24}\b(?:i(?:'?m|\s+am)|we(?:'?re|\s+are))\s+in(?:side)?\b|\b(?:got|made)\s+(?:it\s+)?(?:in(?:side)?|through)\b|\b(?:successfully\s+)?(?:got|gained)\s+(?:in|inside|access)\b|\b(?:code|keypad|lock|door)\s+(?:worked|works(?:\s+now)?|is\s+working(?:\s+now)?)\b|\bwe(?:'?re|\s+are)\s+(?:inside|in\s+now)\b/i;
+
 /** Real emergencies only — not generic "urgent" / ops annoyances. */
 const SAFETY_RE =
     /\b(fire|flood(?:ing)?|gas\s+leak|carbon\s+monoxide|\bco\s+alarm|smoke\s+alarm|ambulanc|police|911|bleeding|broke(?:n)?\s+(my|his|her|our)\s+(arm|leg|bone)|injur(?:y|ed)|unconscious|overdose|assault|weapon|gunshot)\b/i;
@@ -58,6 +65,15 @@ export class InboxUrgentPinService {
 
     static detectsAccess(text: string): boolean {
         return ACCESS_RE.test(String(text || ""));
+    }
+
+    /** Guest says they got in / code worked — access issue is over. */
+    static detectsAccessResolved(text: string): boolean {
+        const body = String(text || "").trim();
+        if (!body) return false;
+        // Still reporting a live lockout → do not clear.
+        if (InboxUrgentPinService.detectsAccess(body)) return false;
+        return ACCESS_RESOLVED_RE.test(body);
     }
 
     static detectsSafety(text: string): boolean {
@@ -160,22 +176,42 @@ export class InboxUrgentPinService {
 
     /**
      * Raise an Urgent pin from a guest message when it matches access / safety /
-     * time-sensitive schedule asks. No-op when payment already pinned or text
-     * doesn't qualify.
+     * time-sensitive schedule asks. Also clears access pins when the guest later
+     * confirms they got in. No-op when payment already pinned or text doesn't
+     * qualify.
      */
     async evaluateAndRaise(
         conversation: InboxConversationEntity,
         guestText: string
-    ): Promise<{ raised: boolean; type?: UrgentPinType }> {
+    ): Promise<{ raised: boolean; cleared?: boolean; type?: UrgentPinType }> {
         try {
             if (!conversation?.threadId) return { raised: false };
+
+            const existingType =
+                Number(conversation.emergency) === 1
+                    ? String(conversation.emergencyType || "payment").toLowerCase()
+                    : null;
+
+            // Access issue solved ("Im in thank you") → drop the urgent pin.
+            if (
+                existingType === "access" &&
+                InboxUrgentPinService.detectsAccessResolved(guestText)
+            ) {
+                const ok = await this.overdue.clearEmergency(Number(conversation.threadId));
+                if (ok) {
+                    logger.info(
+                        `[InboxUrgentPin] Cleared access pin on thread ${conversation.threadId} (guest confirmed entry)`
+                    );
+                }
+                return { raised: false, cleared: ok };
+            }
+
             const hit = this.classify(guestText, conversation);
             if (!hit) return { raised: false };
 
-            if (Number(conversation.emergency) === 1) {
-                const existing = String(conversation.emergencyType || "payment").toLowerCase();
-                if (existing === "payment") return { raised: false };
-                if (!this.shouldReplaceExisting(existing, hit.type)) return { raised: false };
+            if (existingType === "payment") return { raised: false };
+            if (existingType && !this.shouldReplaceExisting(existingType, hit.type)) {
+                return { raised: false };
             }
 
             const notify = hit.type === "access" || hit.type === "safety";
@@ -197,8 +233,9 @@ export class InboxUrgentPinService {
     }
 
     /**
-     * Drop schedule pins outside the 48h window, and access/safety pins on past
-     * / inactive stays. Called from inbox list alongside payment pin cleanup.
+     * Drop schedule pins outside the 48h window, access/safety pins on past
+     * stays, and access pins where the latest guest message confirms entry.
+     * Called from inbox list alongside payment pin cleanup.
      */
     async clearStaleUrgentPins(): Promise<number> {
         try {
@@ -230,6 +267,23 @@ export class InboxUrgentPinService {
                 } else if (type === "access" || type === "safety") {
                     const checkout = this.dateStr(c.checkout);
                     drop = !!checkout && checkout < today;
+                }
+                // Access: guest later said "Im in thank you" — drop even mid-stay.
+                if (!drop && type === "access") {
+                    const msgs = await this.messageRepo().find({
+                        where: { threadId: Number(c.threadId) },
+                        order: { sentAt: "DESC", id: "DESC" },
+                        take: 8,
+                    });
+                    const guest = msgs.find(
+                        (m) =>
+                            m.direction === "incoming" &&
+                            !Number(m.isAutomatic) &&
+                            String(m.body || "").trim()
+                    );
+                    if (guest?.body && InboxUrgentPinService.detectsAccessResolved(guest.body)) {
+                        drop = true;
+                    }
                 }
                 if (!drop) continue;
                 const ok = await this.overdue.clearEmergency(Number(c.threadId));

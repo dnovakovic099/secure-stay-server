@@ -31,6 +31,22 @@ const pin = new InboxUrgentPinService().classify(dale, {
 } as any);
 assert(pin?.type === "access", `classify Dale → access (got ${pin?.type})`);
 
+// Guest confirms entry → clear access pin (Diane: "Im in thank you").
+assert(InboxUrgentPinService.detectsAccessResolved("Im in thank you"), "Im in thank you → resolved");
+assert(InboxUrgentPinService.detectsAccessResolved("I'm in"), "I'm in → resolved");
+assert(InboxUrgentPinService.detectsAccessResolved("we're in now"), "we're in now → resolved");
+assert(InboxUrgentPinService.detectsAccessResolved("got in, thanks"), "got in → resolved");
+assert(InboxUrgentPinService.detectsAccessResolved("the code worked"), "code worked → resolved");
+assert(
+    !InboxUrgentPinService.detectsAccessResolved("I am still in transit but the code is not working"),
+    "in transit + code not working → NOT resolved"
+);
+assert(
+    !InboxUrgentPinService.detectsAccessResolved("I'm in front of the house and the code is not working"),
+    "still locked out → NOT resolved"
+);
+assert(!InboxUrgentPinService.detectsAccessResolved("how many bedrooms"), "unrelated → not resolved");
+
 if (failed) {
     console.error(`\n${failed} failed`);
     process.exit(1);
