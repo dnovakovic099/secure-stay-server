@@ -1038,6 +1038,7 @@ export class InboxService {
                 .createQueryBuilder("m")
                 .where("m.threadId = :tid", { tid: conversation.threadId })
                 .andWhere("m.direction IN ('incoming', 'outgoing')")
+                .andWhere("(m.note IS NULL OR TRIM(m.note) = '')")
                 .orderBy("m.sentAt", "DESC")
                 .addOrderBy("m.id", "DESC")
                 .getOne();
@@ -1201,6 +1202,7 @@ export class InboxService {
                 FROM inbox_messages latest_message
                 WHERE latest_message.threadId = c.threadId
                   AND latest_message.direction IN ('incoming', 'outgoing')
+                  AND (latest_message.note IS NULL OR TRIM(latest_message.note) = '')
                 ORDER BY latest_message.sentAt DESC, latest_message.id DESC
                 LIMIT 1
             )`;
@@ -1224,11 +1226,13 @@ export class InboxService {
                     FROM inbox_messages latest_incoming
                     WHERE latest_incoming.threadId = c.threadId
                       AND latest_incoming.direction = 'incoming'
+                      AND (latest_incoming.note IS NULL OR TRIM(latest_incoming.note) = '')
                       AND latest_incoming.id = (
                           SELECT latest_message.id
                           FROM inbox_messages latest_message
                           WHERE latest_message.threadId = c.threadId
                             AND latest_message.direction IN ('incoming', 'outgoing')
+                            AND (latest_message.note IS NULL OR TRIM(latest_message.note) = '')
                           ORDER BY latest_message.sentAt DESC, latest_message.id DESC
                           LIMIT 1
                       )
@@ -1443,8 +1447,18 @@ export class InboxService {
                     .filter((listingId) => Number.isFinite(listingId) && listingId > 0)
             )
         );
-        const listings = listingIds.length
-            ? await this.listingRepo.find({ where: { id: In(listingIds) }, withDeleted: true })
+        const parentListingIds = await Promise.all(
+            conversations.map((conversation) => this.listingGroupService.resolve(conversation.listingId))
+        );
+        const allListingIds = Array.from(
+            new Set(
+                [...listingIds, ...parentListingIds]
+                    .map((listingId) => Number(listingId))
+                    .filter((listingId) => Number.isFinite(listingId) && listingId > 0)
+            )
+        );
+        const listings = allListingIds.length
+            ? await this.listingRepo.find({ where: { id: In(allListingIds) }, withDeleted: true })
             : [];
         const listingMap = new Map(listings.map((listing) => [Number(listing.id), listing]));
 
@@ -1470,22 +1484,30 @@ export class InboxService {
             }
         }
 
-        const enrichedConversations = await Promise.all(conversations.map(async (conversation) => {
+        const enrichedConversations = conversations.map((conversation, index) => {
             const listing = listingMap.get(Number(conversation.listingId)) || null;
-            const normalizedListing = listing
-                ? (this.listingService as any).normalizeListingOverview?.(listing) || null
+            const parentListingId = parentListingIds[index];
+            const parentListing = parentListingId ? listingMap.get(Number(parentListingId)) || null : null;
+            const listingPropertyType = this.normalizePropertyTypeValue(listing);
+            const listingServiceType = this.normalizeServiceTypeValue(
+                listing,
+                listing ? (this.listingService as any).normalizeListingOverview?.(listing) || null : null
+            );
+            const needsParentTags = !listingPropertyType || (listingPropertyType === "PM" && !listingServiceType);
+            const classificationListing = needsParentTags ? parentListing || listing : listing;
+            const normalizedListing = classificationListing
+                ? (this.listingService as any).normalizeListingOverview?.(classificationListing) || null
                 : null;
-            const parentListingId = await this.listingGroupService.resolve(conversation.listingId);
             const guestMuted = conversation.guestId != null && mutedGuestIds.has(Number(conversation.guestId));
             return {
                 ...conversation,
                 aiAutoRespondDisabled:
                     Number(conversation.aiAutoRespondDisabled) === 1 || guestMuted ? 1 : 0,
                 parentListingId,
-                propertyType: this.normalizePropertyTypeValue(listing),
-                serviceType: this.normalizeServiceTypeValue(listing, normalizedListing),
+                propertyType: this.normalizePropertyTypeValue(classificationListing),
+                serviceType: this.normalizeServiceTypeValue(classificationListing, normalizedListing),
             };
-        }));
+        });
 
         const { channels, repliedByUsers } = await this.getFilterOptions();
 
