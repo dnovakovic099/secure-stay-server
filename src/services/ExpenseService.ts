@@ -915,6 +915,72 @@ export class ExpenseService {
     async getClaimsFeeFunds(request: Request) {
         const fromDate = String(request.query.fromDate || "");
         const toDate = String(request.query.toDate || "");
+        const dateTypeInput = String(request.query.dateType || "").trim();
+        // Reservation date column the range applies to. Defaults to arrivalDate
+        // (check-in) so calls without an explicit dateType keep behaving like the
+        // legacy Accounting dashboard.
+        const dateTypeMap: Record<string, string> = {
+            arrivalDate: "arrivalDate",
+            checkIn: "arrivalDate",
+            checkin: "arrivalDate",
+            departureDate: "departureDate",
+            checkOut: "departureDate",
+            checkout: "departureDate",
+            reservationDate: "reservationDate",
+            confirmationDate: "reservationDate",
+            confirmation: "reservationDate",
+        };
+        const reservationDateColumn = dateTypeMap[dateTypeInput] || "arrivalDate";
+
+        const rawListingIds = request.query.listingIds ?? request.query["listingIds[]"];
+        const listingIdsInput = Array.isArray(rawListingIds)
+            ? rawListingIds
+            : typeof rawListingIds === "string" && rawListingIds
+                ? rawListingIds.split(",")
+                : [];
+        const requestedListingIds = Array.from(
+            new Set(
+                listingIdsInput
+                    .map((value) => Number(String(value).trim()))
+                    .filter((value) => Number.isFinite(value) && value > 0)
+            )
+        );
+
+        const rawPropertyTypes = request.query.propertyType ?? request.query["propertyType[]"];
+        const propertyTypes = (Array.isArray(rawPropertyTypes)
+            ? rawPropertyTypes
+            : rawPropertyTypes
+                ? [rawPropertyTypes]
+                : []
+        )
+            .map((value) => String(value).trim())
+            .filter(Boolean);
+
+        // Property-type filter is applied via ListingService which knows how
+        // to expand tag aliases. If the caller passed types but no listing
+        // matches, short-circuit to an empty result so we don't fall back to
+        // "all listings".
+        let propertyTypeListingIds: number[] | null = null;
+        if (propertyTypes.length > 0) {
+            const listingService = new ListingService();
+            const listings = await listingService.getListingsByPropertyTypes(propertyTypes as any);
+            propertyTypeListingIds = listings
+                .map((listing: Listing) => Number(listing.id))
+                .filter((id: number) => Number.isFinite(id));
+            if (propertyTypeListingIds.length === 0) return [];
+        }
+
+        let effectiveListingIds: number[] | null = null;
+        if (requestedListingIds.length > 0 && propertyTypeListingIds) {
+            const allowed = new Set(propertyTypeListingIds);
+            effectiveListingIds = requestedListingIds.filter((id) => allowed.has(id));
+            if (effectiveListingIds.length === 0) return [];
+        } else if (requestedListingIds.length > 0) {
+            effectiveListingIds = requestedListingIds;
+        } else if (propertyTypeListingIds) {
+            effectiveListingIds = propertyTypeListingIds;
+        }
+
         const { hasResortFee, hasInsuranceFee } = await this.getClaimsFeeSourceColumns();
         const reservationParams: any[] = [];
         const expenseParams: any[] = [];
@@ -922,10 +988,20 @@ export class ExpenseService {
         let expenseDateWhere = "";
 
         if (fromDate && toDate) {
-            reservationDateWhere = "AND arrivalDate BETWEEN ? AND ?";
+            reservationDateWhere = `AND ${reservationDateColumn} BETWEEN ? AND ?`;
             expenseDateWhere = "AND expenseDate BETWEEN ? AND ?";
             reservationParams.push(fromDate, toDate);
             expenseParams.push(fromDate, toDate);
+        }
+
+        let reservationListingWhere = "";
+        let expenseListingWhere = "";
+        if (effectiveListingIds && effectiveListingIds.length > 0) {
+            const placeholders = effectiveListingIds.map(() => "?").join(",");
+            reservationListingWhere = `AND r.listingMapId IN (${placeholders})`;
+            expenseListingWhere = `AND listingMapId IN (${placeholders})`;
+            reservationParams.push(...effectiveListingIds);
+            expenseParams.push(...effectiveListingIds);
         }
 
         // Booked-reservation statuses. Kept in sync with the broader whitelist
@@ -960,6 +1036,7 @@ export class ExpenseService {
                 FROM reservation_info r
                 WHERE r.listingMapId IS NOT NULL
                 ${reservationDateWhere}
+                ${reservationListingWhere}
                 AND r.status IN (${statusPlaceholders})
                 GROUP BY r.listingMapId
             `,
@@ -979,6 +1056,7 @@ export class ExpenseService {
                 AND isDeleted = 0
                 AND fromClaimsFee = 1
                 ${expenseDateWhere}
+                ${expenseListingWhere}
                 GROUP BY listingMapId
             `,
             expenseParams
