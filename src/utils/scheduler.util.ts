@@ -603,6 +603,22 @@ export function scheduleGetReservation() {
     }
   );
 
+  // Rescue Copilot — unanswered active rescues → ping on-shift reps (or Anj).
+  schedule.scheduleJob(
+    "9-59/15 * * * *",
+    async () => {
+      try {
+        const { RescueCopilotService } = require("../services/RescueCopilotService");
+        const result = await new RescueCopilotService().sweepUnansweredRescues();
+        if (result.pinged) {
+          logger.info(`[RescueCopilot] unanswered sweep — checked=${result.checked}, pinged=${result.pinged}`);
+        }
+      } catch (error) {
+        logger.error("[RescueCopilot] Error in unanswered sweep:", error);
+      }
+    }
+  );
+
   // Ops Radar — review-risk scoring for active stays, every 3 hours. One
   // small LLM call per thread with NEW guest messages (cached by message time).
   schedule.scheduleJob(
@@ -641,6 +657,16 @@ export function scheduleGetReservation() {
         await svc.sendDailyDigest().catch((err: any) =>
           logger.warn(`[OpsRadar] daily digest failed: ${err.message}`)
         );
+        // Rescue Copilot morning brief (open / failed overnight rescues).
+        try {
+          const { RescueCopilotService } = require("../services/RescueCopilotService");
+          const brief = await new RescueCopilotService().sendMorningBrief();
+          if (brief.rescues) {
+            logger.info(`[RescueCopilot] morning brief — sent=${brief.sent}, rescues=${brief.rescues}`);
+          }
+        } catch (err: any) {
+          logger.warn(`[RescueCopilot] morning brief failed: ${err.message}`);
+        }
         // Knowledge conflict sweep — hash-cached, so only listings whose
         // facts/KB/listing data changed since yesterday hit the LLM.
         try {

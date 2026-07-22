@@ -160,6 +160,18 @@ export class InboxConversationEntity {
     @Column({ type: "datetime", nullable: true })
     rescueDismissedUntil: Date | null;
 
+    @Column({ type: "datetime", nullable: true })
+    rescueFailedAt: Date | null;
+
+    @Column({ type: "datetime", nullable: true })
+    rescueNotifiedAt: Date | null;
+
+    @Column({ type: "datetime", nullable: true })
+    rescueLastPingAt: Date | null;
+
+    @Column({ type: "tinyint", nullable: true })
+    rescueMoodAtActivate: number | null;
+
     @CreateDateColumn({ type: "timestamp" })
     createdAt: Date;
 

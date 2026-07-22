@@ -203,6 +203,16 @@ export class AICopilotController {
                 detectionFeedback: b.detectionFeedback,
                 rescueCopilotEnabled:
                     typeof b.rescueCopilotEnabled === "boolean" ? b.rescueCopilotEnabled : undefined,
+                rescueNotifyAnjEnabled:
+                    typeof b.rescueNotifyAnjEnabled === "boolean" ? b.rescueNotifyAnjEnabled : undefined,
+                rescueGestures: b.rescueGestures !== undefined ? b.rescueGestures : undefined,
+                rescueUnansweredMinutes:
+                    b.rescueUnansweredMinutes === undefined ? undefined : Number(b.rescueUnansweredMinutes),
+                irAutoAckEnabled: typeof b.irAutoAckEnabled === "boolean" ? b.irAutoAckEnabled : undefined,
+                irAutoAckListingIds: b.irAutoAckListingIds !== undefined ? b.irAutoAckListingIds : undefined,
+                irAutoAssignEnabled: typeof b.irAutoAssignEnabled === "boolean" ? b.irAutoAssignEnabled : undefined,
+                irStaleHoursInHouse:
+                    b.irStaleHoursInHouse === undefined ? undefined : Number(b.irStaleHoursInHouse),
                 proposedActionsEnabled:
                     typeof b.proposedActionsEnabled === "boolean" ? b.proposedActionsEnabled : undefined,
                 proposedActionInstructions: b.proposedActionInstructions,

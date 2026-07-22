@@ -77,6 +77,13 @@ export interface AIMessagingSettingsPatch {
     ticketCategories?: ActionItemCategoryEntry[] | null;
     detectionFeedback?: string | null;
     rescueCopilotEnabled?: boolean;
+    rescueNotifyAnjEnabled?: boolean;
+    rescueGestures?: string | null;
+    rescueUnansweredMinutes?: number;
+    irAutoAckEnabled?: boolean;
+    irAutoAckListingIds?: string | null;
+    irAutoAssignEnabled?: boolean;
+    irStaleHoursInHouse?: number;
     proposedActionsEnabled?: boolean;
     proposedActionInstructions?: string | null;
     proposedActionApproveInstructions?: string | null;
@@ -245,6 +252,19 @@ export class AIMessagingSettingsService {
         }
         if (patch.detectionFeedback !== undefined) row.detectionFeedback = patch.detectionFeedback ?? null;
         if (patch.rescueCopilotEnabled !== undefined) row.rescueCopilotEnabled = patch.rescueCopilotEnabled ? 1 : 0;
+        if (patch.rescueNotifyAnjEnabled !== undefined) {
+            row.rescueNotifyAnjEnabled = patch.rescueNotifyAnjEnabled ? 1 : 0;
+        }
+        if (patch.rescueGestures !== undefined) row.rescueGestures = patch.rescueGestures ?? null;
+        if (patch.rescueUnansweredMinutes !== undefined && Number.isFinite(patch.rescueUnansweredMinutes)) {
+            row.rescueUnansweredMinutes = Math.max(10, Math.min(240, Math.round(patch.rescueUnansweredMinutes)));
+        }
+        if (patch.irAutoAckEnabled !== undefined) row.irAutoAckEnabled = patch.irAutoAckEnabled ? 1 : 0;
+        if (patch.irAutoAckListingIds !== undefined) row.irAutoAckListingIds = patch.irAutoAckListingIds ?? null;
+        if (patch.irAutoAssignEnabled !== undefined) row.irAutoAssignEnabled = patch.irAutoAssignEnabled ? 1 : 0;
+        if (patch.irStaleHoursInHouse !== undefined && Number.isFinite(patch.irStaleHoursInHouse)) {
+            row.irStaleHoursInHouse = Math.max(1, Math.min(48, Math.round(patch.irStaleHoursInHouse)));
+        }
         if (patch.proposedActionsEnabled !== undefined) row.proposedActionsEnabled = patch.proposedActionsEnabled ? 1 : 0;
         if (patch.proposedActionInstructions !== undefined) row.proposedActionInstructions = patch.proposedActionInstructions ?? null;
         if (patch.proposedActionApproveInstructions !== undefined) {

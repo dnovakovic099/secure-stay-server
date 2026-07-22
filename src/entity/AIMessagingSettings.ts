@@ -195,6 +195,35 @@ export class AIMessagingSettingsEntity {
     @Column({ type: "tinyint", default: 1 })
     rescueCopilotEnabled: number;
 
+    /** Notify Anj/admins when a rescue fails (guest still upset after our reply). */
+    @Column({ type: "tinyint", default: 1 })
+    rescueNotifyAnjEnabled: number;
+
+    // ---- IR Copilot automation (Phase 3) ----
+    /** Opt-in: auto-send a short holding ack to the guest on new in-house access tickets. */
+    @Column({ type: "tinyint", default: 0 })
+    irAutoAckEnabled: number;
+
+    /** Comma/newline listing IDs allowed for IR auto-ack (empty = all listings when enabled). */
+    @Column({ type: "text", nullable: true })
+    irAutoAckListingIds: string | null;
+
+    /** Opt-in: auto-assign new Guest Issues to the least-loaded IR assignee. */
+    @Column({ type: "tinyint", default: 0 })
+    irAutoAssignEnabled: number;
+
+    /** Hours without an update on an in-house open issue before Ops Radar / nudge. */
+    @Column({ type: "int", default: 2 })
+    irStaleHoursInHouse: number;
+
+    /** Optional newline/comma list of allowed goodwill gestures (policy-constrained). */
+    @Column({ type: "text", nullable: true })
+    rescueGestures: string | null;
+
+    /** Minutes an active rescue can sit unanswered before shift ping. */
+    @Column({ type: "int", default: 30 })
+    rescueUnansweredMinutes: number;
+
     // ---- Inbox V2 proposed actions ----
     // Human-approved operation cards shown inside Inbox V2 when a guest message
     // looks like an early check-in, late checkout, access-code, or ops request.

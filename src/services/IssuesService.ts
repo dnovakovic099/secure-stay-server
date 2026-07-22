@@ -1383,6 +1383,15 @@ export class IssuesService {
         await this.fileInfoRepo.save(fileRecord);
       }
     }
+
+    // Phase 3 IR Copilot: opt-in auto-assign / narrow auto-ack (best-effort).
+    try {
+      const { IssueAIService } = require("./IssueAIService");
+      await new IssueAIService().onIssueCreated(savedIssue, userId);
+    } catch (err: any) {
+      logger.warn(`[IssuesService] IR onIssueCreated failed for #${savedIssue.id}: ${err?.message}`);
+    }
+
     return savedIssue;
   }
 

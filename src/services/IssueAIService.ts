@@ -34,6 +34,14 @@ export type IrRecommendedContact = {
     deepLinks?: { call?: string | null; sms?: string | null; mailto?: string | null };
 };
 
+export type IrSimilarIssue = {
+    id: number;
+    title: string;
+    resolution: string | null;
+    poc: string | null;
+    category: string | null;
+};
+
 export type IrSuggestionPayload = {
     id: number;
     issueId: number;
@@ -53,6 +61,13 @@ export type IrSuggestionPayload = {
     generatedAt: string;
     aiShortTitle?: string | null;
     aiChecklist?: string[];
+    similarIssues?: IrSimilarIssue[];
+    channels?: {
+        hasInboxThread: boolean;
+        inboxThreadId: number | null;
+        hasQuoThread: boolean;
+        quoConversationId: string | null;
+    };
 };
 
 export class IssueAIService {
@@ -75,7 +90,8 @@ export class IssueAIService {
             order: { generatedAt: "DESC", id: "DESC" },
         });
         if (!row) return null;
-        return this.toPayload(row);
+        const issue = await this.issueRepo.findOne({ where: { id: issueId } });
+        return await this.toPayload(row, issue);
     }
 
     async suggest(issueId: number, opts: { force?: boolean } = {}): Promise<IrSuggestionPayload> {
@@ -88,7 +104,7 @@ export class IssueAIService {
                 order: { generatedAt: "DESC", id: "DESC" },
             });
             if (existing && Date.now() - new Date(existing.generatedAt).getTime() < 10 * 60 * 1000) {
-                return this.toPayload(existing, issue);
+                return await this.toPayload(existing, issue);
             }
         }
 
@@ -121,6 +137,7 @@ export class IssueAIService {
                                 "Prefer calling vendors/cleaners before promising guest outcomes.",
                                 "Keep drafts short, professional, and actionable. No auto-send — human will review.",
                                 "If guest is in-house, prioritize safety/access/comfort and fast contact.",
+                                "Treat recentTeamFeedback correctedResponse as preferred playbook/draft wording for this listing.",
                             ].join(" "),
                         },
                         {
@@ -133,6 +150,7 @@ export class IssueAIService {
                                 contacts: heuristicContacts,
                                 recentMessages: context.recentMessages,
                                 similarHints: context.similarHints,
+                                similarIssues: context.similarIssues,
                                 recentTeamFeedback: recentFeedback,
                             }),
                         },
@@ -182,7 +200,7 @@ export class IssueAIService {
             generatedAt: new Date(),
         });
         const saved = await this.suggestionRepo.save(row);
-        return this.toPayload(saved, issue);
+        return await this.toPayload(saved, issue);
     }
 
     async submitFeedback(input: {
@@ -289,33 +307,12 @@ export class IssueAIService {
             }
         }
 
-        let similarHints: string[] = [];
-        if (Number.isFinite(listingId) && issue.category) {
-            try {
-                const similar = await this.issueRepo.find({
-                    where: {
-                        listing_id: String(listingId),
-                        category: issue.category,
-                        status: "Completed",
-                    },
-                    order: { id: "DESC" },
-                    take: 3,
-                });
-                similarHints = similar
-                    .filter((s) => s.id !== issue.id)
-                    .map((s) =>
-                        [
-                            s.ai_short_title || s.issue_description?.slice(0, 80),
-                            s.resolution ? `IR note: ${String(s.resolution).slice(0, 120)}` : null,
-                            s.final_contractor_name ? `POC: ${s.final_contractor_name}` : null,
-                        ]
-                            .filter(Boolean)
-                            .join(" | ")
-                    );
-            } catch {
-                /* optional */
-            }
-        }
+        const similarIssues = await this.findSimilarIssues(issue);
+        const similarHints = similarIssues.map((s) =>
+            [s.title, s.resolution ? `IR note: ${s.resolution}` : null, s.poc ? `POC: ${s.poc}` : null]
+                .filter(Boolean)
+                .join(" | ")
+        );
 
         const stayStage = this.computeStayStage(reservation || issue);
 
@@ -369,7 +366,36 @@ export class IssueAIService {
             contacts,
             recentMessages,
             similarHints,
+            similarIssues,
         };
+    }
+
+    private async findSimilarIssues(issue: Issue): Promise<IrSimilarIssue[]> {
+        const listingId = Number(issue.listing_id);
+        if (!Number.isFinite(listingId) || !issue.category) return [];
+        try {
+            const similar = await this.issueRepo.find({
+                where: {
+                    listing_id: String(listingId),
+                    category: issue.category,
+                    status: "Completed",
+                },
+                order: { id: "DESC" },
+                take: 5,
+            });
+            return similar
+                .filter((s) => s.id !== issue.id)
+                .slice(0, 3)
+                .map((s) => ({
+                    id: s.id,
+                    title: String(s.ai_short_title || s.issue_description || `Issue #${s.id}`).slice(0, 120),
+                    resolution: s.resolution ? String(s.resolution).slice(0, 200) : null,
+                    poc: s.final_contractor_name ? String(s.final_contractor_name) : null,
+                    category: s.category || null,
+                }));
+        } catch {
+            return [];
+        }
     }
 
     private rankContacts(issue: Issue, context: Awaited<ReturnType<IssueAIService["buildContextPack"]>>): IrRecommendedContact[] {
@@ -643,23 +669,39 @@ export class IssueAIService {
             const rows = await this.feedbackRepo.find({
                 where: { listingId },
                 order: { createdAt: "DESC" },
-                take: 5,
+                take: 12,
             });
-            return rows
+            // Prefer corrected playbooks / downs so the model learns from edits.
+            const scored = rows
                 .filter((r) => r.feedbackText || r.correctedResponse || r.categories)
                 .map((r) => ({
                     rating: r.rating,
                     categories: this.parseJsonArray(r.categories),
                     feedbackText: r.feedbackText,
-                    correctedResponse: r.correctedResponse ? String(r.correctedResponse).slice(0, 400) : null,
-                }));
+                    correctedResponse: r.correctedResponse ? String(r.correctedResponse).slice(0, 600) : null,
+                    _score:
+                        (r.correctedResponse ? 5 : 0) +
+                        (r.rating === "down" ? 3 : 0) +
+                        (r.rating === "up" ? 1 : 0),
+                }))
+                .sort((a, b) => b._score - a._score)
+                .slice(0, 6);
+            return scored.map(({ _score, ...rest }) => rest);
         } catch {
             return [];
         }
     }
 
-    private toPayload(row: IssueAISuggestionEntity, issue?: Issue | null): IrSuggestionPayload {
+    private async toPayload(row: IssueAISuggestionEntity, issue?: Issue | null): Promise<IrSuggestionPayload> {
         const complex = this.parseComplexFields(row);
+        const issueRow = issue || (await this.issueRepo.findOne({ where: { id: row.issueId } }));
+        const similarIssues = issueRow ? await this.findSimilarIssues(issueRow) : [];
+        const channels = issueRow ? await this.resolveChannels(issueRow) : {
+            hasInboxThread: false,
+            inboxThreadId: null,
+            hasQuoThread: false,
+            quoConversationId: null,
+        };
         return {
             id: row.id,
             issueId: row.issueId,
@@ -677,9 +719,343 @@ export class IssueAIService {
             promptVersion: row.promptVersion,
             status: row.status,
             generatedAt: row.generatedAt ? new Date(row.generatedAt).toISOString() : new Date().toISOString(),
-            aiShortTitle: issue?.ai_short_title || null,
-            aiChecklist: issue ? this.parseJsonArray(issue.ai_checklist) : [],
+            aiShortTitle: issueRow?.ai_short_title || null,
+            aiChecklist: issueRow ? this.parseJsonArray(issueRow.ai_checklist) : [],
+            similarIssues,
+            channels,
         };
+    }
+
+    private async resolveChannels(issue: Issue): Promise<NonNullable<IrSuggestionPayload["channels"]>> {
+        const reservationId = Number(issue.reservation_id);
+        let inboxThreadId: number | null = null;
+        let quoConversationId: string | null = null;
+        if (Number.isFinite(reservationId) && reservationId > 0) {
+            const conv = await this.conversationRepo.findOne({
+                where: { reservationId },
+                order: { lastMessageAt: "DESC" },
+            });
+            if (conv?.threadId) inboxThreadId = Number(conv.threadId);
+            try {
+                const { QuoInboxService } = require("./QuoInboxService");
+                const quoConvs = await new QuoInboxService().listConversationsForReservation(reservationId);
+                if (quoConvs?.[0]?.conversationId) quoConversationId = String(quoConvs[0].conversationId);
+            } catch {
+                /* optional */
+            }
+        }
+        return {
+            hasInboxThread: inboxThreadId != null,
+            inboxThreadId,
+            hasQuoThread: !!quoConversationId,
+            quoConversationId,
+        };
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 2 — human-gated execute helpers
+    // -------------------------------------------------------------------------
+
+    async sendGuestDraft(issueId: number, body: string, user: any) {
+        const text = String(body || "").trim();
+        if (!text) throw CustomErrorHandler.validationError("Message body is required");
+        const issue = await this.issueRepo.findOne({ where: { id: issueId } });
+        if (!issue) throw CustomErrorHandler.notFound(`Issue ${issueId} not found`);
+        const reservationId = Number(issue.reservation_id);
+        if (!Number.isFinite(reservationId) || reservationId <= 0) {
+            throw CustomErrorHandler.validationError("Issue has no linked reservation for Inbox send");
+        }
+        const conv = await this.conversationRepo.findOne({
+            where: { reservationId },
+            order: { lastMessageAt: "DESC" },
+        });
+        if (!conv?.threadId) {
+            throw CustomErrorHandler.notFound("No Inbox thread found for this reservation");
+        }
+        const { InboxService } = require("./InboxService");
+        const saved = await new InboxService().sendReply(Number(conv.threadId), text, user);
+        await this.logSystemUpdate(
+            issue,
+            `IR Copilot: guest message sent via Inbox (thread ${conv.threadId}).\n\n${text.slice(0, 1500)}`,
+            user?.id || user?.secureStayUserId || "system"
+        );
+        return { sent: true, channel: "inbox", threadId: Number(conv.threadId), messageId: saved?.id ?? null };
+    }
+
+    async sendSmsDraft(
+        issueId: number,
+        body: string,
+        opts: { phone?: string | null; user?: any; target?: "guest" | "vendor" } = {}
+    ) {
+        const text = String(body || "").trim();
+        if (!text) throw CustomErrorHandler.validationError("Message body is required");
+        const issue = await this.issueRepo.findOne({ where: { id: issueId } });
+        if (!issue) throw CustomErrorHandler.notFound(`Issue ${issueId} not found`);
+        const reservationId = Number(issue.reservation_id);
+        const { QuoInboxService } = require("./QuoInboxService");
+        const quo = new QuoInboxService();
+
+        if (Number.isFinite(reservationId) && reservationId > 0 && (opts.target || "guest") === "guest") {
+            const quoConvs = await quo.listConversationsForReservation(reservationId);
+            const conv = quoConvs?.[0];
+            if (conv?.conversationId) {
+                const senderName =
+                    [userFirst(opts.user), userLast(opts.user)].filter(Boolean).join(" ") ||
+                    opts.user?.email ||
+                    "IR Copilot";
+                const sentByUserId = Number(opts.user?.secureStayUserId ?? opts.user?.id) || null;
+                const msg = await quo.sendReply(String(conv.conversationId), text, senderName, sentByUserId);
+                await this.logSystemUpdate(
+                    issue,
+                    `IR Copilot: guest SMS sent via Quo.\n\n${text.slice(0, 1500)}`,
+                    opts.user?.id || "system"
+                );
+                return {
+                    sent: true,
+                    channel: "quo",
+                    conversationId: String(conv.conversationId),
+                    messageId: msg?.id ?? null,
+                };
+            }
+        }
+
+        const phone =
+            String(opts.phone || "").trim() ||
+            String(issue.guest_contact_number || "").trim() ||
+            null;
+        if (phone) {
+            const digits = phone.replace(/[^\d+]/g, "");
+            return {
+                sent: false,
+                channel: "deep_link",
+                deepLink: `sms:${digits}`,
+                phone,
+                message: "No Quo thread for this reservation — open the SMS deep-link or attach a Quo conversation first.",
+            };
+        }
+        throw CustomErrorHandler.notFound("No Quo thread or phone number available for SMS");
+    }
+
+    async logInternalNote(issueId: number, note: string, userId: string) {
+        const text = String(note || "").trim();
+        if (!text) throw CustomErrorHandler.validationError("Note is required");
+        const issue = await this.issueRepo.findOne({ where: { id: issueId } });
+        if (!issue) throw CustomErrorHandler.notFound(`Issue ${issueId} not found`);
+        const { IssuesService } = require("./IssuesService");
+        const update = await new IssuesService().createIssueUpdates(
+            { issueId, updates: text, source: "securestay" },
+            userId || "system"
+        );
+        return { logged: true, update };
+    }
+
+    async scheduleFollowUp(
+        issueId: number,
+        opts: { hours?: number; nextUpdateDate?: string | null; note?: string | null; userId?: string }
+    ) {
+        const issue = await this.issueRepo.findOne({ where: { id: issueId } });
+        if (!issue) throw CustomErrorHandler.notFound(`Issue ${issueId} not found`);
+        const { format } = require("date-fns");
+        let nextDate = String(opts.nextUpdateDate || "").trim();
+        if (!nextDate) {
+            const hours = Math.max(1, Math.min(168, Number(opts.hours) || 2));
+            const d = new Date(Date.now() + hours * 60 * 60 * 1000);
+            nextDate = format(d, "yyyy-MM-dd");
+        }
+        issue.nextUpdateDate = nextDate as any;
+        await this.issueRepo.save(issue);
+        const note =
+            String(opts.note || "").trim() ||
+            `IR Copilot: follow-up scheduled for ${nextDate}.`;
+        await this.logSystemUpdate(issue, note, opts.userId || "system");
+        return { scheduled: true, nextUpdateDate: nextDate };
+    }
+
+    private async logSystemUpdate(issue: Issue, text: string, userId: string) {
+        try {
+            const { IssuesService } = require("./IssuesService");
+            await new IssuesService().createIssueUpdates(
+                { issueId: issue.id, updates: text, source: "system" },
+                userId || "system"
+            );
+        } catch (err: any) {
+            logger.warn(`[IssueAIService] failed to log update on issue ${issue.id}: ${err?.message}`);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 3 — opt-in automation
+    // -------------------------------------------------------------------------
+
+    async onIssueCreated(issue: Issue, userId?: string) {
+        try {
+            await this.maybeAutoAssign(issue);
+        } catch (err: any) {
+            logger.warn(`[IssueAIService] auto-assign failed for #${issue.id}: ${err?.message}`);
+        }
+        try {
+            await this.maybeAutoAck(issue, userId);
+        } catch (err: any) {
+            logger.warn(`[IssueAIService] auto-ack failed for #${issue.id}: ${err?.message}`);
+        }
+    }
+
+    private async loadIrSettings() {
+        const { AIMessagingSettingsService } = require("./AIMessagingSettingsService");
+        return new AIMessagingSettingsService().getGlobal();
+    }
+
+    private listingAllowedForAutoAck(settings: any, listingId: number | null): boolean {
+        const raw = String(settings?.irAutoAckListingIds || "").trim();
+        if (!raw) return true;
+        if (!listingId) return false;
+        const ids = raw
+            .split(/[\s,]+/)
+            .map((s) => Number(s.trim()))
+            .filter((n) => Number.isFinite(n) && n > 0);
+        return ids.includes(listingId);
+    }
+
+    private isNarrowAutoAckPlaybook(issue: Issue): boolean {
+        const hay = `${issue.category || ""} ${issue.issue_description || ""} ${issue.ai_short_title || ""}`.toLowerCase();
+        return /lock|lockout|access code|can't get in|cant get in|door code|keypad|entry code/.test(hay);
+    }
+
+    async maybeAutoAssign(issue: Issue) {
+        if (issue.assignee) return null;
+        const settings = await this.loadIrSettings();
+        if (Number(settings?.irAutoAssignEnabled || 0) === 0) return null;
+
+        const { UsersService } = require("./UsersService");
+        const dept = await new UsersService().fetchUserListByDepartment("guest-issues");
+        const irDept =
+            (dept?.priorityDepartments || []).find((d: any) =>
+                String(d.name || "").toLowerCase().includes("issue resolution")
+            ) || (dept?.priorityDepartments || [])[0];
+        const candidates: Array<{ uid: string; name: string }> = (irDept?.users || []).filter(
+            (u: any) => u?.uid
+        );
+        if (!candidates.length) return null;
+
+        const openCounts: Array<{ assignee: string; cnt: string }> = await appDatabase.query(
+            `SELECT assignee, COUNT(*) AS cnt
+             FROM issues
+             WHERE deleted_at IS NULL
+               AND status <> 'Completed'
+               AND assignee IS NOT NULL AND assignee <> ''
+             GROUP BY assignee`
+        );
+        const countMap = new Map(openCounts.map((r) => [String(r.assignee), Number(r.cnt) || 0]));
+        candidates.sort(
+            (a, b) => (countMap.get(String(a.uid)) || 0) - (countMap.get(String(b.uid)) || 0)
+        );
+        const pick = candidates[0];
+        issue.assignee = String(pick.uid);
+        await this.issueRepo.save(issue);
+        await this.logSystemUpdate(
+            issue,
+            `IR Copilot auto-assigned to ${pick.name || pick.uid} (least open IR load).`,
+            "system"
+        );
+        return pick;
+    }
+
+    async maybeAutoAck(issue: Issue, userId?: string) {
+        const settings = await this.loadIrSettings();
+        if (Number(settings?.irAutoAckEnabled || 0) === 0) return null;
+        const listingId = Number(issue.listing_id) || null;
+        if (!this.listingAllowedForAutoAck(settings, listingId)) return null;
+        if (!this.isNarrowAutoAckPlaybook(issue)) return null;
+
+        const stayStage = this.computeStayStage(issue);
+        if (stayStage !== "in_house" && stayStage !== "unknown") return null;
+
+        const reservationId = Number(issue.reservation_id);
+        if (!Number.isFinite(reservationId) || reservationId <= 0) return null;
+        const conv = await this.conversationRepo.findOne({
+            where: { reservationId },
+            order: { lastMessageAt: "DESC" },
+        });
+        if (!conv?.threadId) return null;
+
+        const holding =
+            "Hi — thanks for reaching out. We've received your access issue and our team is on it now. " +
+            "We'll update you as soon as we have next steps. If you're outside and need immediate help, reply here.";
+
+        const { InboxService } = require("./InboxService");
+        const systemUser = { id: userId || "system", firstName: "IR", lastName: "Copilot" };
+        await new InboxService().sendReply(Number(conv.threadId), holding, systemUser);
+        await this.logSystemUpdate(
+            issue,
+            `IR Copilot auto-ack sent to guest (opt-in access/lockout playbook).\n\n${holding}`,
+            userId || "system"
+        );
+        return { sent: true, threadId: Number(conv.threadId) };
+    }
+
+    /**
+     * Stale in-house Guest Issues → Ops Radar style alert rows (called from sweepSLA).
+     */
+    async listStaleInHouseIssues(staleHours?: number): Promise<
+        Array<{
+            id: number;
+            listingId: number | null;
+            listingName: string | null;
+            guestName: string | null;
+            assignee: string | null;
+            title: string;
+            hoursStale: number;
+            stayStage: string;
+        }>
+    > {
+        const settings = await this.loadIrSettings().catch(() => null);
+        const hours = Math.max(1, Math.min(48, Number(staleHours ?? settings?.irStaleHoursInHouse ?? 2)));
+        const rows: any[] = await appDatabase.query(
+            `SELECT i.id, i.listing_id AS listingId, i.listing_name AS listingName,
+                    i.guest_name AS guestName, i.assignee, i.ai_short_title AS aiShortTitle,
+                    i.issue_description AS description, i.check_in_date AS checkIn,
+                    i.created_at AS createdAt,
+                    (SELECT MAX(u.createdAt) FROM issues_updates u
+                      WHERE u.issueId = i.id AND u.deletedAt IS NULL) AS lastUpdateAt,
+                    r.arrivalDate, r.departureDate
+             FROM issues i
+             LEFT JOIN reservation_info r ON r.id = CAST(i.reservation_id AS UNSIGNED)
+             WHERE i.deleted_at IS NULL
+               AND i.status <> 'Completed'
+               AND (
+                 (r.arrivalDate IS NOT NULL AND r.arrivalDate <= CURDATE()
+                   AND (r.departureDate IS NULL OR r.departureDate > CURDATE()))
+                 OR (r.arrivalDate IS NULL AND i.check_in_date IS NOT NULL
+                   AND i.check_in_date <= CURDATE())
+               )
+               AND COALESCE(
+                     (SELECT MAX(u.createdAt) FROM issues_updates u
+                       WHERE u.issueId = i.id AND u.deletedAt IS NULL),
+                     i.created_at
+                   ) <= DATE_SUB(NOW(), INTERVAL ? HOUR)
+             ORDER BY COALESCE(
+                     (SELECT MAX(u.createdAt) FROM issues_updates u
+                       WHERE u.issueId = i.id AND u.deletedAt IS NULL),
+                     i.created_at
+                   ) ASC
+             LIMIT 80`,
+            [hours]
+        );
+        const now = Date.now();
+        return (rows || []).map((r) => {
+            const last = r.lastUpdateAt || r.createdAt;
+            const hoursStale = Math.max(0, (now - new Date(last).getTime()) / 3600000);
+            return {
+                id: Number(r.id),
+                listingId: r.listingId != null ? Number(r.listingId) : null,
+                listingName: r.listingName || null,
+                guestName: r.guestName || null,
+                assignee: r.assignee || null,
+                title: String(r.aiShortTitle || r.description || `Issue #${r.id}`).slice(0, 140),
+                hoursStale: Math.round(hoursStale * 10) / 10,
+                stayStage: "in_house",
+            };
+        });
     }
 
     private parseComplexFields(row: IssueAISuggestionEntity): {
@@ -708,4 +1084,11 @@ export class IssueAIService {
         }
         return { playbook, recommendedContacts };
     }
+}
+
+function userFirst(user: any): string {
+    return String(user?.firstName || user?.given_name || "").trim();
+}
+function userLast(user: any): string {
+    return String(user?.lastName || user?.family_name || "").trim();
 }

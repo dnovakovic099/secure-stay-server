@@ -543,6 +543,56 @@ export class OpsRadarService {
             alerts++;
         }
 
+        // --- Stale in-house Guest Issues (IR Copilot Phase 3) ---
+        // Aggregated per listing so the feed stays manage-by-exception.
+        try {
+            const { IssueAIService } = require("./IssueAIService");
+            const staleIssues = await new IssueAIService().listStaleInHouseIssues();
+            const byListing = new Map<string, typeof staleIssues>();
+            for (const issue of staleIssues) {
+                const k = issue.listingId != null ? String(issue.listingId) : "none";
+                const arr = byListing.get(k) || [];
+                arr.push(issue);
+                byListing.set(k, arr);
+            }
+            for (const [lid, group] of byListing) {
+                const oldestHours = Math.max(...group.map((g) => g.hoursStale));
+                const severity = oldestHours >= 6 ? "critical" : oldestHours >= 3 ? "high" : "medium";
+                const listingName = group.find((g) => g.listingName)?.listingName || null;
+                const key = `sla:guest-issues:${lid}`;
+                activeKeys.push(key);
+                const samples = group
+                    .slice(0, 3)
+                    .map((g) => `• #${g.id} ${g.title} (${g.hoursStale}h, ${g.assignee || "unassigned"})`)
+                    .join("\n");
+                await this.upsertAlert(
+                    {
+                        type: "sla",
+                        dedupeKey: key,
+                        severity,
+                        listingId: lid !== "none" ? Number(lid) : null,
+                        listingName,
+                        title:
+                            lid === "none"
+                                ? `${group.length} in-house Guest Issue${group.length === 1 ? "" : "s"} stale (no property)`
+                                : `${group.length} in-house Guest Issue${group.length === 1 ? "" : "s"} stale at ${listingName || "listing " + lid}`,
+                        detail: samples,
+                        recommendation:
+                            "Guest is in-house with no recent ticket update — nudge IR/GR or post an ETA.",
+                        payload: {
+                            count: group.length,
+                            oldestHours,
+                            issueIds: group.map((g) => g.id).slice(0, 25),
+                        },
+                    },
+                    known.get(key) ?? null
+                );
+                alerts++;
+            }
+        } catch (err: any) {
+            logger.warn(`[OpsRadar] guest-issue SLA sweep skipped: ${err?.message}`);
+        }
+
         await this.autoResolve("sla", activeKeys);
         return { alerts };
     }

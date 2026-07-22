@@ -39,10 +39,14 @@ router.route('/slack-file').get(verifySession, issuesController.proxySlackFile);
 router.route('/:id/ai-summary').post(verifySession, issuesController.generateAiSummary);
 router.route('/:id/resolution-analysis').post(verifySession, issuesController.generateResolutionAnalysis);
 router.route('/:id/resolution-analysis/refresh-if-stale').post(verifySession, issuesController.refreshResolutionAnalysisIfStale);
-// IR Copilot (suggestion-only playbook + contacts + feedback)
+// IR Copilot (playbook + contacts + feedback + Phase 2 execute)
 router.route('/:id/ir-suggest').get(verifySession, issuesController.getIrSuggestion);
 router.route('/:id/ir-suggest').post(verifySession, issuesController.suggestIrCopilot);
 router.route('/:id/ir-feedback').post(verifySession, issuesController.irCopilotFeedback);
+router.route('/:id/ir-send-guest').post(verifySession, issuesController.irSendGuestDraft);
+router.route('/:id/ir-send-sms').post(verifySession, issuesController.irSendSmsDraft);
+router.route('/:id/ir-log-note').post(verifySession, issuesController.irLogNote);
+router.route('/:id/ir-follow-up').post(verifySession, issuesController.irScheduleFollowUp);
 router.route('/:id/thread').get(verifySession, issuesController.getIssueThread);
 router.route('/:id/vendor-thread')
     .get(verifySession, issuesController.getIssueVendorThread)

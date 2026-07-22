@@ -737,6 +737,63 @@ export class IssuesController {
     }
   }
 
+  /** IR Copilot Phase 2: send edited guest draft via Inbox (Hostify). */
+  async irSendGuestDraft(request: any, response: Response, next: NextFunction) {
+    try {
+      const issueId = Number(request.params.id);
+      const body = String(request.body?.body || request.body?.message || "").trim();
+      const data = await new IssueAIService().sendGuestDraft(issueId, body, request.user);
+      return response.status(200).json({ status: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** IR Copilot Phase 2: send SMS via Quo when a thread exists (else deep-link). */
+  async irSendSmsDraft(request: any, response: Response, next: NextFunction) {
+    try {
+      const issueId = Number(request.params.id);
+      const body = String(request.body?.body || request.body?.message || "").trim();
+      const data = await new IssueAIService().sendSmsDraft(issueId, body, {
+        phone: request.body?.phone ?? null,
+        user: request.user,
+        target: request.body?.target === "vendor" ? "vendor" : "guest",
+      });
+      return response.status(200).json({ status: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** IR Copilot Phase 2: log internal note onto the ticket. */
+  async irLogNote(request: any, response: Response, next: NextFunction) {
+    try {
+      const issueId = Number(request.params.id);
+      const note = String(request.body?.note || request.body?.body || "").trim();
+      const userId = String(request.user?.id || "system");
+      const data = await new IssueAIService().logInternalNote(issueId, note, userId);
+      return response.status(201).json({ status: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** IR Copilot Phase 2: set nextUpdateDate follow-up. */
+  async irScheduleFollowUp(request: any, response: Response, next: NextFunction) {
+    try {
+      const issueId = Number(request.params.id);
+      const data = await new IssueAIService().scheduleFollowUp(issueId, {
+        hours: request.body?.hours != null ? Number(request.body.hours) : undefined,
+        nextUpdateDate: request.body?.nextUpdateDate ?? null,
+        note: request.body?.note ?? null,
+        userId: String(request.user?.id || "system"),
+      });
+      return response.status(200).json({ status: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async bulkUpdateIssues(request: any, response: Response, next: NextFunction) {
     try {
       const { ids, updateData } = request.body;
