@@ -903,32 +903,19 @@ export class ExpenseService {
         }));
     }
 
-    private async getReservationClaimsFeeColumn() {
-        const candidates = ["resortFee", "resort_fee", "resortFeeAmount", "resort_fee_amount", "claimFee", "claim_fee"];
+    private async getClaimsFeeSourceColumns() {
         const columns = await this.reservationInfoRepo.query("SHOW COLUMNS FROM reservation_info");
         const names = new Set(columns.map((column: any) => String(column.Field || column.field)));
-        return candidates.find((candidate) => names.has(candidate)) || null;
-    }
-
-    private parseClaimsFeeAmount(value: any) {
-        if (value === undefined || value === null) return 0;
-        if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-
-        const rawValue = String(value).trim();
-        if (!rawValue) return 0;
-
-        const normalized = rawValue
-            .replace(/,/g, "")
-            .match(/-?\d+(\.\d+)?/);
-
-        const amount = normalized ? Number(normalized[0]) : 0;
-        return Number.isFinite(amount) ? Math.abs(amount) : 0;
+        return {
+            hasResortFee: names.has("resortFee"),
+            hasInsuranceFee: names.has("insuranceFee"),
+        };
     }
 
     async getClaimsFeeFunds(request: Request) {
         const fromDate = String(request.query.fromDate || "");
         const toDate = String(request.query.toDate || "");
-        const resortFeeColumn = await this.getReservationClaimsFeeColumn();
+        const { hasResortFee, hasInsuranceFee } = await this.getClaimsFeeSourceColumns();
         const reservationParams: any[] = [];
         const expenseParams: any[] = [];
         let reservationDateWhere = "";
@@ -945,28 +932,19 @@ export class ExpenseService {
         const statusPlaceholders = validStatuses.map(() => "?").join(",");
         reservationParams.push(...validStatuses);
 
-        // Per-reservation `resortFee` (populated from Hostify's fees array when the
-        // sync runs with fees=1) is the primary source. For any reservation where
-        // that column is NULL — e.g. pre-backfill rows, or listings whose Hostify
-        // integration doesn't return the fee — fall back to the flat configured
-        // fee on property_info.claimFee. COUNT(col) counts non-NULL rows in MySQL,
-        // so populatedCount tells us how many rows the app-layer sum already covers.
+        // Total Claims Fee = resortFee + insuranceFee, per reservation, summed across the range.
+        // Columns are gated by SHOW COLUMNS so the query still runs before the migration lands.
+        const resortFeeExpr = hasResortFee ? "COALESCE(r.`resortFee`, 0)" : "0";
+        const insuranceFeeExpr = hasInsuranceFee ? "COALESCE(r.`insuranceFee`, 0)" : "0";
         const reservationRows = await this.reservationInfoRepo.query(
             `
                 SELECT
                     r.listingMapId,
                     MAX(r.listingName) AS listingName,
                     COUNT(*) AS reservationCount,
-                    ${resortFeeColumn ? `SUM(r.\`${resortFeeColumn}\`)` : "NULL"} AS resortFeeSum,
-                    ${resortFeeColumn ? `COUNT(r.\`${resortFeeColumn}\`)` : "0"} AS resortFeePopulatedCount,
-                    MAX(NULLIF(pi.claimFee, '')) AS configuredClaimsFee
+                    SUM(${resortFeeExpr}) AS resortFeeSum,
+                    SUM(${insuranceFeeExpr}) AS insuranceFeeSum
                 FROM reservation_info r
-                LEFT JOIN client_properties cp
-                    ON cp.listingId = CAST(r.listingMapId AS CHAR)
-                    AND cp.deletedAt IS NULL
-                LEFT JOIN property_info pi
-                    ON pi.clientPropertyId = cp.id
-                    AND pi.deletedAt IS NULL
                 WHERE r.listingMapId IS NOT NULL
                 ${reservationDateWhere}
                 AND r.status IN (${statusPlaceholders})
@@ -975,9 +953,14 @@ export class ExpenseService {
             reservationParams
         );
 
+        // Used Claims Fee = expense + extras with `fromClaimsFee` ticked. Both live
+        // in the `expense` table (extras = positive amount, expenses = negative).
+        // Summing the signed amount and negating gives net outflow from the pool:
+        // expenses (−) push it up, extras (+) offset it. Any surplus (extras >
+        // expenses) surfaces as a negative "Used" value, which is intentional.
         const expenseRows = await this.expenseRepo.query(
             `
-                SELECT listingMapId, SUM(ABS(COALESCE(amount, 0))) AS usedClaimsFee
+                SELECT listingMapId, -SUM(COALESCE(amount, 0)) AS usedClaimsFee
                 FROM expense
                 WHERE listingMapId IS NOT NULL
                 AND isDeleted = 0
@@ -1003,14 +986,9 @@ export class ExpenseService {
         return listingIds
             .map((listingMapId) => {
                 const reservationRow = reservationByListing.get(listingMapId);
-                const configuredClaimsFee = this.parseClaimsFeeAmount(reservationRow?.configuredClaimsFee);
-                const reservationCount = Number(reservationRow?.reservationCount || 0);
                 const resortFeeSum = Number(reservationRow?.resortFeeSum || 0);
-                const populatedCount = Number(reservationRow?.resortFeePopulatedCount || 0);
-                const unpopulatedCount = Math.max(0, reservationCount - populatedCount);
-                // Row-level COALESCE: per-reservation resortFee wins where populated;
-                // any remaining reservations fall back to the configured claim fee.
-                const totalClaimsFee = resortFeeSum + configuredClaimsFee * unpopulatedCount;
+                const insuranceFeeSum = Number(reservationRow?.insuranceFeeSum || 0);
+                const totalClaimsFee = resortFeeSum + insuranceFeeSum;
                 const usedClaimsFee = Number(expenseByListing.get(listingMapId)?.usedClaimsFee || 0);
                 return {
                     listingMapId,
@@ -1018,9 +996,9 @@ export class ExpenseService {
                     totalClaimsFee,
                     usedClaimsFee,
                     netClaimsFee: totalClaimsFee - usedClaimsFee,
-                    resortFeeColumn: resortFeeColumn || "property_info.claimFee",
-                    reservationCount,
-                    configuredClaimsFee,
+                    resortFeeSum,
+                    insuranceFeeSum,
+                    reservationCount: Number(reservationRow?.reservationCount || 0),
                 };
             })
             .sort((a, b) => a.property.localeCompare(b.property));
