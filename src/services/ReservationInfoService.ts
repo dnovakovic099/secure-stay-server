@@ -250,6 +250,14 @@ export class ReservationInfoService {
     reservation.confirmation_code = updateData.confirmation_code;
     reservation.owner_revenue = updateData.owner_revenue;
     reservation.integration_nickname = updateData.integration_nickname;
+    // Hostify fee breakdown (populated when the sync runs with fees=1&fees_costs=1).
+    // Guard with != null so a lightweight sync that omits the array doesn't wipe
+    // values already captured from the detail endpoint.
+    if (updateData.accommodationFee != null) reservation.accommodationFee = updateData.accommodationFee;
+    if (updateData.resortFee != null) reservation.resortFee = updateData.resortFee;
+    if (updateData.cleaningFeeAmount != null) reservation.cleaningFeeAmount = updateData.cleaningFeeAmount;
+    if (updateData.managementCommission != null) reservation.managementCommission = updateData.managementCommission;
+    if (updateData.insuranceFee != null) reservation.insuranceFee = updateData.insuranceFee;
 
     const savedReservation = await this.reservationInfoRepository.save(reservation);
     runAsync(this.velocityAlertService.checkAndTriggerAlert(savedReservation), "VelocityAlertService.checkAndTriggerAlert");
