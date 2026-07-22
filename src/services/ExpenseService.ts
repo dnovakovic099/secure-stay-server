@@ -928,7 +928,20 @@ export class ExpenseService {
             expenseParams.push(fromDate, toDate);
         }
 
-        const validStatuses = ["new", "modified", "ownerStay", "accepted", "moved"];
+        // Booked-reservation statuses. Kept in sync with the broader whitelist
+        // used by OpsRadarService and InboxAIService — "confirmed" and the
+        // underscore variant "owner_stay" appear in production Hostify data
+        // and were previously excluded here, so resortFee sums silently
+        // rolled up as 0 on the Claims Fee Funds dashboard.
+        const validStatuses = [
+            "new",
+            "modified",
+            "ownerStay",
+            "owner_stay",
+            "accepted",
+            "confirmed",
+            "moved",
+        ];
         const statusPlaceholders = validStatuses.map(() => "?").join(",");
         reservationParams.push(...validStatuses);
 
