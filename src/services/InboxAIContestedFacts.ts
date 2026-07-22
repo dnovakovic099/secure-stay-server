@@ -260,4 +260,6 @@ export {
     guestReportsLockout,
     isBookingConfirmedStatus,
     isCheckinDayOrMidStay as stayAllowsAccessCodes,
+    isSevereWrongInfoAssert,
+    wrongInfoHoldingReply,
 } from "./InboxAIAssertPolicy";

@@ -15,7 +15,7 @@ import { AIMessageFeedbackEntity } from "../entity/AIMessageFeedback";
 import { AIGuestAutosendDisableEntity } from "../entity/AIGuestAutosendDisable";
 import { InboxService } from "./InboxService";
 import { OverduePaymentService } from "./OverduePaymentService";
-import { ListingKnowledgeService } from "./ListingKnowledgeService";
+import { extractRelevantSnippet, ListingKnowledgeService, tokenize } from "./ListingKnowledgeService";
 import { ListingKnowledgeSeeder } from "./ListingKnowledgeSeeder";
 import {
     AIMessagingSettingsService,
@@ -38,8 +38,10 @@ import {
     detectUnsafeAsserts,
     guestReportsLockout,
     isBookingConfirmedStatus,
+    isSevereWrongInfoAssert,
     resolveContestedFacts,
     stayAllowsAccessCodes,
+    wrongInfoHoldingReply,
 } from "./InboxAIContestedFacts";
 import { ListingOpsOverrideService } from "./ListingOpsOverrideService";
 import {
@@ -153,8 +155,16 @@ export const AI_REPLY_RULE_DEFAULTS = {
 const ESCALATION_KEYWORDS: { pattern: RegExp; reason: string }[] = [
     { pattern: /\brefund(s|ed|ing)?\b/i, reason: "Refund request" },
     {
+        pattern: /\b(rebook|re-book|rebooking|book (?:us |me )?again|find (?:us |me )?another (?:place|listing|property))\b/i,
+        reason: "Rebooking request (team decides)",
+    },
+    {
         pattern: /\b(discount|comp(?:ed|s)?|complimentary|free\s+night|goodwill|credit(?:\s+night)?|reimburse)\b/i,
         reason: "Discount/credit/complimentary request",
+    },
+    {
+        pattern: /\b(date change|change (?:my |our |the )?dates|alteration|modif(?:y|ication) (?:my |our |the )?(?:reservation|booking|dates))\b/i,
+        reason: "Date change / alteration (team decides)",
     },
     { pattern: /\b(lawyer|legal|sue|lawsuit|attorney|liabilit)/i, reason: "Legal issue" },
     { pattern: /\b(threat|kill|hurt|weapon|gun)\b/i, reason: "Threat" },
@@ -549,12 +559,19 @@ export class InboxAIService {
         if (unsafeAsserts.length) {
             warnings.push(
                 `Reply asserts something that must not be stated yet: ${unsafeAsserts.join(", ")}. ` +
-                    `Defer to the team (fee OK for upsells; never approve; never share codes pre-arrival; never claim ops completion or booking confirmation without proof).`
+                    `Defer to the team (fee OK for upsells; never approve; never invent amenities/money/schedule status; never share codes pre-arrival).`
             );
             output.escalation_required = true;
             output.escalation_reason = output.escalation_reason
                 ? `${output.escalation_reason}; unsafe_assert:${unsafeAsserts.join("|")}`
                 : `unsafe_assert:${unsafeAsserts.join("|")}`;
+            const severe = unsafeAsserts.filter((h) => isSevereWrongInfoAssert(h));
+            if (severe.length) {
+                output.suggested_reply = wrongInfoHoldingReply(guestAskText);
+                warnings.push(
+                    `Replaced draft — severe wrong-info risk (${severe.join(", ")}); team must confirm.`
+                );
+            }
         }
         // Contested-field conflict in context + guest asking about those topics.
         const contestedGuestText =
@@ -778,9 +795,11 @@ export class InboxAIService {
             "1. GROUNDING — every factual claim in the reply (amenities, house rules, prices, fees, times, codes, addresses, availability, policies) must be supported by the context. Any claim NOT supported by the context caps the score at 40, even if it sounds plausible.",
             "2. COMPLETENESS — every explicit question or request in the guest's latest message must be addressed, including each part of a multi-part message. A skipped ask caps the score at 55.",
             "3. DEFERRAL — if the reply defers ('I'll check', 'the team will confirm') while the context already contains the answer, cap at 50. If the context genuinely lacks the answer, deferring is CORRECT and should score well (85+ if polite and safe).",
-            "4. COMMITMENTS — promises, discounts, exceptions, or guarantees not documented in the context cap the score at 30.",
-            "5. COMPLETION CLAIMS — if the reply states an operational action is already done, approved, or arranged ('I've blocked those dates', 'you're all set for late checkout', 'your refund has been processed') and the context does NOT explicitly confirm that action occurred, cap at 25. A request being made is not the same as it being done. Committing to do something ('I'll have the team block that') is fine; claiming it is DONE without evidence is the most damaging failure mode.",
-            "6. DISCRETIONARY DECISIONS — extra guests and fee waivers are team-decided; early/late check follow Settings. If the reply approves early/late when Settings say defer/deny, or approves without a listed fee when Settings say accept_with_fee, cap at 35. Stating a documented fee while deferring is fine under defer/quote_fee modes.",
+            "4. COMMITMENTS — promises, discounts, exceptions, refunds, rebooking, complimentary nights, or guarantees not documented in the context cap the score at 30. Offering to 'check if we can refund/rebook' as if it is available also caps at 40 unless policy in context clearly allows it.",
+            "5. COMPLETION CLAIMS — if the reply states an operational action is already done, approved, or arranged ('I've blocked those dates', 'you're all set for late checkout', 'your refund has been processed', 'date change approved') and the context does NOT explicitly confirm that action occurred, cap at 25. A request being made is not the same as it being done. Committing to do something ('I'll have the team block that') is fine; claiming it is DONE without evidence is the most damaging failure mode.",
+            "6. DISCRETIONARY DECISIONS — extra guests and fee waivers are team-decided; early/late check follow Settings / Upsells SDTO. If the reply approves early/late when Settings say defer/deny, or approves without a listed fee when Settings say accept_with_fee, cap at 35. Stating a documented fee while deferring is fine under defer/quote_fee modes.",
+            "7. AMENITY / PROPERTY FACTS — asserting amenities, appliances, bed layouts, beach gear, owner-on-site, or 'no X' without support in Listing details / EXTERNAL KB / TEAM / proven replies caps at 35 (wrong_info). Prefer escalate over inventing.",
+            "8. DEPOSITS / MONEY STATUS — 'no deposit', 'deposit released', exact fee amounts must match Reservation billing or TEAM text; otherwise cap at 30.",
             "",
             "Calibration anchors:",
             "- 95-100: every claim grounded, every ask addressed, no needless deferral. Safe to auto-send.",
@@ -1620,6 +1639,20 @@ export class InboxAIService {
         const target = messages.find((m) => Number(m.externalId) === Number(targetQuo!.id)) || null;
         if (!target) throw new Error("Target message not found after mapping");
 
+        // Self-heal KB for Quo-linked listings (same as Hostify inbox path).
+        if (conversation.listingId && !isPmLine) {
+            try {
+                const seeder = new ListingKnowledgeSeeder();
+                const created = await Promise.race([
+                    seeder.ensureListingSeeded(conversation.listingId),
+                    new Promise<number>((resolve) => setTimeout(() => resolve(0), 15000)),
+                ]);
+                if (created > 0) await new RetrievalService().embedKnowledge().catch(() => 0);
+            } catch {
+                /* non-fatal */
+            }
+        }
+
         const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
         let context = await this.buildContext(conversation, messages, target, {
             // PM-line threads skip the guest-oriented knowledge blocks (KB,
@@ -1726,6 +1759,13 @@ export class InboxAIService {
             output.escalation_reason = output.escalation_reason
                 ? `${output.escalation_reason}; unsafe_assert:${quoUnsafe.join("|")}`
                 : `unsafe_assert:${quoUnsafe.join("|")}`;
+            const severe = quoUnsafe.filter((h) => isSevereWrongInfoAssert(h));
+            if (severe.length) {
+                output.suggested_reply = wrongInfoHoldingReply(quoGuest);
+                warnings.push(
+                    `Replaced draft — severe wrong-info risk (${severe.join(", ")}); team must confirm.`
+                );
+            }
         }
 
         let confidencePct =
@@ -3091,11 +3131,14 @@ export class InboxAIService {
             "",
             "PRINCIPLES:",
             `- Be concise, professional, and helpful with a ${toneLabel} hospitality brand voice.`,
-            "- NEVER invent facts (codes, prices, policies, amenities, addresses). Only use provided context.",
+            "- NEVER invent facts (codes, prices, policies, amenities, addresses, bed layouts, appliances, beach gear). Only use provided context. If a property detail is not in Listing details / EXTERNAL KB / proven replies / TEAM messages, say the team will confirm — do NOT guess yes or no.",
             "- NEVER claim an action has already been completed, approved, scheduled, blocked, or refunded unless the provided context or an earlier TEAM message explicitly confirms it happened. When someone asks you to change something, acknowledge and COMMIT ('I'll have the team get that blocked and confirm shortly') — never pretend it's done. 'I've blocked those dates' or 'you're all set' with no confirmation is the most damaging mistake you can make.",
             "- COMPLIMENTARY / FREE / GOODWILL: never confirm a complimentary night, free night, waived fee, or goodwill credit as approved/confirmed unless a TEAM message or [ops_confirm_ok] in THIS thread already says so. Acknowledge → escalate_required=true → team decides.",
+            "- REFUNDS / REBOOKING / DATE CHANGES: never say a refund, rebooking, or date change is possible/approved/processing. Never open with 'I'll check if we can rebook/refund you' as if it is available — say the team will confirm what options exist for THIS reservation, and set escalation_required=true.",
+            "- DEPOSITS: never assert 'no deposit', 'deposit released', or 'deposit is due' unless live Reservation billing (or a TEAM message) clearly supports it. If unclear → team will check; escalation_required=true.",
+            "- SCHEDULE APPROVALS: never say early check-in / late check-out / a date change is approved or confirmed for a clock time unless a TEAM message in THIS thread already did. Upsells SDTO may allow quoting a fee subject to availability — that is not an approval.",
             "- LOCAL EVENTS & PROPERTY EXPERIENCE: never invent festivals, games, concerts, news, train noise, lake/beach swimability, neighborhood vibe, or on-site feel. Those require External KB / proven replies / TEAM messages. Approx drive times to well-known places are OK; property-experience claims are not.",
-            "- NEVER quote a specific fee or price that does not appear in the provided context — not even a plausible-sounding one. If the amount isn't in context, say the team will confirm the exact cost.",
+            "- NEVER quote a specific fee or price that does not appear in the provided context — not even a plausible-sounding one. If the amount isn't in context, say the team will confirm the exact cost. Prefer Available paid services (Upsells) for early/late/pool/parking fees.",
             "- NEVER promise to send a phone number, email address, or any personal contact info — you don't have one. Keep the conversation in this thread.",
             "- DISCRETIONARY REQUESTS — early check-in / late check-out / pool heating / parking follow the Available paid services SDTO rules (Upsells database). NOT ALLOWED → deny. NEEDS CONFIRMATION → escalate (no firm price). ALLOWED → quote the calculated fee, subject to availability; do not approve a specific clock time unless a TEAM message already confirmed it. Extensions beyond listed nights, group-size changes, and fee waivers remain team-decided — always escalate those.",
             "- CALL SCHEDULING (hard rule for now): if the other party wants a phone call / to talk / to find a time to chat, defer to a live person. Never say you (or a named teammate) are free today/tomorrow or propose a specific slot. Acknowledge → a teammate will confirm timing → escalation_required=true.",
@@ -4545,8 +4588,14 @@ export class InboxAIService {
                         details.push(`- ${wifiAssert} — you MAY share this with this booked guest (they asked)`);
                     }
                 }
-                const desc = String(l.description || "").replace(/\s+/g, " ").trim();
-                if (desc) details.push(`- Description: ${desc.slice(0, 900)}`);
+                const descRaw = String(l.description || "").trim();
+                if (descRaw) {
+                    // Prefer query-relevant snippets (e.g. bedroom TVs) over a blind
+                    // 900-char head slice that often cuts amenity detail.
+                    const qTokens = tokenize(guestQueryEarly);
+                    const snippet = extractRelevantSnippet(descRaw, qTokens, 1400);
+                    if (snippet) details.push(`- Description: ${snippet}`);
+                }
                 if (details.length) {
                     lines.push("");
                     lines.push("## Listing details (non-contested — you MAY share these with the guest)");

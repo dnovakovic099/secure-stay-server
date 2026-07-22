@@ -2085,9 +2085,25 @@ export class ListingService {
     }
   }
 
+  /** Flatten Hostify description sections so amenity/TV lines aren't dropped. */
+  private flattenHostifyDescription(d: any): string {
+    if (!d) return "";
+    if (typeof d === "string") return d;
+    if (Array.isArray(d)) return d.map((x) => this.flattenHostifyDescription(x)).filter(Boolean).join("\n");
+    if (typeof d === "object") {
+      return Object.values(d)
+        .filter((v) => typeof v === "string" && String(v).trim())
+        .join("\n");
+    }
+    return "";
+  }
+
   private buildListingObject(listing: any, info: any) {
     const users = this.extractHostifyListingUsers(info);
-    const description = info.description?.description || '';
+    const description =
+      this.flattenHostifyDescription(info.description) ||
+      info.description?.description ||
+      "";
 
     const ownerContract = info.owner_contract || info.ownerContract || info.listing?.owner_contract || null;
 

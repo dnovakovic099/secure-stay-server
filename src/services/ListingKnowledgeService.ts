@@ -228,7 +228,7 @@ export class ListingKnowledgeService {
  * query tokens (falling back to the head of the text when there's no query or no
  * overlap), joined and capped to `limit` chars.
  */
-function extractRelevantSnippet(text: string, qTokens: string[], limit: number): string {
+export function extractRelevantSnippet(text: string, qTokens: string[], limit: number): string {
     const flat = text.replace(/\s+/g, " ").trim();
     // Split on sentence / bullet boundaries used in listing descriptions.
     const parts = text
@@ -262,20 +262,25 @@ function extractRelevantSnippet(text: string, qTokens: string[], limit: number):
     return out.join(" · ") || flat.slice(0, limit) + "…";
 }
 
-/** Lowercase word tokens (len >= 3) with common stopwords removed. */
-function tokenize(text?: string | null): string[] {
+/**
+ * Lowercase word tokens with common stopwords removed.
+ * Keep short amenity tokens (tv, ac, bbq) — len>=3 alone dropped "tv" and
+ * missed bedroom-TV facts in listing descriptions.
+ */
+export function tokenize(text?: string | null): string[] {
     const stop = new Set([
         "the", "and", "for", "are", "you", "your", "can", "with", "have", "has", "how", "what", "where", "when",
         "does", "did", "is", "it", "a", "an", "to", "of", "in", "on", "at", "we", "our", "my", "i", "do", "there",
         "any", "get", "this", "that", "whats", "im", "me", "please", "would", "could", "about",
     ]);
+    const shortKeep = new Set(["tv", "tvs", "ac", "bbq", "wifi", "hot", "tub"]);
     return Array.from(
         new Set(
             String(text || "")
                 .toLowerCase()
                 .replace(/[^a-z0-9\s]/g, " ")
                 .split(/\s+/)
-                .filter((w) => w.length >= 3 && !stop.has(w))
+                .filter((w) => (w.length >= 3 || shortKeep.has(w)) && !stop.has(w))
         )
     );
 }

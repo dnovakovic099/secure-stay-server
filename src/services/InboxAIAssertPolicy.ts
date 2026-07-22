@@ -497,6 +497,102 @@ export function detectUnsafeSpeechActs(reply: string, opts: SpeechActGateOpts): 
         }
     }
 
+    // Refund / rebooking promises or "we can do that" — team-only decisions.
+    if (!opts.hasExplicitOpsConfirmation) {
+        const moneyMoveTopic =
+            /\b(refund|rebook|re-book|rebooking|comp(?:ed)?\s+night|waive(?:d)?\s+(?:the\s+)?(?:fee|penalty)|cancel(?:lation)?\s+(?:fee|penalty))\b/i.test(
+                `${opts.guestText || ""} ${text}`
+            );
+        if (
+            moneyMoveTopic &&
+            /\b(i can|we can|you can|approved|arranged|possible|happy to|able to|i(?:'ll| will)|we(?:'ll| will))\b[^.!?\n]{0,50}\b(refund|rebook|re-book|waive|comp|process|issue|cancel)\b/i.test(
+                text
+            )
+        ) {
+            hits.push("refund_or_rebook_promise");
+        }
+    }
+
+    // Date-change / alteration approvals without TEAM/ops confirmation.
+    if (!opts.hasExplicitOpsConfirmation) {
+        const alterationTopic =
+            /\b(date change|change (?:your |the )?dates|alteration|modif(?:y|ication)|switch (?:your |the )?dates)\b/i.test(
+                guestOrReply
+            );
+        if (
+            alterationTopic &&
+            /\b(approved|confirmed|accepted|updated|changed for you|dates (?:are|have been) (?:updated|changed)|you(?:'re| are) (?:good|set) for)\b/i.test(
+                text
+            )
+        ) {
+            hits.push("schedule_change_approval");
+        }
+    }
+
+    // Deposit / money status claims must be grounded in billing context or TEAM.
+    const hayLower = String(opts.contextHaystack || "").toLowerCase();
+    const haySansGuest = hayLower.replace(String(opts.guestText || "").toLowerCase(), " ");
+    if (!opts.hasExplicitOpsConfirmation) {
+        const depositClaim =
+            /\b(no deposit|deposit (?:was |is )?(?:not |never )?(?:collected|required|charged)|deposit (?:has )?already (?:been )?released|deposit (?:is|was) (?:due|outstanding|pending))\b/i.test(
+                text
+            );
+        if (depositClaim) {
+            const grounded =
+                /\b(no deposit|deposit.?paid|deposit.?released|security_price\s*:\s*0|security_price\s*:\s*\$?0|deposit_paid\s*:\s*(yes|true|1|\$))/i.test(
+                    haySansGuest
+                ) || /\bTEAM\b[\s\S]{0,200}\bdeposit\b/i.test(opts.contextHaystack || "");
+            if (!grounded) hits.push("deposit_claim_without_billing");
+        }
+    }
+
+    // Amenity / feature invent: asserting presence/absence when not in context.
+    if (!opts.hasExplicitOpsConfirmation) {
+        const amenityTerms = [
+            "grill",
+            "bbq",
+            "barbecue",
+            "cooktop",
+            "stovetop",
+            "dishwasher",
+            "washer",
+            "dryer",
+            "hot tub",
+            "pool heat",
+            "fireplace",
+            "beach towel",
+            "beach gear",
+            "snorkeling",
+            "kayak",
+            "paddle board",
+            "ev charger",
+            "two beds",
+            "bunk",
+        ];
+        for (const term of amenityTerms) {
+            const termRe = new RegExp(`\\b${term.replace(/\s+/g, "\\s+")}\\b`, "i");
+            if (!termRe.test(text)) continue;
+            const assertsFact =
+                /\b(we have|there(?:'s| is| are)|includes?|included|provided|comes with|equipped with|no |not |don'?t |doesn'?t |isn'?t |aren'?t |without|fully booked|owner (?:does not|doesn't) stay)\b/i.test(
+                    text
+                );
+            if (!assertsFact) continue;
+            if (!termRe.test(haySansGuest)) {
+                hits.push("invented_amenity_or_feature");
+                break;
+            }
+        }
+        // Owner-on-site / occupancy-of-home claims without grounding.
+        if (
+            /\b(owner (?:does not|doesn't|never) stay|owner (?:lives|stays) (?:on.?site|there)|no (?:one|guest) checking out)\b/i.test(
+                text
+            ) &&
+            !/\b(owner (?:does not|doesn't)|owner (?:lives|stays)|checking out)\b/i.test(haySansGuest)
+        ) {
+            hits.push("invented_amenity_or_feature");
+        }
+    }
+
     // Invented local events / property-experience claims (often wrong_info).
     if (
         /\b(festival|concert|local event|(?:football|baseball|basketball|hockey)\s+game|this weekend'?s (?:game|festival|concert))\b/i.test(
@@ -536,4 +632,39 @@ export function detectUnsafeSpeechActs(reply: string, opts: SpeechActGateOpts): 
     }
 
     return [...new Set(hits)];
+}
+
+/** Speech-act hits severe enough to replace the draft with a safe holding reply. */
+export const SEVERE_WRONG_INFO_ASSERTS = new Set([
+    "refund_or_rebook_promise",
+    "unconfirmed_complimentary",
+    "schedule_change_approval",
+    "deposit_claim_without_billing",
+    "invented_amenity_or_feature",
+    "extension_price_quote",
+    "discretionary_approval",
+    "discretionary_time_approval",
+    "unconfirmed_booking_claim",
+]);
+
+export function isSevereWrongInfoAssert(hit: string): boolean {
+    return SEVERE_WRONG_INFO_ASSERTS.has(String(hit || ""));
+}
+
+/** Safe holding copy when a severe wrong-info speech act is stripped. */
+export function wrongInfoHoldingReply(guestText?: string | null): string {
+    const t = String(guestText || "").toLowerCase();
+    if (/\b(refund|rebook|re-book|comp|waive|goodwill)\b/i.test(t)) {
+        return "Thanks for reaching out — I'm looping in the team on what's possible for your reservation and they'll follow up with the exact options shortly.";
+    }
+    if (/\b(deposit|security deposit)\b/i.test(t)) {
+        return "Thanks for asking about the deposit — I'm having the team check the live billing status for your reservation and we'll confirm shortly.";
+    }
+    if (/\b(date change|change (?:the |my |our )?dates|alteration|modif)\b/i.test(t)) {
+        return "Thanks for asking about the date change — the team needs to confirm what's possible on the calendar and will follow up with you shortly.";
+    }
+    if (/\b(early|late).{0,12}check|extend|extra night\b/i.test(t)) {
+        return "Thanks for asking — I'm checking availability with the team and we'll confirm the exact details (including any fee) shortly.";
+    }
+    return "Thanks for your message — I want to make sure we give you accurate details, so I'm having the team confirm and follow up shortly.";
 }

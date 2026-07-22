@@ -313,8 +313,14 @@ export class ListingKnowledgeSeeder {
      * coverage complete as new reservations/child IDs appear over time.
      */
     async sweepMissingConversationKnowledge(): Promise<{ scanned: number; seeded: number; entries: number }> {
+        // Include Quo SMS listings — they were previously skipped, leaving Quo
+        // threads without KB grounding for amenity / description facts.
         const rows: { listingId: number }[] = await appDatabase.query(
-            `SELECT DISTINCT listingId FROM inbox_conversations WHERE listingId IS NOT NULL`
+            `SELECT DISTINCT listingId FROM (
+                SELECT listingId FROM inbox_conversations WHERE listingId IS NOT NULL
+                UNION
+                SELECT listingId FROM quo_conversations WHERE listingId IS NOT NULL
+             ) t`
         );
         const groups = new ListingGroupService();
         const missing: number[] = [];
