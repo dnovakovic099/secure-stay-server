@@ -1619,7 +1619,15 @@ export class InboxService {
 
     async getConversation(threadId: number) {
         let conversation = await this.conversationRepo.findOne({ where: { threadId } });
-        if (!conversation) return null;
+        if (!conversation) {
+            try {
+                const synced = await this.syncThread(threadId);
+                if (synced?.conversation) conversation = synced.conversation;
+            } catch (err: any) {
+                logger.warn(`[InboxService] missing-thread sync failed for thread ${threadId}: ${err.message}`);
+            }
+            if (!conversation) return null;
+        }
 
         // Refuse to open threads that belong to a mirror channel listing —
         // these are the duplicate threads the inbox list already hides, so

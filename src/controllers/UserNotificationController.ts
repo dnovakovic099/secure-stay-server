@@ -49,8 +49,9 @@ export class UserNotificationController {
             const uid = userUidOf(req);
             if (!uid) return res.status(401).json({ status: false, message: "Unauthorized" });
             const since = req.query.since != null ? String(req.query.since) : null;
+            const before = req.query.before != null ? String(req.query.before) : null;
             const limit = req.query.limit != null ? Number(req.query.limit) : 40;
-            const data = await this.service.listEvents(uid, { since, limit });
+            const data = await this.service.listEvents(uid, { since, before, limit });
             return res.status(200).json({ status: true, data });
         } catch (error) {
             return next(error);

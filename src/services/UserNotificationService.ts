@@ -1,4 +1,3 @@
-import { MoreThanOrEqual } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import { UserNotificationSettingsEntity } from "../entity/UserNotificationSettings";
 import { UserDirectedNotificationEntity } from "../entity/UserDirectedNotification";
@@ -20,6 +19,13 @@ export type NotificationEvent = {
     body: string;
     href: string;
     createdAt: string;
+};
+
+type NotificationListResponse = {
+    settings: NotificationSettingsDto;
+    events: NotificationEvent[];
+    hasMore: boolean;
+    nextBefore: string | null;
 };
 
 const DEFAULTS: Omit<NotificationSettingsDto, "lastSeenAt"> = {
@@ -98,35 +104,49 @@ export class UserNotificationService {
      */
     async listEvents(
         userUid: string,
-        opts: { since?: string | null; limit?: number } = {}
-    ): Promise<{ settings: NotificationSettingsDto; events: NotificationEvent[] }> {
+        opts: { since?: string | null; before?: string | null; limit?: number } = {}
+    ): Promise<NotificationListResponse> {
         const settings = await this.getSettings(userUid);
         if (!settings.notificationsEnabled) {
-            return { settings, events: [] };
+            return { settings, events: [], hasMore: false, nextBefore: null };
         }
 
-        const limit = Math.min(Math.max(opts.limit ?? 40, 1), 80);
+        const limit = Math.min(Math.max(opts.limit ?? 40, 1), 100);
+        const pageLimit = limit + 1;
+        const before = opts.before ? new Date(opts.before) : null;
+        const beforeValid = before && Number.isFinite(before.getTime()) ? before : null;
         const sinceIso =
+            beforeValid ? null :
             opts.since ||
             settings.lastSeenAt ||
             new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-        const since = new Date(sinceIso);
-        if (!Number.isFinite(since.getTime())) {
-            return { settings, events: [] };
+        const since = sinceIso ? new Date(sinceIso) : null;
+        if (since && !Number.isFinite(since.getTime())) {
+            return { settings, events: [], hasMore: false, nextBefore: null };
         }
 
         const events: NotificationEvent[] = [];
         try {
             // Directed notifications (e.g. message escalations assigned to this user).
             try {
-                const directed = await appDatabase.getRepository(UserDirectedNotificationEntity).find({
-                    where: {
-                        userUid,
-                        createdAt: MoreThanOrEqual(since) as any,
-                    },
-                    order: { createdAt: "DESC" },
-                    take: limit,
-                });
+                const directedParams: any[] = [userUid];
+                const directedWhere = ["userUid = ?"];
+                if (beforeValid) {
+                    directedWhere.push("createdAt < ?");
+                    directedParams.push(beforeValid);
+                } else if (since) {
+                    directedWhere.push("createdAt >= ?");
+                    directedParams.push(since);
+                }
+                directedParams.push(pageLimit);
+                const directed: UserDirectedNotificationEntity[] = await appDatabase.query(
+                    `SELECT id, type, title, body, href, createdAt
+                     FROM user_directed_notifications
+                     WHERE ${directedWhere.join(" AND ")}
+                     ORDER BY createdAt DESC
+                     LIMIT ?`,
+                    directedParams
+                );
                 for (const d of directed) {
                     events.push({
                         id: `directed:${d.id}`,
@@ -142,6 +162,10 @@ export class UserNotificationService {
             }
 
             if (settings.notifyMessages) {
+                const messageParams: any[] = [];
+                const messageWindow = beforeValid ? "m.sentAt < ?" : "m.sentAt >= ?";
+                messageParams.push(beforeValid || since);
+                messageParams.push(Math.ceil(pageLimit / 2));
                 const rows: any[] = await appDatabase.query(
                     `SELECT m.id AS messageId, m.threadId, m.sentAt, m.body,
                             c.guestName, c.listingName
@@ -149,10 +173,10 @@ export class UserNotificationService {
                      JOIN inbox_conversations c ON c.threadId = m.threadId
                      WHERE m.direction = 'incoming'
                        AND COALESCE(m.isAutomatic, 0) = 0
-                       AND m.sentAt >= ?
+                       AND ${messageWindow}
                      ORDER BY m.sentAt DESC
                      LIMIT ?`,
-                    [since, Math.ceil(limit / 2)]
+                    messageParams
                 );
                 for (const r of rows) {
                     const snippet = String(r.body || "")
@@ -172,18 +196,22 @@ export class UserNotificationService {
 
             if (settings.notifyReservations) {
                 // reservation_info has no createdAt — Hostify's reservationDate is the booking time.
+                const reservationParams: any[] = [];
+                const reservationWindow = beforeValid ? "reservationDate < ?" : "reservationDate >= ?";
+                reservationParams.push(beforeValid || since);
+                reservationParams.push(Math.ceil(pageLimit / 3));
                 const rows: any[] = await appDatabase.query(
                     `SELECT id, guestName, listingName, status, reservationDate
                      FROM reservation_info
                      WHERE reservationDate IS NOT NULL
                        AND reservationDate <> ''
-                       AND reservationDate >= ?
+                       AND ${reservationWindow}
                        AND LOWER(COALESCE(status, '')) NOT IN (
                            'cancelled','canceled','inquiry','expired','declined','denied','blocked'
                        )
                      ORDER BY reservationDate DESC
                      LIMIT ?`,
-                    [since, Math.ceil(limit / 3)]
+                    reservationParams
                 );
                 for (const r of rows) {
                     const when = new Date(r.reservationDate);
@@ -200,14 +228,18 @@ export class UserNotificationService {
             }
 
             if (settings.notifyActionItems) {
+                const actionParams: any[] = [];
+                const actionWindow = beforeValid ? "createdAt < ?" : "createdAt >= ?";
+                actionParams.push(beforeValid || since);
+                actionParams.push(Math.ceil(pageLimit / 3));
                 const rows: any[] = await appDatabase.query(
                     `SELECT id, guestName, listingName, item, createdAt
                      FROM action_items
-                     WHERE createdAt >= ?
+                     WHERE ${actionWindow}
                        AND deletedAt IS NULL
                      ORDER BY createdAt DESC
                      LIMIT ?`,
-                    [since, Math.ceil(limit / 3)]
+                    actionParams
                 );
                 for (const r of rows) {
                     events.push({
@@ -225,6 +257,12 @@ export class UserNotificationService {
         }
 
         events.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-        return { settings, events: events.slice(0, limit) };
+        const page = events.slice(0, limit);
+        return {
+            settings,
+            events: page,
+            hasMore: events.length > limit,
+            nextBefore: page[page.length - 1]?.createdAt || null,
+        };
     }
 }
