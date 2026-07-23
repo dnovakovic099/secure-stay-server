@@ -1233,10 +1233,12 @@ export class AdminInsightsService {
                AND sentAt >= ? AND sentAt < ?
                ${listingId != null ? "AND listingId = ?" : ""}
              ORDER BY threadId ASC, sentAt ASC, id ASC
-             LIMIT 8000`,
+             LIMIT 4000`,
             listingId != null ? [start, end, listingId] : [start, end]
         );
 
+        // Include a little lookback so first reply after window-start inbound still pairs.
+        const outboundStart = new Date(start.getTime() - 2 * 3600 * 1000);
         const outbound: any[] = await appDatabase.query(
             `SELECT id, threadId, sentAt, sentByUserId
              FROM inbox_messages
@@ -1247,68 +1249,61 @@ export class AdminInsightsService {
                AND sentAt >= ? AND sentAt < ?
                ${listingId != null ? "AND listingId = ?" : ""}
              ORDER BY threadId ASC, sentAt ASC, id ASC
-             LIMIT 12000`,
-            listingId != null ? [start, end, listingId] : [start, end]
+             LIMIT 8000`,
+            listingId != null ? [outboundStart, end, listingId] : [outboundStart, end]
         );
 
-        // Group outbound by thread for next-reply lookup.
-        const outboundByThread = new Map<number, Array<{ sentAt: Date; sentByUserId: number }>>();
+        // Group outbound by thread; keep a per-thread pointer for O(n) next-reply scan.
+        const outboundByThread = new Map<number, Array<{ sentAtMs: number; sentByUserId: number }>>();
         for (const o of outbound) {
             const tid = Number(o.threadId);
             if (!outboundByThread.has(tid)) outboundByThread.set(tid, []);
             outboundByThread.get(tid)!.push({
-                sentAt: new Date(o.sentAt),
+                sentAtMs: new Date(o.sentAt).getTime(),
                 sentByUserId: Number(o.sentByUserId),
             });
         }
+        const outboundPtr = new Map<number, number>();
 
         const missedThresholdMs = MISSED_MINUTES * 60 * 1000;
 
         for (const inn of inbound) {
             const tid = Number(inn.threadId);
             const inAt = new Date(inn.sentAt);
-            if (!Number.isFinite(inAt.getTime())) continue;
+            const inMs = inAt.getTime();
+            if (!Number.isFinite(inMs)) continue;
             const outs = outboundByThread.get(tid) || [];
-            const next = outs.find((o) => o.sentAt.getTime() > inAt.getTime());
+            let ptr = outboundPtr.get(tid) || 0;
+            while (ptr < outs.length && outs[ptr].sentAtMs <= inMs) ptr++;
+            outboundPtr.set(tid, ptr);
+            const next = ptr < outs.length ? outs[ptr] : null;
 
-            // Who was on shift when the guest wrote?
-            const onShiftUserIds: number[] = [];
-            for (const [uid, emp] of shiftCtx.byUserId) {
-                if (
-                    shiftSvc.isEmployeeOnShiftAt(
-                        emp,
-                        inAt,
-                        shiftCtx.overridesByEmployeeDate,
-                        shiftCtx.leaveByUserId
-                    )
-                ) {
-                    onShiftUserIds.push(uid);
-                }
-            }
+            const onShiftUserIds = shiftSvc.onShiftUserIdsAt(
+                inAt,
+                shiftCtx.byUserId,
+                shiftCtx.overridesByEmployeeDate,
+                shiftCtx.leaveByUserId
+            );
+            const onShiftSet = new Set(onShiftUserIds);
 
             if (next) {
-                const mins = (next.sentAt.getTime() - inAt.getTime()) / 60000;
+                const mins = (next.sentAtMs - inMs) / 60000;
                 if (Number.isFinite(mins) && mins >= 0 && mins < 24 * 60) {
                     const row = ensure(next.sentByUserId);
                     row.responseSumMin += mins;
                     row.responseSamples += 1;
                 }
-                // Takeover: this rep answered an inbound that arrived outside THEIR shift.
-                const responderEmp = shiftCtx.byUserId.get(next.sentByUserId);
-                if (responderEmp) {
-                    const onShift = shiftSvc.isEmployeeOnShiftAt(
-                        responderEmp,
-                        inAt,
-                        shiftCtx.overridesByEmployeeDate,
-                        shiftCtx.leaveByUserId
-                    );
-                    if (!onShift) ensure(next.sentByUserId).takeoverMessages += 1;
+                // Takeover: this GR rep answered an inbound that arrived outside THEIR shift.
+                if (
+                    shiftCtx.byUserId.has(next.sentByUserId) &&
+                    !onShiftSet.has(next.sentByUserId)
+                ) {
+                    ensure(next.sentByUserId).takeoverMessages += 1;
                 }
             }
 
             // Missed: inbound while on shift, no human reply within threshold.
-            const repliedInTime =
-                !!next && next.sentAt.getTime() - inAt.getTime() <= missedThresholdMs;
+            const repliedInTime = !!next && next.sentAtMs - inMs <= missedThresholdMs;
             if (!repliedInTime && onShiftUserIds.length) {
                 for (const uid of onShiftUserIds) {
                     ensure(uid).missedMessages += 1;

@@ -18,7 +18,17 @@ type ParsedEmployeeSchedule = {
  * date overrides → approved leave → recurring schedule JSON (America/New_York).
  */
 export class EmployeeShiftService {
+    /** Minute-bucket cache — Admin Insights scans thousands of timestamps. */
+    private nyPartsCache = new Map<
+        number,
+        { dateKey: string; dayOfWeek: number; minutes: number }
+    >();
+
     private getNewYorkParts(date: Date) {
+        const key = Math.floor(date.getTime() / 60000);
+        const cached = this.nyPartsCache.get(key);
+        if (cached) return cached;
+
         const parts = new Intl.DateTimeFormat("en-US", {
             timeZone: REPORT_TIME_ZONE,
             year: "numeric",
@@ -41,11 +51,29 @@ export class EmployeeShiftService {
         };
         const hour = Number(get("hour") || 0);
         const minute = Number(get("minute") || 0);
-        return {
+        const value = {
             dateKey: `${get("year")}-${get("month")}-${get("day")}`,
             dayOfWeek: weekdayMap[get("weekday")] ?? 0,
             minutes: hour * 60 + minute,
         };
+        this.nyPartsCache.set(key, value);
+        return value;
+    }
+
+    /** Fast batch helper: which userIds were on shift at `at`. */
+    onShiftUserIdsAt(
+        at: Date,
+        byUserId: Map<number, Employee>,
+        overridesByEmployeeDate: Map<string, EmployeeScheduleEntry>,
+        leaveByUserId: Map<number, Array<{ startDate: string; endDate: string }>>
+    ): number[] {
+        const out: number[] = [];
+        for (const [uid, emp] of byUserId) {
+            if (this.isEmployeeOnShiftAt(emp, at, overridesByEmployeeDate, leaveByUserId)) {
+                out.push(uid);
+            }
+        }
+        return out;
     }
 
     private addDaysToDateKey(dateKey: string, days: number) {
