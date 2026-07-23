@@ -102,6 +102,20 @@ export class AutoMessageRuleEntity {
     @Column({ type: "text" })
     messageTemplate: string;
 
+    /**
+     * Optional staff instructions for send-time AI rewrite. When set, the engine
+     * rewrites messageTemplate using the live thread context at send time.
+     */
+    @Column({ type: "text", nullable: true })
+    aiDirective: string | null;
+
+    /**
+     * When 1, send-time AI may abort delivery if the draft is no longer
+     * contextually appropriate (guest already answered, booking cancelled, etc.).
+     */
+    @Column({ type: "tinyint", default: 0 })
+    aiSkipIfInappropriate: number;
+
     @Column({ type: "int", nullable: true })
     createdByUserId: number | null;
 

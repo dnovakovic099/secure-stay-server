@@ -14,7 +14,7 @@ export type NotificationSettingsDto = {
 
 export type NotificationEvent = {
     id: string;
-    type: "message" | "reservation" | "action_item" | "escalation";
+    type: "message" | "reservation" | "action_item" | "escalation" | "scheduled_message";
     title: string;
     body: string;
     href: string;

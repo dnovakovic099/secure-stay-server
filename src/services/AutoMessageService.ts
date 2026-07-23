@@ -1,9 +1,13 @@
 import { In, LessThanOrEqual } from "typeorm";
+import OpenAI from "openai";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { AutoMessageRuleEntity } from "../entity/AutoMessageRule";
 import { AutoMessageLogEntity } from "../entity/AutoMessageLog";
 import { InboxConversationEntity } from "../entity/InboxConversation";
+import { InboxMessageEntity } from "../entity/InboxMessage";
+import { UserDirectedNotificationEntity } from "../entity/UserDirectedNotification";
+import { UsersEntity } from "../entity/Users";
 import { InboxService } from "./InboxService";
 
 export interface AutoMessageRuleInput {
@@ -23,6 +27,8 @@ export interface AutoMessageRuleInput {
     maxNights?: number | null;
     skipIfGuestReplied?: boolean;
     messageTemplate: string;
+    aiDirective?: string | null;
+    aiSkipIfInappropriate?: boolean;
     createdByUserId?: number | null;
     createdByName?: string | null;
 }
@@ -118,6 +124,8 @@ export class AutoMessageService {
             maxNights: input.maxNights ?? null,
             skipIfGuestReplied: input.skipIfGuestReplied === false ? 0 : 1,
             messageTemplate: input.messageTemplate,
+            aiDirective: input.aiDirective?.trim() ? input.aiDirective.trim().slice(0, 4000) : null,
+            aiSkipIfInappropriate: input.aiSkipIfInappropriate ? 1 : 0,
             createdByUserId: input.createdByUserId ?? null,
             createdByName: input.createdByName ?? null,
         });
@@ -137,6 +145,11 @@ export class AutoMessageService {
             sendTime: patch.sendTime !== undefined ? patch.sendTime : rule.sendTime,
             sendAt: patch.sendAt !== undefined ? patch.sendAt : rule.sendAt,
             threadId: patch.threadId !== undefined ? patch.threadId : rule.threadId,
+            aiDirective: patch.aiDirective !== undefined ? patch.aiDirective : rule.aiDirective,
+            aiSkipIfInappropriate:
+                patch.aiSkipIfInappropriate !== undefined
+                    ? patch.aiSkipIfInappropriate
+                    : !!rule.aiSkipIfInappropriate,
         };
         this.validate(merged);
 
@@ -156,6 +169,12 @@ export class AutoMessageService {
         if (patch.minNights !== undefined) rule.minNights = patch.minNights ?? null;
         if (patch.maxNights !== undefined) rule.maxNights = patch.maxNights ?? null;
         if (patch.skipIfGuestReplied !== undefined) rule.skipIfGuestReplied = patch.skipIfGuestReplied ? 1 : 0;
+        if (patch.aiDirective !== undefined) {
+            rule.aiDirective = patch.aiDirective?.trim() ? patch.aiDirective.trim().slice(0, 4000) : null;
+        }
+        if (patch.aiSkipIfInappropriate !== undefined) {
+            rule.aiSkipIfInappropriate = patch.aiSkipIfInappropriate ? 1 : 0;
+        }
         return this.ruleRepo.save(rule);
     }
 
@@ -398,13 +417,15 @@ export class AutoMessageService {
     /**
      * Idempotent delivery: claim the (rule, thread, occurrence) slot by inserting
      * the log row first — the unique index rejects duplicates — then send.
+     * When aiDirective / aiSkipIfInappropriate is set, rewrites (or aborts) using
+     * the live conversation at send time.
      */
     private async deliver(
         rule: AutoMessageRuleEntity,
         conversation: InboxConversationEntity,
         dedupeKey: string
     ): Promise<"sent" | "failed" | "skipped"> {
-        const body = this.renderTemplate(rule.messageTemplate, conversation);
+        let body = this.renderTemplate(rule.messageTemplate, conversation);
         if (!body) return "skipped";
 
         let log: AutoMessageLogEntity;
@@ -423,6 +444,39 @@ export class AutoMessageService {
             return "skipped";
         }
 
+        const wantsAi =
+            !!String(rule.aiDirective || "").trim() || !!Number(rule.aiSkipIfInappropriate);
+        if (wantsAi) {
+            try {
+                const adapted = await this.adaptMessageAtSendTime(rule, conversation, body);
+                if (!adapted.proceed) {
+                    const reason =
+                        adapted.skipReason ||
+                        "Scheduled message no longer fits the conversation context.";
+                    log.status = "skipped";
+                    log.error = reason.slice(0, 2000);
+                    log.messageBody = body;
+                    await this.logRepo.save(log);
+                    await this.recordScheduleSkipInThread(conversation, rule, reason);
+                    await this.notifyScheduleSkip(rule, conversation, reason);
+                    logger.info(
+                        `[AutoMessage] rule ${rule.id} skipped for thread ${conversation.threadId}: ${reason}`
+                    );
+                    return "skipped";
+                }
+                if (adapted.body?.trim()) {
+                    body = adapted.body.trim();
+                    log.messageBody = body;
+                    await this.logRepo.save(log);
+                }
+            } catch (adaptErr: any) {
+                // Fail open: send the original template if the AI pass errors.
+                logger.warn(
+                    `[AutoMessage] rule ${rule.id} AI adapt failed thread=${conversation.threadId}: ${adaptErr?.message}`
+                );
+            }
+        }
+
         try {
             await new InboxService().sendAutomatedReply(conversation.threadId, body, {
                 senderName: `Automated · ${rule.name}`.slice(0, 100),
@@ -436,8 +490,196 @@ export class AutoMessageService {
             log.status = "failed";
             log.error = String(err.message || err).slice(0, 2000);
             await this.logRepo.save(log);
-            logger.error(`[AutoMessage] rule ${rule.id} delivery failed for thread ${conversation.threadId}: ${err.message}`);
+            await this.notifyScheduleSkip(
+                rule,
+                conversation,
+                `Scheduled message failed to send: ${String(err.message || err).slice(0, 240)}`,
+                "failed"
+            );
+            logger.error(
+                `[AutoMessage] rule ${rule.id} delivery failed for thread ${conversation.threadId}: ${err.message}`
+            );
             return "failed";
+        }
+    }
+
+    private async adaptMessageAtSendTime(
+        rule: AutoMessageRuleEntity,
+        conversation: InboxConversationEntity,
+        draftBody: string
+    ): Promise<{ proceed: boolean; body?: string; skipReason?: string }> {
+        const apiKey = process.env.OPENAI_API_KEY;
+        if (!apiKey) return { proceed: true, body: draftBody };
+
+        const messageRepo = appDatabase.getRepository(InboxMessageEntity);
+        const recent = await messageRepo.find({
+            where: { threadId: Number(conversation.threadId) },
+            order: { sentAt: "DESC", id: "DESC" },
+            take: 16,
+        });
+        const transcript = [...recent]
+            .reverse()
+            .map((m) => {
+                const who =
+                    m.direction === "incoming"
+                        ? "GUEST"
+                        : m.direction === "system"
+                          ? "SYSTEM"
+                          : Number(m.isAutomatic)
+                            ? "AUTO"
+                            : "HOST";
+                const text = String(m.body || m.note || "")
+                    .replace(/\s+/g, " ")
+                    .trim();
+                return text ? `${who}: ${text.slice(0, 400)}` : null;
+            })
+            .filter(Boolean)
+            .join("\n");
+
+        const allowSkip = !!Number(rule.aiSkipIfInappropriate);
+        const directive = String(rule.aiDirective || "").trim();
+        const client = new OpenAI({ apiKey });
+        const model = process.env.AI_MODEL || "gpt-4.1";
+        const resp = await client.chat.completions.create({
+            model,
+            temperature: 0.3,
+            response_format: { type: "json_object" },
+            messages: [
+                {
+                    role: "system",
+                    content: [
+                        "You prepare a scheduled guest message for a short-term rental inbox.",
+                        "Rewrite the DRAFT so it fits the CURRENT conversation at send time.",
+                        "Keep the same intent as the draft + staff directive. Be concise, warm, and guest-ready.",
+                        "Do not invent fees, codes, approvals, or availability that are not in the draft/directive/thread.",
+                        allowSkip
+                            ? 'If sending would be contextually inappropriate now (guest already answered, issue resolved, booking cancelled, message would confuse/annoy, topic no longer relevant), set proceed=false and explain why.'
+                            : "Always set proceed=true. Still tailor the wording to the latest thread context.",
+                        'Return STRICT JSON: {"proceed":true|false,"message":"<final guest message or empty if not proceeding>","skip_reason":"<short reason if proceed=false>"}',
+                    ].join("\n"),
+                },
+                {
+                    role: "user",
+                    content: [
+                        `Guest: ${conversation.guestName || "Guest"}`,
+                        `Listing: ${conversation.listingName || "—"}`,
+                        `Status: ${conversation.reservationStatus || "—"}`,
+                        `Stay: ${conversation.checkin || "?"} → ${conversation.checkout || "?"}`,
+                        directive ? `STAFF DIRECTIVE:\n${directive}` : "STAFF DIRECTIVE: (none — tailor draft to thread)",
+                        `DRAFT MESSAGE:\n${draftBody}`,
+                        `RECENT THREAD (oldest→newest):\n${transcript || "(no recent messages)"}`,
+                    ].join("\n\n"),
+                },
+            ],
+        });
+
+        const parsed = JSON.parse(resp.choices[0]?.message?.content || "{}");
+        const proceed = parsed.proceed !== false;
+        if (!proceed) {
+            if (!allowSkip) {
+                return { proceed: true, body: draftBody };
+            }
+            return {
+                proceed: false,
+                skipReason: String(parsed.skip_reason || parsed.skipReason || "Contextually inappropriate").slice(
+                    0,
+                    500
+                ),
+            };
+        }
+        const message = String(parsed.message || "").trim();
+        return { proceed: true, body: message || draftBody };
+    }
+
+    /** Local system bubble so the thread shows why a scheduled send aborted. */
+    private async recordScheduleSkipInThread(
+        conversation: InboxConversationEntity,
+        rule: AutoMessageRuleEntity,
+        reason: string
+    ): Promise<void> {
+        try {
+            const messageRepo = appDatabase.getRepository(InboxMessageEntity);
+            const body = `Scheduled message not sent: ${reason}`.slice(0, 2000);
+            const msg = messageRepo.create({
+                externalId: -Math.abs(Date.now() * 1000 + (rule.id % 1000)),
+                threadId: Number(conversation.threadId),
+                reservationId: conversation.reservationId,
+                listingId: conversation.listingId,
+                body,
+                note: null,
+                direction: "system",
+                senderType: "system",
+                senderName: "Scheduled message",
+                isAutomatic: 1,
+                isSms: 0,
+                channel: conversation.channel,
+                attachmentUrl: null,
+                guestId: conversation.guestId,
+                sentAt: new Date(),
+                sentByUserId: null,
+                sentByName: rule.createdByName || "System",
+                sentVia: "auto_message_skip",
+                source: "hostify",
+            });
+            await messageRepo.save(msg);
+            conversation.lastMessageText = body;
+            conversation.lastMessageAt = msg.sentAt;
+            await this.conversationRepo.save(conversation);
+        } catch (err: any) {
+            logger.warn(
+                `[AutoMessage] failed to write skip system message thread=${conversation.threadId}: ${err?.message}`
+            );
+        }
+    }
+
+    private async notifyScheduleSkip(
+        rule: AutoMessageRuleEntity,
+        conversation: InboxConversationEntity,
+        reason: string,
+        kind: "skipped" | "failed" = "skipped"
+    ): Promise<void> {
+        try {
+            if (!rule.createdByUserId) return;
+            const user = await appDatabase.getRepository(UsersEntity).findOne({
+                where: { id: Number(rule.createdByUserId) },
+            });
+            const userUid = String(user?.uid || "").trim();
+            if (!userUid) return;
+
+            const guest = conversation.guestName || "Guest";
+            const listing = conversation.listingName || "listing";
+            const href = `/messages/inbox-v2?thread=${conversation.threadId}`;
+            const title =
+                kind === "failed"
+                    ? `Scheduled message failed · ${guest}`
+                    : `Scheduled message skipped · ${guest}`;
+            const body = [
+                reason,
+                `Listing: ${listing}`,
+                rule.name ? `Rule: ${rule.name}` : null,
+            ]
+                .filter(Boolean)
+                .join("\n")
+                .slice(0, 2000);
+
+            const repo = appDatabase.getRepository(UserDirectedNotificationEntity);
+            await repo.save(
+                repo.create({
+                    userUid,
+                    actorUid: null,
+                    actorName: "Scheduler",
+                    type: "scheduled_message",
+                    title,
+                    body,
+                    href,
+                    threadId: Number(conversation.threadId),
+                    messageExternalId: null,
+                    escalationId: null,
+                    readAt: null,
+                })
+            );
+        } catch (err: any) {
+            logger.warn(`[AutoMessage] schedule notification failed: ${err?.message}`);
         }
     }
 }
