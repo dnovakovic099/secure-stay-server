@@ -392,6 +392,13 @@ export class ResolutionsTeamSlackService {
         return formatCurrency(Number(reservation.owner_revenue));
     }
 
+    private getHostifyReservationUrl(reservation?: ReservationInfoEntity | null) {
+        const hostifyReservationId = String(reservation?.reservationId || reservation?.id || "").trim();
+        return hostifyReservationId
+            ? `https://us.hostify.com/reservations/view/${hostifyReservationId}`
+            : "";
+    }
+
     private extractPropertyTypeFromTags(tags?: string | null) {
         const tagList = String(tags || "").split(",").map((tag) => tag.trim().toLowerCase());
         if (tagList.includes("own")) return "Own";
@@ -571,9 +578,7 @@ export class ResolutionsTeamSlackService {
             ]);
 
             const ssUrl = `https://securestay.ai/mitigation?reservationId=${reservation.id}`;
-            const hostifyUrl = reservation.reservationId
-                ? `https://us.hostify.com/reservations/view/${reservation.reservationId}`
-                : "";
+            const hostifyUrl = this.getHostifyReservationUrl(reservation);
 
             const msgPayload = buildResolutionsCheckoutMessage({
                 emoji,
@@ -718,9 +723,7 @@ export class ResolutionsTeamSlackService {
             this.getResolutionTagOptions(),
         ]);
 
-        const hostifyUrl = reservation.reservationId
-            ? `https://us.hostify.com/reservations/view/${reservation.reservationId}`
-            : "";
+        const hostifyUrl = this.getHostifyReservationUrl(reservation);
         const ssUrl = `https://securestay.ai/mitigation?reservationId=${reservation.id}`;
 
         const selectedTags = this.normalizeReservationTags(this.parseJsonValue<any>(reservation.tags, []));
@@ -889,9 +892,7 @@ export class ResolutionsTeamSlackService {
             }
 
             try {
-                const hostifyUrl = reservation.reservationId
-                    ? `https://us.hostify.com/reservations/view/${reservation.reservationId}`
-                    : "";
+                const hostifyUrl = this.getHostifyReservationUrl(reservation);
                 const ssUrl = `https://securestay.ai/mitigation?reservationId=${reservation.id}`;
 
                 const selectedTags = this.normalizeReservationTags(this.parseJsonValue<any>(reservation.tags, []));

@@ -24,7 +24,7 @@ import { prefixUnlistedListingMarker } from "./listingListedStatus.util";
 
 const REFUND_REQUEST_CHANNEL = "#resolutions-team";
 const AIRBNB_RESOLUTIONS_CENTER_PAYMENT_METHOD = "airbnb resolutions center";
-const FERDY_SLACK_USER_ID = "U07P974D65P";
+export const FERDY_SLACK_USER_ID = "U07P974D65P";
 const JADE_SLACK_USER_ID = "U08EUTR1H9A";
 const ISSUE_NOTIFICATION_CHANNEL = "#issue-resolution";
 const CLIENT_RELATIONS = "#client-relations";
@@ -2545,7 +2545,7 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
     const normalizedChannelName = normalizeSlackField(channelName, "");
     const normalizedIntegrationName = normalizeSlackField(integrationName, "");
     const displayIntegrationName = prefixUnlistedListingMarker(normalizedIntegrationName, isListingUnlisted);
-    const channelLabel = normalizedChannelName.toLowerCase() === "airbnb" && normalizedIntegrationName
+    const channelLabel = normalizedIntegrationName
         ? `${normalizedChannelName} - ${displayIntegrationName}`
         : normalizedChannelName;
     const channelText = integrationUrl
@@ -2685,7 +2685,7 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
     };
 };
 
-export type ResolutionsActivityType = 'status' | 'assignee' | 'visibility' | 'resolution_notes' | 'resolution_tag' | 'comment' | 'refund_request' | 'ai_analysis' | 'review_posted' | 'reservation_cancelled' | 'reservation_altered';
+export type ResolutionsActivityType = 'status' | 'assignee' | 'visibility' | 'resolution_notes' | 'resolution_tag' | 'comment' | 'refund_request' | 'ai_analysis' | 'review_posted' | 'reservation_cancelled' | 'reservation_altered' | 'dispute_risk';
 
 export interface ResolutionsActivityData {
     type: ResolutionsActivityType;
@@ -2739,6 +2739,9 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             break;
         case 'reservation_altered':
             text = `⏩️ ${details || 'Reservation was altered.'}`;
+            break;
+        case 'dispute_risk':
+            text = details || 'Reservation was marked as a dispute risk.';
             break;
         case 'visibility':
             text = `🌟 *${actorLabel}* changed visibility from *${oldValue || '—'}* → *${newValue || details || '—'}*`;
@@ -2869,6 +2872,10 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
                 ...(sentimentLine
                     ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: sentimentHelpText ? `${sentimentLine} — ${sentimentHelpText}` : sentimentLine }] }]
                     : []),
+            ];
+        } else if (type === 'dispute_risk') {
+            blocks = [
+                { type: 'section', text: { type: 'mrkdwn', text } },
             ];
         } else {
             blocks = [

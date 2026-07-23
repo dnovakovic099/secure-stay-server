@@ -915,6 +915,7 @@ export class ExpenseService {
     async getClaimsFeeFunds(request: Request) {
         const fromDate = String(request.query.fromDate || "");
         const toDate = String(request.query.toDate || "");
+        const includeDetails = String(request.query.includeDetails || "").toLowerCase() === "true";
         const dateTypeInput = String(request.query.dateType || "").trim();
         // Reservation date column the range applies to. Defaults to arrivalDate
         // (check-in) so calls without an explicit dateType keep behaving like the
@@ -1062,6 +1063,58 @@ export class ExpenseService {
             expenseParams
         );
 
+        let reservationDetails: any[] = [];
+        let expenseDetails: any[] = [];
+        if (includeDetails) {
+            reservationDetails = await this.reservationInfoRepo.query(
+                `
+                    SELECT
+                        r.id,
+                        r.listingMapId,
+                        r.reservationId,
+                        r.guestName,
+                        r.reservationDate,
+                        r.arrivalDate,
+                        r.departureDate,
+                        r.status,
+                        ${resortFeeExpr} AS resortFee,
+                        ${insuranceFeeExpr} AS insuranceFee
+                    FROM reservation_info r
+                    WHERE r.listingMapId IS NOT NULL
+                    ${reservationDateWhere}
+                    ${reservationListingWhere}
+                    AND r.status IN (${statusPlaceholders})
+                    ORDER BY ${reservationDateColumn} DESC, r.id DESC
+                `,
+                reservationParams
+            );
+
+            expenseDetails = await this.expenseRepo.query(
+                `
+                    SELECT
+                        id,
+                        expenseId,
+                        listingMapId,
+                        expenseDate,
+                        concept,
+                        amount,
+                        categories,
+                        contractorName,
+                        status,
+                        reservationId,
+                        guestName
+                    FROM expense
+                    WHERE listingMapId IS NOT NULL
+                    AND isDeleted = 0
+                    AND fromClaimsFee = 1
+                    ${expenseDateWhere}
+                    ${expenseListingWhere}
+                    ORDER BY expenseDate DESC, id DESC
+                `,
+                expenseParams
+            );
+        }
+
         const listingIds = Array.from(new Set([
             ...reservationRows.map((row: any) => Number(row.listingMapId)),
             ...expenseRows.map((row: any) => Number(row.listingMapId)),
@@ -1073,6 +1126,31 @@ export class ExpenseService {
         const listingNameById = new Map(listings.map((listing) => [Number(listing.id), listing.internalListingName || listing.name || `Property ${listing.id}`]));
         const reservationByListing = new Map<number, any>(reservationRows.map((row: any) => [Number(row.listingMapId), row]));
         const expenseByListing = new Map<number, any>(expenseRows.map((row: any) => [Number(row.listingMapId), row]));
+        const reservationDetailsByListing = new Map<number, any[]>();
+        reservationDetails.forEach((row: any) => {
+            const listingMapId = Number(row.listingMapId);
+            reservationDetailsByListing.set(listingMapId, [
+                ...(reservationDetailsByListing.get(listingMapId) || []),
+                {
+                    ...row,
+                    resortFee: Number(row.resortFee || 0),
+                    insuranceFee: Number(row.insuranceFee || 0),
+                    claimsFee: Number(row.resortFee || 0) + Number(row.insuranceFee || 0),
+                },
+            ]);
+        });
+        const expenseDetailsByListing = new Map<number, any[]>();
+        expenseDetails.forEach((row: any) => {
+            const listingMapId = Number(row.listingMapId);
+            expenseDetailsByListing.set(listingMapId, [
+                ...(expenseDetailsByListing.get(listingMapId) || []),
+                {
+                    ...row,
+                    amount: Number(row.amount || 0),
+                    claimsFeeContribution: -Number(row.amount || 0),
+                },
+            ]);
+        });
 
         return listingIds
             .map((listingMapId) => {
@@ -1090,6 +1168,10 @@ export class ExpenseService {
                     resortFeeSum,
                     insuranceFeeSum,
                     reservationCount: Number(reservationRow?.reservationCount || 0),
+                    ...(includeDetails ? {
+                        reservations: reservationDetailsByListing.get(listingMapId) || [],
+                        usedClaimsFeeEntries: expenseDetailsByListing.get(listingMapId) || [],
+                    } : {}),
                 };
             })
             .sort((a, b) => a.property.localeCompare(b.property));
@@ -2153,5 +2235,4 @@ export class ExpenseService {
         return { created, skipped };
     }
 }
-
 

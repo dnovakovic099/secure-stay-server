@@ -10,6 +10,10 @@ import { UserDepartmentEntity } from "../entity/UserDepartment";
 import { LeaveRequestEntity } from "../entity/LeaveRequest";
 import { LeaveRequestStatus, PaymentType } from "../constant";
 import { Between, IsNull } from "typeorm";
+import sendSlackMessage from "../utils/sendSlackMsg";
+import logger from "../utils/logger.utils";
+
+const WORKLOG_OT_HOURS_SLACK_CHANNEL = process.env.WORKLOG_OT_HOURS_SLACK_CHANNEL || "#worklog-ot-hours";
 
 interface CreateEmployeeDto {
     userId: number;
@@ -669,6 +673,109 @@ export class EmployeeService {
         return entry.notes ? `${range} (${entry.notes})` : range;
     }
 
+    private escapeSlackText(value?: unknown) {
+        return this.normalizeLogValue(value)?.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') || '—';
+    }
+
+    private formatPersonName(user?: Pick<UsersEntity, 'firstName' | 'lastName' | 'email'> | null) {
+        const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim();
+        return fullName || user?.email || 'Unknown user';
+    }
+
+    private formatScheduleTime(value?: string | null) {
+        if (!value) return '';
+        const [hourRaw, minuteRaw = '0'] = value.split(':');
+        const hour = Number(hourRaw);
+        const minute = Number(minuteRaw);
+        if (!Number.isFinite(hour) || !Number.isFinite(minute)) return value;
+        const suffix = hour >= 12 ? 'PM' : 'AM';
+        const normalizedHour = hour % 12 || 12;
+        return `${normalizedHour}${minute ? `:${String(minute).padStart(2, '0')}` : ''}${suffix}`;
+    }
+
+    private formatScheduleRange(start?: string | null, end?: string | null) {
+        const formattedStart = this.formatScheduleTime(start);
+        const formattedEnd = this.formatScheduleTime(end);
+        return formattedStart && formattedEnd ? `${formattedStart} - ${formattedEnd}` : 'Incomplete schedule';
+    }
+
+    private formatRegularScheduleForSlack(value?: string | null) {
+        if (!value) return '—';
+        try {
+            const schedule = JSON.parse(value);
+            const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const days = Array.isArray(schedule.days)
+                ? schedule.days.map((day: number) => dayLabels[day]).filter(Boolean).join(', ')
+                : '';
+            const defaultRange = schedule.constantStart && schedule.constantEnd
+                ? this.formatScheduleRange(schedule.constantStart, schedule.constantEnd)
+                : '';
+            const overrides = schedule.overrides && typeof schedule.overrides === 'object'
+                ? Object.entries(schedule.overrides).map(([day, override]: [string, any]) =>
+                    `${dayLabels[Number(day)] || day}: ${this.formatScheduleRange(override?.start, override?.end)}`
+                )
+                : [];
+            const parts = [
+                days ? `Days: ${days}` : null,
+                defaultRange ? `Default: ${defaultRange}` : null,
+                schedule.effectiveStartDate ? `Effective: ${schedule.effectiveStartDate}` : null,
+                overrides.length ? `Overrides: ${overrides.join('; ')}` : null,
+            ].filter(Boolean);
+            return parts.length ? parts.join(' | ') : value;
+        } catch {
+            return value;
+        }
+    }
+
+    private formatScheduleOverrideForSlack(entry: Partial<EmployeeScheduleEntry> | null | undefined) {
+        if (!entry) return '—';
+        if (entry.shiftType === EmployeeScheduleShiftType.OFF || entry.shiftType === EmployeeScheduleShiftType.HOLIDAY) {
+            return [entry.shiftType, entry.notes ? `(${entry.notes})` : null].filter(Boolean).join(' ');
+        }
+
+        const start = entry.shiftStart || (entry.shiftStartAt ? this.toTimeStringFromDate(entry.shiftStartAt) : null);
+        const end = entry.shiftEnd || (entry.shiftEndAt ? this.toTimeStringFromDate(entry.shiftEndAt) : null);
+        return [this.formatScheduleRange(start, end), entry.notes ? `(${entry.notes})` : null].filter(Boolean).join(' ');
+    }
+
+    private async sendScheduleAdjustmentNotification(options: {
+        employeeId: number;
+        changeType: string;
+        previousValue?: string | null;
+        newValue?: string | null;
+        date?: string | null;
+        changedBy?: number;
+    }) {
+        try {
+            const [employee, changedByUser] = await Promise.all([
+                this.employeeRepo.findOne({
+                    where: { id: options.employeeId, deletedAt: IsNull() },
+                    relations: ['user'],
+                }),
+                options.changedBy ? this.usersRepo.findOne({ where: { id: options.changedBy } }) : Promise.resolve(null),
+            ]);
+
+            const employeeName = employee?.user ? this.formatPersonName(employee.user) : `Employee #${options.employeeId}`;
+            const changedByName = changedByUser ? this.formatPersonName(changedByUser) : 'SecureStay';
+            const lines = [
+                '*Employee shift/schedule adjusted*',
+                `*Employee:* ${this.escapeSlackText(employeeName)}`,
+                `*Change:* ${this.escapeSlackText(options.changeType)}`,
+                options.date ? `*Date:* ${this.escapeSlackText(options.date)}` : null,
+                `*Previous:* ${this.escapeSlackText(options.previousValue)}`,
+                `*New:* ${this.escapeSlackText(options.newValue)}`,
+                `*Updated by:* ${this.escapeSlackText(changedByName)}`,
+            ].filter(Boolean);
+
+            await sendSlackMessage({
+                channel: WORKLOG_OT_HOURS_SLACK_CHANNEL,
+                text: lines.join('\n'),
+            });
+        } catch (error) {
+            logger.error('[EmployeeService] Failed to send schedule adjustment Slack notification:', error);
+        }
+    }
+
     private extractScheduleLeavePaymentType(notes?: string | null) {
         const firstPhrase = notes?.split('.')[0]?.trim().toLowerCase();
         if (firstPhrase === 'paid leave') return PaymentType.PAID;
@@ -823,6 +930,7 @@ export class EmployeeService {
         });
 
         const previousSummary = this.describeScheduleOverride(entry);
+        const previousSlackSummary = this.formatScheduleOverrideForSlack(entry);
 
         if (!entry) {
             entry = this.scheduleRepo.create({
@@ -842,14 +950,26 @@ export class EmployeeService {
         entry.createdBy = changedBy !== undefined ? String(changedBy) : entry.createdBy || null;
 
         const saved = await this.scheduleRepo.save(entry);
+        const nextSummary = this.describeScheduleOverride(saved);
 
         await this.logEmployeeChange(
             employeeId,
             `Schedule Override (${entry.date})`,
             previousSummary,
-            this.describeScheduleOverride(saved),
+            nextSummary,
             changedBy
         );
+
+        if (this.normalizeLogValue(previousSummary) !== this.normalizeLogValue(nextSummary)) {
+            void this.sendScheduleAdjustmentNotification({
+                employeeId,
+                changeType: saved.shiftType === EmployeeScheduleShiftType.OFF ? 'Shift cancellation / leave' : 'Shift override',
+                date: saved.date,
+                previousValue: previousSlackSummary,
+                newValue: this.formatScheduleOverrideForSlack(saved),
+                changedBy,
+            });
+        }
 
         if (saved.shiftType === EmployeeScheduleShiftType.OFF) {
             await this.syncLeaveRequestFromScheduleOverride(employee, saved.date, saved.notes, changedBy);
@@ -883,6 +1003,15 @@ export class EmployeeService {
             changedBy
         );
 
+        void this.sendScheduleAdjustmentNotification({
+            employeeId,
+            changeType: 'Shift override removed',
+            date,
+            previousValue: this.formatScheduleOverrideForSlack(entry),
+            newValue: null,
+            changedBy,
+        });
+
         return { success: true };
     }
 
@@ -897,6 +1026,8 @@ export class EmployeeService {
 
         const logTasks: Promise<void>[] = [];
         let pendingDepartmentNames: string[] | null = null;
+        const previousSchedule = employee.schedule;
+        let nextSchedule: string | null | undefined;
         const queue = (fieldName: string, oldValue: any, newValue: any) => {
             logTasks.push(this.logEmployeeChange(id, fieldName, oldValue, newValue, changedBy));
         };
@@ -939,7 +1070,11 @@ export class EmployeeService {
         if (dto.birthday !== undefined) { queue('Birthday', employee.birthday, dto.birthday || null); employee.birthday = dto.birthday || null; }
         if (dto.country !== undefined) { queue('Country', employee.country, dto.country || null); employee.country = dto.country || null; }
         if (dto.preferredName !== undefined) { queue('Preferred Name', employee.preferredName, dto.preferredName || null); employee.preferredName = dto.preferredName || null; }
-        if (dto.schedule !== undefined) { queue('Schedule', employee.schedule, dto.schedule || null); employee.schedule = dto.schedule || null; }
+        if (dto.schedule !== undefined) {
+            nextSchedule = dto.schedule || null;
+            queue('Schedule', employee.schedule, nextSchedule);
+            employee.schedule = nextSchedule;
+        }
         if (dto.slackId !== undefined) { queue('Slack ID', employee.slackId, dto.slackId || null); employee.slackId = dto.slackId || null; }
         if (dto.paymentMethod !== undefined) { queue('Payment Method', employee.paymentMethod, dto.paymentMethod || null); employee.paymentMethod = dto.paymentMethod || null; }
         if (dto.paymentMethodOther !== undefined) { queue('Payment Method Other', employee.paymentMethodOther, dto.paymentMethodOther || null); employee.paymentMethodOther = dto.paymentMethodOther || null; }
@@ -967,6 +1102,19 @@ export class EmployeeService {
         // If start date changed, regenerate all employee numbers
         if (startDateChanged) {
             await this.regenerateEmployeeNumbers();
+        }
+
+        if (
+            nextSchedule !== undefined &&
+            this.normalizeLogValue(previousSchedule) !== this.normalizeLogValue(nextSchedule)
+        ) {
+            void this.sendScheduleAdjustmentNotification({
+                employeeId: id,
+                changeType: 'Regular schedule',
+                previousValue: this.formatRegularScheduleForSlack(previousSchedule),
+                newValue: this.formatRegularScheduleForSlack(nextSchedule),
+                changedBy,
+            });
         }
 
         return this.getEmployeeById(id);

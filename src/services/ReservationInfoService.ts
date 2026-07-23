@@ -33,6 +33,7 @@ import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import { ReviewDiscussionService } from "./ReviewDiscussionService";
 import { getEasternDateString } from "../utils/easternTime.util";
 import { TurnoverReservationChangeService } from "./TurnoverReservationChangeService";
+import { FERDY_SLACK_USER_ID } from "../utils/slackMessageBuilder";
 
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
@@ -1589,8 +1590,9 @@ export class ReservationInfoService {
     const nextTags = this.normalizeReservationTags(tagChange.new);
     const activityValues = this.describeReservationTagChange(previousTags, nextTags);
     if (!activityValues) return;
+    const disputeRiskAdded = this.wasReservationTagAdded(previousTags, nextTags, "Dispute Risk");
 
-    const reviewCheckout = await this.reviewCheckoutRepo.findOne({
+    let reviewCheckout = await this.reviewCheckoutRepo.findOne({
       where: { reservationInfo: { id: reservationId } },
       relations: ["reservationInfo"],
     });
@@ -1612,13 +1614,87 @@ export class ReservationInfoService {
       logger.error("[ReservationInfoService] Review discussion reservation tag system update failed:", error);
     }
 
+    const resolutionsSlackService = new ResolutionsTeamSlackService();
+    if ((!reviewCheckout || !reviewCheckout.slackThreadTs) && disputeRiskAdded) {
+      reviewCheckout = await resolutionsSlackService.ensureThreadForReservation(reservationId, changedBy);
+    }
+
     if (!reviewCheckout?.slackThreadTs) return;
 
-    await new ResolutionsTeamSlackService().postActivityToThread(reviewCheckout.id, {
+    await resolutionsSlackService.postActivityToThread(reviewCheckout.id, {
       type: "resolution_tag",
       actor: changedBy,
       oldValue: activityValues.oldValue,
       newValue: activityValues.newValue,
+    });
+
+    if (disputeRiskAdded) {
+      await this.postDisputeRiskAlertToSlack(reviewCheckout, reservationId, changedBy);
+    }
+  }
+
+  private wasReservationTagAdded(previousTags: string[], nextTags: string[], tagName: string) {
+    const normalize = (value: string) => value.trim().toLowerCase();
+    const target = normalize(tagName);
+    const previous = new Set(previousTags.map(normalize));
+    return nextTags.some((tag) => normalize(tag) === target) && !previous.has(target);
+  }
+
+  private getHostifyReservationUrl(reservation: ReservationInfoEntity) {
+    const hostifyReservationId = String(reservation.reservationId || reservation.id || "").trim();
+    return hostifyReservationId
+      ? `https://us.hostify.com/reservations/view/${hostifyReservationId}`
+      : "";
+  }
+
+  private escapeSlackLinkText(value: string) {
+    return value.replace(/[|<>]/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  private formatDisputeRiskReservationLine(reservation: ReservationInfoEntity) {
+    const guestName = this.escapeSlackLinkText(String(reservation.guestName || "Guest").trim()) || "Guest";
+    const hostifyUrl = this.getHostifyReservationUrl(reservation);
+    const guestLabel = hostifyUrl ? `<${hostifyUrl}|${guestName}>` : guestName;
+    const checkIn = reservation.arrivalDate ? format(new Date(reservation.arrivalDate), "MMM d, yyyy") : "Unknown check-in";
+    const checkOut = reservation.departureDate ? format(new Date(reservation.departureDate), "MMM d, yyyy") : "Unknown check-out";
+    const confirmationCode = String(reservation.confirmation_code || reservation.channelReservationId || "").trim();
+    return `• ${guestLabel} — ${checkIn} → ${checkOut}${confirmationCode ? ` (${confirmationCode})` : ""}`;
+  }
+
+  private async getUpcomingReservationsForDisputeRisk(reservation: ReservationInfoEntity) {
+    if (!reservation.listingMapId) return [];
+
+    const today = getEasternDateString();
+    return this.reservationInfoRepository
+      .createQueryBuilder("reservation")
+      .where("reservation.listingMapId = :listingMapId", { listingMapId: reservation.listingMapId })
+      .andWhere("reservation.id != :reservationId", { reservationId: reservation.id })
+      .andWhere("DATE(reservation.arrivalDate) >= :today", { today })
+      .andWhere("reservation.status IN (:...validStatuses)", { validStatuses: this.validStatus })
+      .orderBy("reservation.arrivalDate", "ASC")
+      .addOrderBy("reservation.departureDate", "ASC")
+      .getMany();
+  }
+
+  private async postDisputeRiskAlertToSlack(
+    reviewCheckout: ReviewCheckout,
+    reservationId: number,
+    changedBy: string,
+  ) {
+    const reservation = reviewCheckout.reservationInfo
+      || await this.reservationInfoRepository.findOne({ where: { id: reservationId } });
+    if (!reservation) return;
+
+    const upcomingReservations = await this.getUpcomingReservationsForDisputeRisk(reservation);
+    const propertyName = String(reservation.listingName || "this property").trim();
+    const upcomingText = upcomingReservations.length
+      ? `Upcoming reservations for ${propertyName}:\n${upcomingReservations.map((item) => this.formatDisputeRiskReservationLine(item)).join("\n")}`
+      : `There are no upcoming reservations for ${propertyName}.`;
+
+    await new ResolutionsTeamSlackService().postActivityToThread(reviewCheckout.id, {
+      type: "dispute_risk",
+      actor: changedBy,
+      details: `<@${FERDY_SLACK_USER_ID}> This reservation is a dispute risk.\n${upcomingText}`,
     });
   }
 
