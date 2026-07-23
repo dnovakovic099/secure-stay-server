@@ -21,6 +21,7 @@ import {
     AIMessagingSettingsService,
     normalizeEarlyLateHandling,
 } from "./AIMessagingSettingsService";
+import { collectCategoryNames } from "./AIDetectorInstructions";
 import { AIMessagingSettingsEntity } from "../entity/AIMessagingSettings";
 import { AILearnedFactsService } from "./AILearnedFactsService";
 import { ListingGroupService } from "./ListingGroupService";
@@ -150,6 +151,17 @@ export const AI_REPLY_RULE_DEFAULTS = {
     quoUnlinkedThreadRules:
         "This SMS thread is NOT linked to a reservation, so there is no listing/reservation context. Answer only from the conversation itself. EXCEPTION: if the context contains a 'LIVE listing search results' block, that search has already been run — share those results per its instructions. Otherwise, if the guest asks something property-specific you can't answer, say you'll check and follow up.",
 };
+
+interface GuestIssueDraftResult {
+    shouldCreate: boolean;
+    category: string | null;
+    title: string | null;
+    description: string | null;
+    urgency: number | null;
+    confidence: number | null;
+    evidence: string | null;
+    reason: string | null;
+}
 
 /** Topics that must always route to a human, regardless of model confidence. */
 const ESCALATION_KEYWORDS: { pattern: RegExp; reason: string }[] = [
@@ -370,6 +382,86 @@ export class InboxAIService {
             where: { threadId, source: "hostify" },
             order: { generatedAt: "DESC", id: "DESC" },
         });
+    }
+
+    async draftGuestIssueFromMessage(threadId: number, messageExternalId: number): Promise<GuestIssueDraftResult> {
+        const conversation = await this.conversationRepo.findOne({ where: { threadId } });
+        if (!conversation) throw new Error(`Conversation ${threadId} not found`);
+
+        const messages = await this.messageRepo.find({
+            where: { threadId },
+            order: { sentAt: "ASC", id: "ASC" },
+        });
+        const targetMessage = messages.find((m) => Number(m.externalId) === Number(messageExternalId)) || null;
+        if (!targetMessage) throw new Error(`Message ${messageExternalId} not found in conversation ${threadId}`);
+
+        const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
+        const categoryNames = collectCategoryNames(settings);
+        const context = await this.buildContext(conversation, messages, targetMessage, {
+            includeKnowledge: false,
+            instructions: [
+                "You are helping an internal teammate decide whether to create a Guest Issues ticket from the selected message.",
+                "Use the whole conversation context, but anchor the ticket to the selected message.",
+                "Only create a ticket for a concrete operational/reservation issue, guest request, complaint, access problem, maintenance item, cleanliness issue, or follow-up that staff should track.",
+                "Do not create a ticket for pure thanks, acknowledgements, small talk, or already-resolved items unless the selected message reveals a new follow-up.",
+            ].join(" "),
+        });
+        const categoryLine = categoryNames.length
+            ? `Use exactly one category from this list: ${categoryNames.map((value) => JSON.stringify(value)).join(", ")}.`
+            : "Use a concise issue category.";
+
+        const completion = await this.getClient().chat.completions.create({
+            model: INBOX_AI_MODEL,
+            temperature: 0.2,
+            response_format: { type: "json_object" },
+            messages: [
+                {
+                    role: "system",
+                    content: [
+                        "You draft internal Guest Issues tickets. You do not write guest replies and you do not send messages.",
+                        categoryLine,
+                        "Return strict JSON only with this shape:",
+                        "{ \"shouldCreate\": boolean, \"category\": string|null, \"title\": string|null, \"description\": string|null, \"urgency\": 1|2|3|4|5|null, \"confidence\": number, \"evidence\": string|null, \"reason\": string|null }",
+                        "description must be one clear paragraph suitable for an internal ticket.",
+                        "urgency: 1 low, 3 normal, 5 urgent access/safety/active-stay blocker.",
+                    ].join("\n"),
+                },
+                {
+                    role: "user",
+                    content: [
+                        context,
+                        "",
+                        "## Selected message to evaluate for a ticket",
+                        `${targetMessage.direction === "incoming" ? "GUEST" : "TEAM"}: ${(targetMessage.body || targetMessage.note || "").trim() || "(no text)"}`,
+                    ].join("\n"),
+                },
+            ],
+        });
+
+        let parsed: any = {};
+        try {
+            parsed = JSON.parse(completion.choices[0]?.message?.content?.trim() || "{}");
+        } catch {
+            parsed = {};
+        }
+
+        const normalizedCategory = String(parsed.category || "").trim();
+        const category =
+            categoryNames.find((name) => name.toLowerCase() === normalizedCategory.toLowerCase()) ||
+            normalizedCategory ||
+            null;
+        const description = parsed.description ? String(parsed.description).trim().slice(0, 2000) : null;
+        const shouldCreate = Boolean(parsed.shouldCreate) && Boolean(category) && Boolean(description);
+        return {
+            shouldCreate,
+            category: shouldCreate ? category : null,
+            title: parsed.title ? String(parsed.title).trim().slice(0, 160) : null,
+            description,
+            urgency: parsed.urgency == null ? null : Math.min(5, Math.max(1, Number(parsed.urgency) || 3)),
+            confidence: parsed.confidence == null ? null : Number(parsed.confidence),
+            evidence: parsed.evidence ? String(parsed.evidence).trim().slice(0, 1000) : null,
+            reason: parsed.reason ? String(parsed.reason).trim().slice(0, 1000) : null,
+        };
     }
 
     /**

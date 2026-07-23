@@ -11,6 +11,7 @@ const dueDateSchema = Joi.string()
 
 const ISSUE_STATUS_VALUES = ["In Progress", "Completed", "Need Help", "New", "Scheduled"];
 const issueStatusSchema = Joi.string().valid(...ISSUE_STATUS_VALUES);
+const issueCategorySchema = Joi.string().trim().min(1).max(120);
 
 export const validateCreateIssue = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
@@ -56,7 +57,7 @@ export const validateCreateIssue = (request: Request, response: Response, next: 
         claim_resolution_amount: Joi.number().precision(2).allow(null).empty(''),
         next_steps: Joi.string().allow(null, ''),
         payment_information: Joi.string().allow(null, ''),
-        category: Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA").required(),
+        category: issueCategorySchema.required(),
         resolution: Joi.string().optional().allow(null, ''),
         guest_relations_resolution: Joi.string().optional().allow(null, ''),
         ai_short_title: Joi.string().optional().allow(null, ''),
@@ -125,7 +126,7 @@ export const validateUpdateIssue = (request: Request, response: Response, next: 
         next_steps: Joi.string().allow(null, ''),
         payment_information: Joi.string().allow(null, ''),
         deletedFiles: Joi.string().allow(null, ''),
-        category: Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA").allow(null,""),
+        category: issueCategorySchema.allow(null,""),
         resolution: Joi.string().optional().allow(null, ''),
         guest_relations_resolution: Joi.string().optional().allow(null, ''),
         ai_short_title: Joi.string().optional().allow(null, ''),
@@ -210,7 +211,7 @@ export const validateUpdateLatestUpdates = (request: Request, response: Response
 
 export const validateGetIssues = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        category: Joi.array().items(Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA")).min(1).optional(),
+        category: Joi.array().items(issueCategorySchema).min(1).optional(),
         listingId: Joi.array().items(Joi.number()).min(1).optional(),
         propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
         serviceType: Joi.array().items(Joi.string().required()).min(1).optional(),
@@ -266,7 +267,7 @@ export const validateBulkUpdateIssues = (request: Request, response: Response, n
         updateData: Joi.object({
             status: issueStatusSchema.optional(),
             gr_status: issueStatusSchema.optional(),
-            category: Joi.string().valid("MAINTENANCE", "CLEANLINESS", "HVAC", "LANDSCAPING", "PEST CONTROL", "POOL AND SPA").optional(),
+            category: issueCategorySchema.optional(),
             urgency: Joi.number().allow(null).optional(),
             assignee: Joi.string().allow('', null).optional(),
             due_date: Joi.string().allow('', null).optional(),

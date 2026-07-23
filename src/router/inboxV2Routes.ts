@@ -58,6 +58,7 @@ router.post("/conversations/:threadId/ai/sentiment", verifySession, inboxV2Contr
 router.get("/conversations/:threadId/rescue", verifySession, inboxV2Controller.getRescue);
 router.post("/conversations/:threadId/rescue/dismiss", verifySession, inboxV2Controller.dismissRescue);
 router.post("/conversations/:threadId/ai/suggest", verifySession, inboxV2Controller.aiSuggest);
+router.post("/conversations/:threadId/ai/guest-issue-draft", verifySession, inboxV2Controller.aiDraftGuestIssue);
 router.get("/conversations/:threadId/ai/suggestion", verifySession, inboxV2Controller.aiGetSuggestion);
 router.get("/conversations/:threadId/ai/suggestions", verifySession, inboxV2Controller.aiListSuggestions);
 router.post("/ai/feedback", verifySession, inboxV2Controller.aiFeedback);

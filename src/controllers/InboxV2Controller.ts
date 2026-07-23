@@ -360,6 +360,24 @@ export class InboxV2Controller {
         }
     }
 
+    /** Draft a Guest Issues ticket from one selected message plus thread context. */
+    async aiDraftGuestIssue(request: Request, response: Response, next: NextFunction) {
+        try {
+            if (!InboxAIService.isEnabled()) {
+                return response.status(503).json({ status: false, disabled: true, message: "AI messaging is disabled" });
+            }
+            const threadId = Number(request.params.threadId);
+            const messageId = toNum(request.body?.messageId);
+            if (!Number.isFinite(threadId) || !messageId) {
+                return response.status(400).json({ status: false, message: "Invalid threadId or messageId" });
+            }
+            const data = await new InboxAIService().draftGuestIssueFromMessage(threadId, messageId);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     /** Latest persisted suggestion for a thread (optionally a specific message). */
     async aiGetSuggestion(request: Request, response: Response, next: NextFunction) {
         try {
