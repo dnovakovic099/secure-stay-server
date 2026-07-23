@@ -10,6 +10,53 @@ export interface CommunicationRuleEntry {
     appliesTo?: string | null;
 }
 
+const randomRuleId = () => Math.random().toString(36).slice(2, 10);
+
+/** Parse Settings JSON array of per-topic communication rules. */
+export function parseCommunicationRuleEntries(raw: string | null | undefined): CommunicationRuleEntry[] {
+    if (!raw || !String(raw).trim()) return [];
+    try {
+        const parsed = JSON.parse(String(raw));
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+            .map((e: any) => ({
+                id: String(e?.id || randomRuleId()),
+                topic: String(e?.topic || "").trim(),
+                rule: String(e?.rule || "").trim(),
+                appliesTo: e?.appliesTo != null && String(e.appliesTo).trim() ? String(e.appliesTo).trim() : null,
+            }))
+            .filter((e) => e.topic && e.rule);
+    } catch {
+        return [];
+    }
+}
+
+/** Format per-topic entries for the TEAM COMMUNICATION RULES prompt block. */
+export function formatCommunicationRuleEntriesForPrompt(entries: CommunicationRuleEntry[]): string {
+    if (!entries.length) return "";
+    return entries
+        .map((e) => {
+            const scope = e.appliesTo ? ` (${e.appliesTo})` : "";
+            return `- [${e.topic}]${scope}: ${e.rule}`;
+        })
+        .join("\n");
+}
+
+/**
+ * Effective text injected as TEAM COMMUNICATION RULES.
+ * Prefers structured entries; appends legacy free-text when both exist.
+ */
+export function buildTeamCommunicationRulesText(settings?: {
+    communicationRules?: string | null;
+    communicationRuleEntries?: string | null;
+} | null): string {
+    const fromEntries = formatCommunicationRuleEntriesForPrompt(
+        parseCommunicationRuleEntries(settings?.communicationRuleEntries)
+    );
+    const fromFree = (settings?.communicationRules || "").trim();
+    return [fromEntries, fromFree].filter(Boolean).join("\n\n");
+}
+
 export interface ActionItemCategoryEntry {
     id: string;
     name: string;

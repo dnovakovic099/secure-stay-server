@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { IssuesService } from "../services/IssuesService";
 import { IssueAIService } from "../services/IssueAIService";
+import { downloadUrlsAsIssueFiles } from "../services/AITicketCreationHelpers";
 import path from "path";
 import fs from "fs";
 
@@ -108,8 +109,33 @@ export class IssuesController {
         });
       }
 
+      // Optional remote guest photo URLs (e.g. Inbox V2 message attachments).
+      const remoteUrls = Array.isArray(request.body?.attachmentUrls)
+        ? request.body.attachmentUrls.map(String)
+        : typeof request.body?.attachmentUrls === "string"
+          ? (() => {
+              try {
+                const parsed = JSON.parse(request.body.attachmentUrls);
+                return Array.isArray(parsed) ? parsed.map(String) : [];
+              } catch {
+                return String(request.body.attachmentUrls)
+                  .split(/[\n,]+/)
+                  .map((s: string) => s.trim())
+                  .filter(Boolean);
+              }
+            })()
+          : [];
+      if (remoteUrls.length) {
+        const downloaded = await downloadUrlsAsIssueFiles(remoteUrls);
+        fileInfo = [...(fileInfo || []), ...downloaded];
+      }
+
+      // Strip non-column fields before create.
+      const body = { ...request.body };
+      delete body.attachmentUrls;
+
       const result = await issuesService.createIssue(
-        request.body,
+        body,
         userId,
         fileInfo
       );

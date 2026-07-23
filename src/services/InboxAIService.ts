@@ -21,9 +21,11 @@ import {
     AIMessagingSettingsService,
     normalizeEarlyLateHandling,
 } from "./AIMessagingSettingsService";
-import { collectCategoryNames } from "./AIDetectorInstructions";
+import { collectCategoryNames, resolveDetectorInstructions } from "./AIDetectorInstructions";
+import { applyScheduleCriticalUrgency } from "./AITicketCreationHelpers";
 import { AIMessagingSettingsEntity } from "../entity/AIMessagingSettings";
 import { AILearnedFactsService } from "./AILearnedFactsService";
+import { buildTeamCommunicationRulesText } from "./AIMessagingSettingsService";
 import { ListingGroupService } from "./ListingGroupService";
 import { ExemplarService } from "./ExemplarService";
 import { RetrievalService } from "./RetrievalService";
@@ -397,13 +399,14 @@ export class InboxAIService {
 
         const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
         const categoryNames = collectCategoryNames(settings);
+        const detector = resolveDetectorInstructions(settings);
+        const feedback = (settings?.detectionFeedback || "").trim();
         const context = await this.buildContext(conversation, messages, targetMessage, {
             includeKnowledge: false,
             instructions: [
                 "You are helping an internal teammate decide whether to create a Guest Issues ticket from the selected message.",
                 "Use the whole conversation context, but anchor the ticket to the selected message.",
-                "Only create a ticket for a concrete operational/reservation issue, guest request, complaint, access problem, maintenance item, cleanliness issue, or follow-up that staff should track.",
-                "Do not create a ticket for pure thanks, acknowledgements, small talk, or already-resolved items unless the selected message reveals a new follow-up.",
+                "Follow the Ticket Creation Instructions below — they are the same rules used for automatic ticket generation.",
             ].join(" "),
         });
         const categoryLine = categoryNames.length
@@ -419,12 +422,22 @@ export class InboxAIService {
                     role: "system",
                     content: [
                         "You draft internal Guest Issues tickets. You do not write guest replies and you do not send messages.",
+                        "",
+                        "TICKET CREATION INSTRUCTIONS (source of truth — AI Settings):",
+                        detector.persona,
+                        "",
+                        detector.exclusionRules,
+                        "",
                         categoryLine,
+                        feedback ? `\nTEAM FEEDBACK ON HOW TO IMPROVE DETECTION:\n${feedback}` : "",
                         "Return strict JSON only with this shape:",
                         "{ \"shouldCreate\": boolean, \"category\": string|null, \"title\": string|null, \"description\": string|null, \"urgency\": 1|2|3|4|5|null, \"confidence\": number, \"evidence\": string|null, \"reason\": string|null }",
-                        "description must be one clear paragraph suitable for an internal ticket.",
-                        "urgency: 1 low, 3 normal, 5 urgent access/safety/active-stay blocker.",
-                    ].join("\n"),
+                        "description must be one clear paragraph suitable for an internal ticket, beginning with The guest reported/clarified/requested/complained/asked/confirmed.",
+                        "urgency: 1 low, 3 normal, 5 Critical (access/safety/active-stay blocker; early check-in / late checkout / extension when check-in or check-out is today or tomorrow).",
+                        `Omit / set shouldCreate=false when confidence would be below ${detector.confidenceFloor.toFixed(2)}.`,
+                    ]
+                        .filter(Boolean)
+                        .join("\n"),
                 },
                 {
                     role: "user",
@@ -432,7 +445,9 @@ export class InboxAIService {
                         context,
                         "",
                         "## Selected message to evaluate for a ticket",
-                        `${targetMessage.direction === "incoming" ? "GUEST" : "TEAM"}: ${(targetMessage.body || targetMessage.note || "").trim() || "(no text)"}`,
+                        `${targetMessage.direction === "incoming" ? "GUEST" : "TEAM"}: ${(targetMessage.body || targetMessage.note || "").trim() || "(no text)"}${
+                            targetMessage.attachmentUrl ? " [guest photo attached]" : ""
+                        }`,
                     ].join("\n"),
                 },
             ],
@@ -451,13 +466,37 @@ export class InboxAIService {
             normalizedCategory ||
             null;
         const description = parsed.description ? String(parsed.description).trim().slice(0, 2000) : null;
+        const title = parsed.title ? String(parsed.title).trim().slice(0, 160) : null;
+        let urgency =
+            parsed.urgency == null ? null : Math.min(5, Math.max(1, Number(parsed.urgency) || 3));
+        try {
+            const reservation = conversation.reservationId
+                ? await this.reservationRepo
+                      .findOne({ where: { id: Number(conversation.reservationId) } as any })
+                      .catch(() => null)
+                : null;
+            const listing = conversation.listingId
+                ? await this.listingRepo
+                      .findOne({ where: { id: Number(conversation.listingId) }, withDeleted: true })
+                      .catch(() => null)
+                : null;
+            urgency = applyScheduleCriticalUrgency(
+                urgency,
+                `${title || ""} ${description || ""}`,
+                category,
+                reservation,
+                listing
+            );
+        } catch {
+            /* keep model urgency */
+        }
         const shouldCreate = Boolean(parsed.shouldCreate) && Boolean(category) && Boolean(description);
         return {
             shouldCreate,
             category: shouldCreate ? category : null,
-            title: parsed.title ? String(parsed.title).trim().slice(0, 160) : null,
+            title: shouldCreate ? title : null,
             description,
-            urgency: parsed.urgency == null ? null : Math.min(5, Math.max(1, Number(parsed.urgency) || 3)),
+            urgency,
             confidence: parsed.confidence == null ? null : Number(parsed.confidence),
             evidence: parsed.evidence ? String(parsed.evidence).trim().slice(0, 1000) : null,
             reason: parsed.reason ? String(parsed.reason).trim().slice(0, 1000) : null,
@@ -3127,8 +3166,10 @@ export class InboxAIService {
         opts: { airbnbSupport?: boolean; inquirySales?: boolean; pmClient?: boolean } = {}
     ): string {
         const toneLabel = (settings?.tone || "warm").trim();
-        const customRules = (settings?.communicationRules || "").trim();
+        // Prefer structured per-topic entries (Settings UI); fall back / append legacy free-text.
+        const customRules = buildTeamCommunicationRulesText(settings);
         const topicsToAvoid = (settings?.topicsToAvoid || "").trim();
+        const capabilityLimits = (settings?.capabilityLimits || "").trim();
         const airbnbSupportRules = (settings?.airbnbSupportRules || "").trim();
 
         const settingsBlock: string[] = [];
@@ -3136,6 +3177,10 @@ export class InboxAIService {
         if (customRules) {
             settingsBlock.push("TEAM COMMUNICATION RULES (follow these strictly):");
             settingsBlock.push(customRules);
+        }
+        if (capabilityLimits) {
+            settingsBlock.push("CAPABILITY LIMITS (never exceed these — escalate instead):");
+            settingsBlock.push(capabilityLimits);
         }
         const baseReplyStyleRules = (settings?.baseReplyStyleRules || "").trim();
         if (baseReplyStyleRules) {

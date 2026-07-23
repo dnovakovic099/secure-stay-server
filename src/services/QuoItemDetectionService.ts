@@ -14,6 +14,13 @@ import {
     resolveTicketCategories,
 } from "./AIDetectorInstructions";
 import { IssuesService } from "./IssuesService";
+import {
+    applyScheduleCriticalUrgency,
+    downloadUrlsAsIssueFiles,
+    findDuplicateOpenIssue,
+    parseMediaUrlList,
+    ticketTextSimilar,
+} from "./AITicketCreationHelpers";
 
 const DETECTION_MODEL = process.env.AI_ITEM_DETECTION_MODEL || "gpt-4.1-mini";
 
@@ -73,20 +80,7 @@ export class QuoItemDetectionService {
 
     /** Token-overlap similarity used to suppress near-duplicate Guest Issues. */
     private static similar(a: string, b: string): boolean {
-        const toks = (s: string) =>
-            new Set(
-                String(s || "")
-                    .toLowerCase()
-                    .replace(/[^a-z0-9\s]/g, " ")
-                    .split(/\s+/)
-                    .filter(Boolean)
-            );
-        const A = toks(a);
-        const B = toks(b);
-        if (!A.size || !B.size) return false;
-        let inter = 0;
-        for (const t of A) if (B.has(t)) inter++;
-        return inter / Math.min(A.size, B.size) >= 0.55;
+        return ticketTextSimilar(a, b, 0.55);
     }
 
     /**
@@ -257,18 +251,12 @@ export class QuoItemDetectionService {
         }
 
         try {
-            const recent = await this.issueRepo
-                .createQueryBuilder("i")
-                .where("i.reservation_id = :rid", { rid: String(conv.reservationId) })
-                .andWhere("i.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)")
-                .orderBy("i.created_at", "DESC")
-                .take(40)
-                .getMany();
-            if (recent.some((e) => QuoItemDetectionService.similar(e.issue_description || "", text))) {
+            const dup = await findDuplicateOpenIssue(conv.reservationId, detected.item || "", text);
+            if (dup) {
                 logger.info(
-                    `[QuoDetect] Skipping guest issue for action_items:${actionItemId} — near-duplicate already on reservation ${conv.reservationId}`
+                    `[QuoDetect] Skipping guest issue for action_items:${actionItemId} — near-duplicate of open issue #${dup.id}`
                 );
-                return null;
+                return dup.id;
             }
 
             const reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
@@ -306,10 +294,38 @@ export class QuoItemDetectionService {
 
             // Quo urgency is 1..3; Guest Issues use a wider 1..5 scale.
             const urgencyMap: Record<number, number> = { 1: 2, 2: 3, 3: 4 };
-            const urgency =
+            let urgency =
                 detected.urgency && urgencyMap[detected.urgency]
                     ? urgencyMap[detected.urgency]
                     : 3;
+            urgency = applyScheduleCriticalUrgency(
+                urgency,
+                text,
+                detected.category,
+                reservation,
+                listing
+            ) as number;
+
+            // Attach guest SMS media (photos) when present on recent inbound messages.
+            let guestFiles: Awaited<ReturnType<typeof downloadUrlsAsIssueFiles>> = [];
+            try {
+                const msgs = await this.messageRepo.find({
+                    where: { conversationId: conv.conversationId },
+                    order: { sentAt: "DESC", id: "DESC" },
+                    take: 30,
+                });
+                const urls: string[] = [];
+                for (const m of msgs) {
+                    if (String(m.direction || "").toLowerCase() !== "incoming") continue;
+                    for (const u of parseMediaUrlList(m.mediaUrls)) {
+                        if (!urls.includes(u)) urls.push(u);
+                    }
+                    if (urls.length >= 6) break;
+                }
+                guestFiles = await downloadUrlsAsIssueFiles(urls);
+            } catch (err: any) {
+                logger.warn(`[QuoDetect] media attach failed: ${err?.message}`);
+            }
 
             const issueData: Partial<Issue> = {
                 status: "New",
@@ -331,7 +347,11 @@ export class QuoItemDetectionService {
             };
 
             const issuesService = new IssuesService();
-            const saved = await issuesService.createIssue(issueData, "AI Assistant");
+            const saved = await issuesService.createIssue(
+                issueData,
+                "AI Assistant",
+                guestFiles.length ? guestFiles : undefined
+            )
 
             if (!saved.listing_name && resolvedListingName) {
                 saved.listing_name = resolvedListingName;

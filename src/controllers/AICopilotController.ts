@@ -1,5 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { AIMessagingSettingsService } from "../services/AIMessagingSettingsService";
+import { AICommunicationRulesService } from "../services/AICommunicationRulesService";
+import { AITicketDetectionFeedbackService } from "../services/AITicketDetectionFeedbackService";
 import { AICopilotService } from "../services/AICopilotService";
 import { InboxAIService, AI_REPLY_RULE_DEFAULTS } from "../services/InboxAIService";
 import { InboxItemDetectionService } from "../services/InboxItemDetectionService";
@@ -132,6 +134,139 @@ export class AICopilotController {
             }));
             return response.status(200).json({ status: true, data });
         } catch (error) {
+            return next(error);
+        }
+    }
+
+    /**
+     * Read-only reference of the rule stack the inbox AI actually uses
+     * (settings + code defaults + learned counts). Powers the Settings "Live rules" view.
+     */
+    async getEffectiveRules(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const data = await new AICommunicationRulesService().getEffectiveReference();
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async listCommunicationRuleProposals(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const status = typeof request.query.status === "string" ? request.query.status : undefined;
+            const data = await new AICommunicationRulesService().listProposals(status);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async createCommunicationRuleProposal(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const b = request.body || {};
+            const data = await new AICommunicationRulesService().createProposal({
+                topic: b.topic,
+                rule: b.rule,
+                appliesTo: b.appliesTo,
+                rationale: b.rationale,
+                sourceFeedbackIds: Array.isArray(b.sourceFeedbackIds) ? b.sourceFeedbackIds : undefined,
+                sourceSummary: b.sourceSummary,
+                proposedByUserId: userId(request.user),
+                proposedByName: userName(request.user),
+            });
+            return response.status(200).json({ status: true, data });
+        } catch (error: any) {
+            if (error?.status === 400) {
+                return response.status(400).json({ status: false, message: error.message });
+            }
+            return next(error);
+        }
+    }
+
+    async proposeCommunicationRuleFromFeedback(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const b = request.body || {};
+            const feedbackId = toNum(b.feedbackId ?? request.params.feedbackId);
+            if (!feedbackId) {
+                return response.status(400).json({ status: false, message: "feedbackId is required" });
+            }
+            const data = await new AICommunicationRulesService().proposeFromFeedback(feedbackId, {
+                topic: b.topic,
+                rule: b.rule,
+                appliesTo: b.appliesTo,
+                rationale: b.rationale,
+                proposedByUserId: userId(request.user),
+                proposedByName: userName(request.user),
+            });
+            return response.status(200).json({ status: true, data });
+        } catch (error: any) {
+            if (error?.status === 400 || error?.status === 404) {
+                return response.status(error.status).json({ status: false, message: error.message });
+            }
+            return next(error);
+        }
+    }
+
+    async reviewCommunicationRuleProposal(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const id = toNum(request.params.id);
+            if (!id) {
+                return response.status(400).json({ status: false, message: "id is required" });
+            }
+            const b = request.body || {};
+            const action = String(b.action || "").toLowerCase();
+            if (action !== "approve" && action !== "reject") {
+                return response.status(400).json({ status: false, message: "action must be approve or reject" });
+            }
+            const data = await new AICommunicationRulesService().reviewProposal(id, action, {
+                reviewedByUserId: userId(request.user),
+                reviewedByName: userName(request.user),
+                reviewNote: b.reviewNote,
+                topic: b.topic,
+                rule: b.rule,
+                appliesTo: b.appliesTo,
+            });
+            return response.status(200).json({ status: true, data });
+        } catch (error: any) {
+            if (error?.status === 400 || error?.status === 404) {
+                return response.status(error.status).json({ status: false, message: error.message });
+            }
+            return next(error);
+        }
+    }
+
+    /** Recent ticket-generation feedback + improvement summary for AI Rules. */
+    async ticketDetectionFeedbackReport(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const days = toNum(request.query.days) || 30;
+            const data = await new AITicketDetectionFeedbackService().improvementReport(days);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async recordTicketDetectionFeedback(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const b = request.body || {};
+            const data = await new AITicketDetectionFeedbackService().record({
+                kind: b.kind || "other",
+                reason: b.reason,
+                issueId: toNum(b.issueId),
+                itemText: b.itemText,
+                category: b.category,
+                listingId: toNum(b.listingId),
+                listingName: b.listingName,
+                guestName: b.guestName,
+                reservationId: toNum(b.reservationId),
+                discardedBy: userName(request.user),
+                promoteToSettingsFeedback: b.promoteToSettingsFeedback === true,
+            });
+            return response.status(200).json({ status: true, data });
+        } catch (error: any) {
+            if (error?.status === 400) {
+                return response.status(400).json({ status: false, message: error.message });
+            }
             return next(error);
         }
     }

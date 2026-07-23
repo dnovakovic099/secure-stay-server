@@ -20,6 +20,25 @@ router.use((request, response, next) => {
 router.get("/settings", verifySession, controller.getSettings);
 router.put("/settings", verifySession, controller.updateSettings);
 
+// Live rules reference + communication-rule proposal approval queue.
+router.get("/settings/effective", verifySession, controller.getEffectiveRules);
+router.get("/communication-rule-proposals", verifySession, controller.listCommunicationRuleProposals);
+router.post("/communication-rule-proposals", verifySession, controller.createCommunicationRuleProposal);
+router.post(
+    "/communication-rule-proposals/from-feedback",
+    verifySession,
+    controller.proposeCommunicationRuleFromFeedback
+);
+router.post(
+    "/communication-rule-proposals/:id/review",
+    verifySession,
+    controller.reviewCommunicationRuleProposal
+);
+
+// Ticket-generation quality feedback (feeds detector prompt + improvement report).
+router.get("/ticket-detection-feedback", verifySession, controller.ticketDetectionFeedbackReport);
+router.post("/ticket-detection-feedback", verifySession, controller.recordTicketDetectionFeedback);
+
 // Ticket categories resolved from ai_messaging_settings.ticketCategories (falls
 // back to hardcoded defaults). Consumed by the Guest Issues page so its
 // category dropdown always mirrors what the AI detector is configured to use.

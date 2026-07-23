@@ -1398,6 +1398,17 @@ export class IssuesService {
       logger.warn(`[IssuesService] IR onIssueCreated failed for #${savedIssue.id}: ${err?.message}`);
     }
 
+    // Pre-generate IR Copilot suggestion so the panel has a recommendation ready
+    // when the ticket is opened (fire-and-forget — do not block create).
+    void (async () => {
+      try {
+        const { IssueAIService } = require("./IssueAIService");
+        await new IssueAIService().suggest(savedIssue.id, { force: true });
+      } catch (err: any) {
+        logger.warn(`[IssuesService] IR suggest-on-create failed for #${savedIssue.id}: ${err?.message}`);
+      }
+    })();
+
     return savedIssue;
   }
 

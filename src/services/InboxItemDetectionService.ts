@@ -15,11 +15,18 @@ import { IssuesService } from "./IssuesService";
 import { Issue } from "../entity/Issue";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Listing } from "../entity/Listing";
+import {
+    applyScheduleCriticalUrgency,
+    collectGuestAttachmentUrls,
+    downloadUrlsAsIssueFiles,
+    findDuplicateOpenIssue,
+    ticketTextSimilar,
+} from "./AITicketCreationHelpers";
 
 // Mini is plenty for "extract tasks from a conversation" and keeps the
 // per-message cost at pennies; override with AI_ITEM_DETECTION_MODEL if needed.
 const DETECTION_MODEL = process.env.AI_ITEM_DETECTION_MODEL || "gpt-4.1-mini";
-const DETECTION_PROMPT_VERSION = "inbox-detect-v5";
+const DETECTION_PROMPT_VERSION = "inbox-detect-v6";
 
 // Guests send messages in bursts. Instead of scanning per message we wait for
 // the burst to settle and scan the thread once — fewer calls, better context,
@@ -133,14 +140,7 @@ export class InboxItemDetectionService {
 
     /** Tokenized overlap for duplicate suppression across repeated scans. */
     private static similar(a: string, b: string): boolean {
-        const tok = (s: string) =>
-            new Set(String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 3));
-        const A = tok(a);
-        const B = tok(b);
-        if (!A.size || !B.size) return false;
-        let inter = 0;
-        for (const w of A) if (B.has(w)) inter++;
-        return inter / Math.min(A.size, B.size) >= 0.55;
+        return ticketTextSimilar(a, b, 0.55);
     }
 
     /**
@@ -216,16 +216,36 @@ export class InboxItemDetectionService {
             // Per-thread consolidation: tell the model what we already track for
             // this conversation so re-scans of an ongoing saga only emit
             // genuinely NEW facts instead of re-itemizing the whole situation.
+            // Include 'created' — after auto-promote, status becomes created and
+            // used to drop out of the prompt, which caused re-scans to re-open
+            // near-duplicate tickets on the same reservation.
             const alreadyTracked = await this.detectedRepo
                 .createQueryBuilder("d")
                 .where("d.threadId = :tid", { tid: threadId })
-                .andWhere("d.status IN ('proposed', 'accepted')")
+                .andWhere("d.status IN ('proposed', 'accepted', 'created')")
                 .andWhere("d.createdAt >= DATE_SUB(NOW(), INTERVAL 14 DAY)")
                 .orderBy("d.createdAt", "DESC")
                 .take(40)
                 .getMany();
 
-            const context = this.buildContext(conversation, messages, alreadyTracked);
+            // Also surface open Guest Issues on this reservation so the model
+            // does not re-ticket the same fact under a new wording.
+            const openIssues = conversation.reservationId
+                ? await appDatabase
+                      .getRepository(Issue)
+                      .createQueryBuilder("i")
+                      .where("i.reservation_id = :rid", { rid: String(conversation.reservationId) })
+                      .andWhere("i.created_at >= DATE_SUB(NOW(), INTERVAL 14 DAY)")
+                      .andWhere(
+                          "(i.status IS NULL OR LOWER(i.status) NOT IN ('completed', 'cancelled', 'canceled'))"
+                      )
+                      .orderBy("i.created_at", "DESC")
+                      .take(20)
+                      .getMany()
+                      .catch(() => [] as Issue[])
+                : [];
+
+            const context = this.buildContext(conversation, messages, alreadyTracked, openIssues);
 
             let output: DetectionOutput;
             let raw = "";
@@ -348,6 +368,11 @@ export class InboxItemDetectionService {
      */
     private static discardCache: { at: number; lines: string[] } | null = null;
 
+    /** Called when new ticket-detection feedback is recorded. */
+    static clearDiscardCache(): void {
+        InboxItemDetectionService.discardCache = null;
+    }
+
     private async loadDiscardExamples(): Promise<string[]> {
         const cached = InboxItemDetectionService.discardCache;
         if (cached && Date.now() - cached.at < 5 * 60 * 1000) return cached.lines;
@@ -424,18 +449,23 @@ export class InboxItemDetectionService {
     private buildContext(
         conversation: InboxConversationEntity,
         messages: InboxMessageEntity[],
-        alreadyTracked: AIDetectedItemEntity[] = []
+        alreadyTracked: AIDetectedItemEntity[] = [],
+        openIssues: Issue[] = []
     ): string {
         const lines: string[] = [];
         lines.push(`Channel: ${conversation.channel || "unknown"}`);
         lines.push(`Guest: ${conversation.guestName || "unknown"}`);
         lines.push(`Listing: ${conversation.listingName || "unknown"}`);
+        if (conversation.reservationId) {
+            lines.push(`Reservation id: ${conversation.reservationId}`);
+        }
         lines.push("");
         lines.push("Conversation (oldest first):");
         for (const m of messages.slice(-30)) {
             const who = m.direction === "incoming" ? "GUEST" : m.isAutomatic ? "AUTOMATED" : "TEAM";
             const body = (m.body || (m.note ? `[note] ${m.note}` : "")).replace(/\s+/g, " ").trim();
-            if (body) lines.push(`- ${who}: ${body}`);
+            const photo = (m.attachmentUrl || "").trim() ? " [guest photo attached]" : "";
+            if (body || photo) lines.push(`- ${who}: ${body || "(no text)"}${photo}`);
         }
         if (alreadyTracked.length) {
             lines.push("");
@@ -444,7 +474,23 @@ export class InboxItemDetectionService {
                     "only emit facts that are genuinely NEW or have materially changed since):"
             );
             for (const t of alreadyTracked) {
-                lines.push(`- ${(t.title || "").slice(0, 160)}`);
+                const flag = t.status === "created" && t.convertedIssueId ? ` → issue #${t.convertedIssueId}` : "";
+                lines.push(`- ${(t.title || "").slice(0, 160)}${flag}`);
+            }
+        }
+        if (openIssues.length) {
+            lines.push("");
+            lines.push(
+                "OPEN GUEST ISSUES already on this reservation (do NOT create another ticket for the same fact — " +
+                    "only emit genuinely NEW problems/requests):"
+            );
+            for (const iss of openIssues) {
+                lines.push(
+                    `- #${iss.id} [${iss.status || "open"}]: ${String(iss.issue_description || "")
+                        .replace(/\s+/g, " ")
+                        .trim()
+                        .slice(0, 180)}`
+                );
             }
         }
         lines.push("");
@@ -532,6 +578,24 @@ export class InboxItemDetectionService {
         const resolvedGuestPhone = (reservation as any)?.phone || null;
         const resolvedCheckIn = (reservation as any)?.arrivalDate || null;
 
+        // Guest photos from this thread — attached to each auto-created ticket
+        // so ops can see what the guest sent without hunting the inbox.
+        let guestFiles: Awaited<ReturnType<typeof downloadUrlsAsIssueFiles>> = [];
+        try {
+            const threadMessages = await this.messageRepo.find({
+                where: { threadId: Number(conversation.threadId) },
+                order: { sentAt: "DESC", id: "DESC" },
+                take: 40,
+            });
+            const urls = collectGuestAttachmentUrls(threadMessages, {
+                aroundMessageId: detected[0]?.messageId ?? null,
+                limit: 6,
+            });
+            guestFiles = await downloadUrlsAsIssueFiles(urls);
+        } catch (err: any) {
+            logger.warn(`[ItemDetection] guest photo collect failed: ${err?.message}`);
+        }
+
         let promoted = 0;
 
         for (const row of detected) {
@@ -541,8 +605,37 @@ export class InboxItemDetectionService {
                 continue;
             }
 
+            const issueText = [row.title, row.description].filter(Boolean).join(" — ");
+
+            // Reservation-level dedupe: skip if an open ticket already covers this.
+            try {
+                const dup = await findDuplicateOpenIssue(
+                    conversation.reservationId,
+                    row.title || "",
+                    row.description || issueText
+                );
+                if (dup) {
+                    logger.info(
+                        `[ItemDetection] skip detected #${row.id} — duplicate of open issue #${dup.id}`
+                    );
+                    row.status = "created";
+                    row.convertedIssueId = dup.id;
+                    await this.detectedRepo.save(row);
+                    continue;
+                }
+            } catch (err: any) {
+                logger.warn(`[ItemDetection] duplicate check failed for #${row.id}: ${err?.message}`);
+            }
+
             const priorityKey = String(row.priority || "").toLowerCase();
-            const urgency = urgencyMap[priorityKey] ?? null;
+            let urgency = urgencyMap[priorityKey] ?? null;
+            urgency = applyScheduleCriticalUrgency(
+                urgency,
+                issueText,
+                row.category,
+                reservation,
+                listing
+            );
 
             const issueData: Partial<Issue> = {
                 status: "New",
@@ -556,7 +649,7 @@ export class InboxItemDetectionService {
                 guest_name: (resolvedGuestName || null) as any,
                 guest_contact_number: (resolvedGuestPhone || null) as any,
                 check_in_date: (resolvedCheckIn || null) as any,
-                issue_description: [row.title, row.description].filter(Boolean).join(" — "),
+                issue_description: issueText,
                 category: row.category || (null as any),
                 urgency: urgency as any,
                 creator: "AI Assistant",
@@ -568,7 +661,13 @@ export class InboxItemDetectionService {
             };
 
             try {
-                const saved = await issuesService.createIssue(issueData, "AI Assistant");
+                // Attach the same guest photos to each new ticket on this burst.
+                // FileInfo rows are per-issue; local files may be shared on disk.
+                const saved = await issuesService.createIssue(
+                    issueData,
+                    "AI Assistant",
+                    guestFiles.length ? guestFiles : undefined
+                );
 
                 // IssuesService.createIssue does its own Listing lookup and
                 // overwrites listing_name with Listing.internalListingName ||
