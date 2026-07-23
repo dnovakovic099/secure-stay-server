@@ -2685,7 +2685,7 @@ export const buildResolutionsCheckoutMessage = (data: ResolutionsCheckoutMessage
     };
 };
 
-export type ResolutionsActivityType = 'status' | 'assignee' | 'visibility' | 'resolution_notes' | 'resolution_tag' | 'comment' | 'refund_request' | 'ai_analysis' | 'review_posted' | 'reservation_cancelled' | 'reservation_altered' | 'dispute_risk';
+export type ResolutionsActivityType = 'status' | 'assignee' | 'visibility' | 'resolution_notes' | 'resolution_tag' | 'comment' | 'refund_request' | 'ai_analysis' | 'review_posted' | 'reservation_cancelled' | 'reservation_altered' | 'dispute_risk' | 'monitor_review_submitted';
 
 export interface ResolutionsActivityData {
     type: ResolutionsActivityType;
@@ -2742,6 +2742,9 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
             break;
         case 'dispute_risk':
             text = details || 'Reservation was marked as a dispute risk.';
+            break;
+        case 'monitor_review_submitted':
+            text = details || 'This reservation needs review because Monitor Review and Submitted are both active.';
             break;
         case 'visibility':
             text = `🌟 *${actorLabel}* changed visibility from *${oldValue || '—'}* → *${newValue || details || '—'}*`;
@@ -2873,7 +2876,7 @@ export const buildResolutionsActivityMessage = (data: ResolutionsActivityData) =
                     ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: sentimentHelpText ? `${sentimentLine} — ${sentimentHelpText}` : sentimentLine }] }]
                     : []),
             ];
-        } else if (type === 'dispute_risk') {
+        } else if (type === 'dispute_risk' || type === 'monitor_review_submitted') {
             blocks = [
                 { type: 'section', text: { type: 'mrkdwn', text } },
             ];

@@ -303,6 +303,7 @@ export class ReviewService {
     private liveIssueRepo = appDatabase.getRepository(LiveIssue);
     private liveIssueUpdatesRepo = appDatabase.getRepository(LiveIssueUpdates);
     private settingsRepo = appDatabase.getRepository(EscalationSettings);
+    private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
     private readonly reviewUiSettingsKeys = {
         reviews: 'ui-settings:reviews',
         mitigation: 'ui-settings:mitigation',
@@ -2485,6 +2486,48 @@ export class ReviewService {
         return listingIds.map(item => item.listingId); // Extract listingId values as an array
     }
 
+    private parseReservationTags(value: any): string[] {
+        if (!value) return [];
+        if (Array.isArray(value)) return value.map((tag) => String(tag || "").trim()).filter(Boolean);
+        if (typeof value === "string") {
+            try {
+                const parsed = JSON.parse(value);
+                if (Array.isArray(parsed)) {
+                    return parsed.map((tag) => String(tag || "").trim()).filter(Boolean);
+                }
+            } catch {
+                return value.split(",").map((tag) => tag.trim()).filter(Boolean);
+            }
+        }
+        return [];
+    }
+
+    private hasReservationTag(value: any, tagName: string) {
+        const target = tagName.trim().toLowerCase();
+        return this.parseReservationTags(value).some((tag) => tag.toLowerCase() === target);
+    }
+
+    private isSubmittedVisibility(value?: string | null) {
+        return String(value || "").trim().toLowerCase() === "submitted";
+    }
+
+    private async postMonitorReviewSubmittedAlertIfNeeded(reservationId: number | undefined, reviewCheckoutId: number | undefined, actor: string) {
+        if (!reservationId) return;
+        const reservation = await this.reservationInfoRepository.findOne({ where: { id: reservationId } });
+        if (!this.hasReservationTag(reservation?.tags, "Monitor Review")) return;
+
+        const slackService = new ResolutionsTeamSlackService();
+        const ensuredReviewCheckout = await slackService.ensureThreadForReservation(reservationId, actor);
+        const targetReviewCheckoutId = reviewCheckoutId || ensuredReviewCheckout?.id;
+        if (!targetReviewCheckoutId) return;
+
+        await slackService.postActivityToThread(targetReviewCheckoutId, {
+            type: "monitor_review_submitted",
+            actor,
+            details: "<!subteam^S0A79UGQG0H> This reservation is tagged `Monitor Review` and its visibility is `Submitted`. Please review the thread and decide whether any follow-up action is needed.",
+        });
+    }
+
 
     public async updateReviewVisibility(reviewVisibility: string, id: string, userId: string) {
         const VALID_STATUSES = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Remove/Keep?', 'Keep', 'To be Removed', 'Removing', 'Removed', 'Unable to Remove', 'Remove Failed', 'Archived'];
@@ -2520,6 +2563,10 @@ export class ReviewService {
                     oldValue: previousVisibility,
                     newValue: review.visibility ?? '',
                 }).catch((err) => logger.error('[ReviewService] Slack visibility activity post failed:', err));
+            }
+            if (this.isSubmittedVisibility(review.visibility) && !this.isSubmittedVisibility(previousVisibility)) {
+                this.postMonitorReviewSubmittedAlertIfNeeded(Number(review.reservationId), reviewCheckout?.id, userId)
+                    .catch((err) => logger.error('[ReviewService] Slack Monitor Review submitted alert failed:', err));
             }
         }
 
@@ -4724,6 +4771,15 @@ export class ReviewService {
                 slackService.syncRootMessageForReviewCheckout(id)
                     .catch((err) => logger.error('[ReviewService] Slack root message sync failed:', err));
             }
+        }
+
+        if (
+            data.visibility !== undefined
+            && this.isSubmittedVisibility(data.visibility)
+            && !this.isSubmittedVisibility(previousState.visibility)
+        ) {
+            this.postMonitorReviewSubmittedAlertIfNeeded(Number(reviewCheckout.reservationInfo?.id), reviewCheckout.id, userId)
+                .catch((err) => logger.error('[ReviewService] Slack Monitor Review submitted alert failed:', err));
         }
 
         return reviewCheckout;

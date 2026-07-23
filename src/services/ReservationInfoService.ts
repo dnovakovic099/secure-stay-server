@@ -29,6 +29,7 @@ import { ReservationService } from "./ReservationService";
 import { VelocityAlertService } from "./VelocityAlertService";
 import { ReservationHistoryService } from "./ReservationHistoryService";
 import { ReviewCheckout } from "../entity/ReviewCheckout";
+import { ReviewEntity } from "../entity/Review";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import { ReviewDiscussionService } from "./ReviewDiscussionService";
 import { getEasternDateString } from "../utils/easternTime.util";
@@ -52,6 +53,7 @@ export class ReservationInfoService {
   private velocityAlertService = new VelocityAlertService();
   private reservationHistoryService = new ReservationHistoryService();
   private turnoverReservationChangeService = new TurnoverReservationChangeService();
+  private reviewRepo = appDatabase.getRepository(ReviewEntity);
 
   private clientId: string = process.env.HOST_AWAY_CLIENT_ID;
   private clientSecret: string = process.env.HOST_AWAY_CLIENT_SECRET;
@@ -1591,6 +1593,7 @@ export class ReservationInfoService {
     const activityValues = this.describeReservationTagChange(previousTags, nextTags);
     if (!activityValues) return;
     const disputeRiskAdded = this.wasReservationTagAdded(previousTags, nextTags, "Dispute Risk");
+    const monitorReviewAdded = this.wasReservationTagAdded(previousTags, nextTags, "Monitor Review");
 
     let reviewCheckout = await this.reviewCheckoutRepo.findOne({
       where: { reservationInfo: { id: reservationId } },
@@ -1615,7 +1618,7 @@ export class ReservationInfoService {
     }
 
     const resolutionsSlackService = new ResolutionsTeamSlackService();
-    if ((!reviewCheckout || !reviewCheckout.slackThreadTs) && disputeRiskAdded) {
+    if ((!reviewCheckout || !reviewCheckout.slackThreadTs) && (disputeRiskAdded || monitorReviewAdded)) {
       reviewCheckout = await resolutionsSlackService.ensureThreadForReservation(reservationId, changedBy);
     }
 
@@ -1631,6 +1634,10 @@ export class ReservationInfoService {
     if (disputeRiskAdded) {
       await this.postDisputeRiskAlertToSlack(reviewCheckout, reservationId, changedBy);
     }
+
+    if (monitorReviewAdded && await this.isSubmittedReviewVisibility(reservationId, reviewCheckout)) {
+      await this.postMonitorReviewSubmittedAlertToSlack(reviewCheckout, changedBy);
+    }
   }
 
   private wasReservationTagAdded(previousTags: string[], nextTags: string[], tagName: string) {
@@ -1638,6 +1645,24 @@ export class ReservationInfoService {
     const target = normalize(tagName);
     const previous = new Set(previousTags.map(normalize));
     return nextTags.some((tag) => normalize(tag) === target) && !previous.has(target);
+  }
+
+  private isSubmittedVisibility(value?: string | null) {
+    return String(value || "").trim().toLowerCase() === "submitted";
+  }
+
+  private async isSubmittedReviewVisibility(reservationId: number, reviewCheckout?: ReviewCheckout | null) {
+    const linkedReview = await this.reviewRepo.findOne({ where: { reservationId } });
+    const effectiveVisibility = linkedReview?.visibility ?? reviewCheckout?.visibility ?? null;
+    return this.isSubmittedVisibility(effectiveVisibility);
+  }
+
+  private async postMonitorReviewSubmittedAlertToSlack(reviewCheckout: ReviewCheckout, changedBy: string) {
+    await new ResolutionsTeamSlackService().postActivityToThread(reviewCheckout.id, {
+      type: "monitor_review_submitted",
+      actor: changedBy,
+      details: "<!subteam^S0A79UGQG0H> This reservation is tagged `Monitor Review` and its visibility is `Submitted`. Please review the thread and decide whether any follow-up action is needed.",
+    });
   }
 
   private getHostifyReservationUrl(reservation: ReservationInfoEntity) {
