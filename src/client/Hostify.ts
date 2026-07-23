@@ -342,7 +342,17 @@ export class Hostify {
                     "Cache-Control": "no-cache",
                 },
             });
-            return response.data?.custom_fields || [];
+            const body = response.data || {};
+            return (
+                body?.custom_fields ||
+                body?.customFields ||
+                body?.data?.custom_fields ||
+                body?.data?.customFields ||
+                body?.reservation?.custom_fields ||
+                body?.reservation?.customFields ||
+                (Array.isArray(body?.data) ? body.data : []) ||
+                []
+            );
         } catch (error) {
             logger.error(`Error fetching custom fields for reservation ${reservationId}:`, error.message);
             return [];
@@ -838,7 +848,7 @@ export class Hostify {
         options: { message?: string | null; filename?: string | null; mimeType?: string | null } = {}
     ): Promise<any> {
         try {
-            const url = "https://api-rms.hostify.com/inbox/reply";
+            const url = "https://api-rms.hostify.com/inbox/r";
             const form = new FormData();
             form.append("thread_id", String(threadId));
             if (options.message?.trim()) {

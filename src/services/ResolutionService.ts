@@ -12,10 +12,11 @@ import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { format, parse } from "date-fns";
 import sendEmail from "../utils/sendEmai";
 import { Listing } from "../entity/Listing";
-import { formatCurrency } from "../helpers/helpers";
+import { formatCurrency, generateSlackMessageLink } from "../helpers/helpers";
 import { ResolutionCategory } from "../entity/ResolutionCategory";
 import { CategoryEntity } from "../entity/Category";
 import { ExpenseEntity } from "../entity/Expense";
+import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 
 interface ResolutionData {
     category: string;
@@ -104,6 +105,13 @@ export class ResolutionService {
     private resolutionCategoryRepo = appDatabase.getRepository(ResolutionCategory);
     private categoryRepo = appDatabase.getRepository(CategoryEntity);
     private expenseRepo = appDatabase.getRepository(ExpenseEntity);
+    private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
+
+    private buildSlackPermalink(slackMessage?: SlackMessageEntity | null) {
+        const workspaceUrl = String(process.env.SLACK_WORKSPACE_URL || "").trim();
+        if (!workspaceUrl || !slackMessage?.channel || !slackMessage?.threadTs) return null;
+        return generateSlackMessageLink(workspaceUrl.replace(/\/$/, ""), slackMessage.channel, slackMessage.threadTs);
+    }
 
     private normalizeSortRules(sort: any) {
         const sortItems = Array.isArray(sort) ? sort : sort ? Object.values(sort) : [];
@@ -469,9 +477,33 @@ export class ResolutionService {
               FROM listing_info
               GROUP BY id
               `);
+        const resolutionIds = resolutions.map((resolution) => resolution.id);
+        const linkedExpenses = resolutionIds.length
+            ? await this.expenseRepo.find({ where: { resolutionId: In(resolutionIds) } })
+            : [];
+        const expenseByResolutionId = new Map<number, ExpenseEntity>();
+        linkedExpenses.forEach((expense) => {
+            if (!expense.resolutionId) return;
+            const existing = expenseByResolutionId.get(expense.resolutionId);
+            if (!existing || expense.updatedAt > existing.updatedAt) {
+                expenseByResolutionId.set(expense.resolutionId, expense);
+            }
+        });
+        const linkedExpenseIds = linkedExpenses.map((expense) => expense.id);
+        const slackMessages = linkedExpenseIds.length
+            ? await this.slackMessageRepo.find({ where: { entityType: "expense", entityId: In(linkedExpenseIds) } })
+            : [];
+        const slackMessageByExpenseId = new Map<number, SlackMessageEntity>();
+        slackMessages.forEach((message) => {
+            const existing = slackMessageByExpenseId.get(message.entityId);
+            if (!existing || message.createdAt > existing.createdAt) {
+                slackMessageByExpenseId.set(message.entityId, message);
+            }
+        });
 
         const transformedResolutions = resolutions.map(resolution => {
             const listing = listings.find((listing) => listing.id == Number(resolution.listingMapId));
+            const linkedExpense = expenseByResolutionId.get(resolution.id);
             return {
                 ...resolution,
                 listingName: listing?.internalListingName,
@@ -479,6 +511,7 @@ export class ResolutionService {
                 serviceType: this.extractServiceType(listing),
                 createdBy: userMap.get(resolution.createdBy) || resolution.createdBy,
                 updatedBy: userMap.get(resolution.updatedBy) || resolution.updatedBy,
+                slackThreadPermalink: this.buildSlackPermalink(linkedExpense ? slackMessageByExpenseId.get(linkedExpense.id) : null),
             };
         });
 
@@ -495,7 +528,31 @@ export class ResolutionService {
             throw CustomErrorHandler.notFound(`Resolution with id ${resolutionId} not found`);
         }
 
-        return resolution;
+        const [createdByUser, updatedByUser, listing, linkedExpense] = await Promise.all([
+            resolution.createdBy ? this.usersRepo.findOne({ where: { uid: resolution.createdBy } }) : null,
+            resolution.updatedBy ? this.usersRepo.findOne({ where: { uid: resolution.updatedBy } }) : null,
+            this.listingInfoRepository.findOne({ where: { id: Number(resolution.listingMapId) } }),
+            this.expenseRepo.findOne({
+                where: { resolutionId: resolution.id },
+                order: { updatedAt: "DESC" },
+            }),
+        ]);
+        const slackMessage = linkedExpense
+            ? await this.slackMessageRepo.findOne({
+                where: { entityType: "expense", entityId: linkedExpense.id },
+                order: { id: "DESC" },
+            })
+            : null;
+
+        return {
+            ...resolution,
+            listingName: listing?.internalListingName,
+            propertyType: this.extractPropertyType(listing),
+            serviceType: this.extractServiceType(listing),
+            createdBy: createdByUser ? `${createdByUser.firstName} ${createdByUser.lastName}` : resolution.createdBy,
+            updatedBy: updatedByUser ? `${updatedByUser.firstName} ${updatedByUser.lastName}` : resolution.updatedBy,
+            slackThreadPermalink: this.buildSlackPermalink(slackMessage),
+        };
     }
 
     async deleteResolution(resolutionId: number, userId: string) {
