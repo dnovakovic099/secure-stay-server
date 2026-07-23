@@ -33,6 +33,7 @@ import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { SlackMessageService } from "./SlackMessageService";
 import { asanaService } from "./AsanaService";
 import { propertyEmailService } from "./PropertyEmailService";
+import { OnboardingUpdateService } from "./OnboardingUpdateService";
 
 interface ClientFilter {
   page: number;
@@ -1005,7 +1006,12 @@ export class ClientService {
     await this.handleClientSecondaryContactUpdate(client, userId, secondaryContacts);
     await this.handleClientPropertiesUpdate(client, userId, clientProperties);
 
-    return await this.clientRepo.save(client);
+    const savedClient = await this.clientRepo.save(client);
+    const affectedProperties = await this.propertyRepo.find({ where: { client: { id: client.id }, deletedAt: IsNull() } });
+    await Promise.all(affectedProperties.map((property) =>
+      new OnboardingUpdateService().addSystemUpdate(property.id, "Client information was updated.", "information_changed", userId)
+    ));
+    return savedClient;
   }
 
   private async handleClientSecondaryContactUpdate(client: ClientEntity, userId: string, secondaryContacts?: Partial<ClientSecondaryContact>[]) {
@@ -2190,6 +2196,9 @@ export class ClientService {
       }).catch(err => logger.error('Failed to fetch user for Slack notification:', err));
     }
 
+    await Promise.all(results.map((item) =>
+      new OnboardingUpdateService().addSystemUpdate(item.clientProperty.id, "Pre-onboarding information was added.", "information_changed", userId)
+    ));
     return { message: "Property pre-onboarding info saved", results };
   }
 
@@ -2549,6 +2558,9 @@ export class ClientService {
       updated.push({ clientProperty: refreshed!, serviceInfo: refreshed!.serviceInfo, onboarding: refreshed!.onboarding });
     }
 
+    await Promise.all(updated.map((item) =>
+      new OnboardingUpdateService().addSystemUpdate(item.clientProperty.id, "Pre-onboarding information was updated.", "information_changed", userId)
+    ));
     return { message: "Property pre-onboarding info updated", updated };
   }
 
@@ -2682,6 +2694,9 @@ export class ClientService {
       }
     }
 
+    await Promise.all(results.map((item) =>
+      new OnboardingUpdateService().addSystemUpdate(item.clientProperty.id, "Onboarding information was added.", "information_changed", userId)
+    ));
     return { message: "Internal onboarding details saved", results };
   }
 
@@ -2830,6 +2845,9 @@ export class ClientService {
       }
     }
 
+    await Promise.all(updated.map((item) =>
+      new OnboardingUpdateService().addSystemUpdate(item.clientProperty.id, "Onboarding information was updated.", "information_changed", userId)
+    ));
     return { message: "Internal onboarding details updated", updated };
   }
 
@@ -2886,6 +2904,9 @@ export class ClientService {
       results.push({ clientProperty, serviceInfo: savedServiceInfo });
     }
 
+    await Promise.all(results.map((item) =>
+      new OnboardingUpdateService().addSystemUpdate(item.clientProperty.id, "Service information was saved.", "information_changed", userId)
+    ));
     return { message: "Service info saved", results };
   }
 
@@ -2932,6 +2953,9 @@ export class ClientService {
       updated.push({ clientProperty: refreshed!, serviceInfo: refreshed!.serviceInfo ?? null });
     }
 
+    await Promise.all(updated.map((item) =>
+      new OnboardingUpdateService().addSystemUpdate(item.clientProperty.id, "Service information was updated.", "information_changed", userId)
+    ));
     return { message: "Service info updated", updated };
   }
 
@@ -3022,17 +3046,9 @@ export class ClientService {
       results.push({ clientProperty, propertyInfo: savedPropertyInfo });
     }
 
-    // Trigger Slack notification for each saved property
-    if (results.length > 0) {
-      this.userRepo.findOne({ where: { uid: userId } }).then(async user => {
-        const userName = user ? `${user.firstName} ${user.lastName}` : 'Unknown';
-        const threadTs = await this.getClientOnboardingThreadTs(clientId);
-        for (const item of results) {
-          const slackMsg = buildOnboardingSlackMessage("listing_info", client, item.clientProperty, userName, threadTs);
-          sendSlackMessage(slackMsg).catch(err => logger.error('Slack notification for listing info save failed:', err));
-        }
-      }).catch(err => logger.error('Failed to fetch user for Slack notification:', err));
-    }
+    await Promise.all(results.map((item) =>
+      new OnboardingUpdateService().addSystemUpdate(item.clientProperty.id, "Listing information was saved.", "information_changed", userId)
+    ));
 
     return { message: "Listing info saved", results };
   }
@@ -3104,17 +3120,9 @@ export class ClientService {
       updated.push({ clientProperty: refreshed!, propertyInfo: refreshed!.propertyInfo ?? null });
     }
 
-    // Trigger Slack notification for each updated property
-    if (updated.length > 0) {
-      this.userRepo.findOne({ where: { uid: userId } }).then(async user => {
-        const userName = user ? `${user.firstName} ${user.lastName}` : 'Unknown';
-        const threadTs = await this.getClientOnboardingThreadTs(clientId);
-        for (const item of updated) {
-          const slackMsg = buildOnboardingSlackMessage("listing_info", client, item.clientProperty, userName, threadTs);
-          sendSlackMessage(slackMsg).catch(err => logger.error('Slack notification for listing info update failed:', err));
-        }
-      }).catch(err => logger.error('Failed to fetch user for Slack notification:', err));
-    }
+    await Promise.all(updated.map((item) =>
+      new OnboardingUpdateService().addSystemUpdate(item.clientProperty.id, "Listing information was updated.", "information_changed", userId)
+    ));
 
     return { message: "Listing info updated", updated };
   }
@@ -3668,6 +3676,9 @@ export class ClientService {
       }
     }
 
+    await Promise.all(results.map((item) =>
+      new OnboardingUpdateService().addSystemUpdate(item.clientProperty.id, "Client onboarding form was received.", "onboarding_form_received", userId)
+    ));
     return { message: "Client onboarding details saved", results };
   }
 
@@ -3779,6 +3790,9 @@ export class ClientService {
       }
     }
 
+    await Promise.all(updated.map((item) =>
+      new OnboardingUpdateService().addSystemUpdate(item.clientProperty.id, "Client onboarding form was updated.", "information_changed", userId)
+    ));
     return { message: "Client onboarding details updated", updated };
   }
 
@@ -3848,6 +3862,9 @@ export class ClientService {
       results.push({ clientProperty, serviceInfo: savedServiceInfo, propertyInfo: savedPropertyInfo });
     }
 
+    await Promise.all(results.map((item) =>
+      new OnboardingUpdateService().addSystemUpdate(item.clientProperty.id, "Client listing information was received.", "information_changed", userId)
+    ));
     return { message: "Client listing details saved", results };
   }
 
@@ -3974,6 +3991,9 @@ export class ClientService {
       });
     }
 
+    await Promise.all(updated.map((item) =>
+      new OnboardingUpdateService().addSystemUpdate(item.clientProperty.id, "Client listing information was updated.", "information_changed", userId)
+    ));
     return { message: "Client listing details updated", updated };
   }
 
@@ -4196,6 +4216,9 @@ export class ClientService {
       }).catch(err => logger.error('Failed to fetch user for Slack notification:', err));
     }
 
+    await Promise.all(updated.map((item) =>
+      new OnboardingUpdateService().addSystemUpdate(item.clientProperty.id, "Financial information was updated.", "information_changed", userId)
+    ));
     return { message: "Internal financials updated", updated };
   }
 
@@ -4346,6 +4369,9 @@ export class ClientService {
       }).catch(err => logger.error('Failed to fetch user for Slack notification:', err));
     }
 
+    await Promise.all(updated.map((item) =>
+      new OnboardingUpdateService().addSystemUpdate(item.clientProperty.id, "Management information was updated.", "information_changed", userId)
+    ));
     return { message: "Internal management updated", updated };
   }
 
@@ -5059,6 +5085,13 @@ export class ClientService {
         await this.propertyRepo.save(property);
 
         logger.info(`Successfully published property ${propertyId} to Hostify with listing ID: ${hostifyListingId}`);
+        await new OnboardingUpdateService().addSystemUpdate(
+          propertyId,
+          `Exported to Hostify (listing ${hostifyListingId}).`,
+          "hostify_exported",
+          userId,
+          { hostifyListingId }
+        );
 
         return {
           message: "Property published to Hostify successfully",
@@ -5242,6 +5275,7 @@ export class ClientService {
     property.welcomeEmailSentAt = new Date();
     property.updatedBy = userId;
     await this.propertyRepo.save(property);
+    await new OnboardingUpdateService().addSystemUpdate(propertyId, "Welcome email was sent.", "email_sent", userId);
 
     return {
       success: true,
@@ -5297,6 +5331,7 @@ export class ClientService {
       property.welcomeSmsError = null;
       property.updatedBy = userId;
       await this.propertyRepo.save(property);
+      await new OnboardingUpdateService().addSystemUpdate(propertyId, "Welcome SMS was sent.", "sms_sent", userId);
 
       return {
         success: true,
@@ -5405,12 +5440,23 @@ export class ClientService {
       throw CustomErrorHandler.notFound("Property not found");
     }
 
+    const previousStage = property.onboardingStage;
     // Update stage
     property.onboardingStage = stage;
     property.updatedBy = userId;
     property.updatedAt = new Date();
 
-    return await this.propertyRepo.save(property);
+    const saved = await this.propertyRepo.save(property);
+    if (previousStage !== stage) {
+      await new OnboardingUpdateService().addSystemUpdate(
+        propertyId,
+        `Phase changed from "${previousStage || "Not set"}" to "${stage}".`,
+        "phase_changed",
+        userId,
+        { previousStage, stage }
+      );
+    }
+    return saved;
   }
 
   /**

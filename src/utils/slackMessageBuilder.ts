@@ -1807,7 +1807,7 @@ export const buildExpenseStatusUpdateMessage = (
 };
 
 export const buildOnboardingSlackMessage = (
-    type: "new_client" | "listing_info" | "management_info" | "financials_info" | "new_property",
+    type: "new_client" | "management_info" | "financials_info" | "new_property",
     client: ClientEntity,
     property?: ClientPropertyEntity,
     updatedBy?: string,
@@ -1830,10 +1830,6 @@ export const buildOnboardingSlackMessage = (
         case "new_client":
             title = "New Client Onboarding Initiated";
             emoji = "🏢";
-            break;
-        case "listing_info":
-            title = `Listing Profile Updated: ${propertyName}`;
-            emoji = "📝";
             break;
         case "management_info":
             title = `Management Requirements Updated: ${propertyName}`;

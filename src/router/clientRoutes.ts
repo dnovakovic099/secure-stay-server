@@ -3,9 +3,11 @@ import { ClientController } from "../controllers/ClientController";
 import verifySession from "../middleware/verifySession";
 import { validateCreateClient, validateCreateClientWithPreOnboarding, validateUpdateClient, validateGetClients, validateCreatePropertyOnboarding, validateUpdatePropertyOnboarding, validateSaveOnboardingDetails, validateUpdateOnboardingDetails, validateSaveServiceInfo, validateUpdateServiceInfo, validateSaveListingInfo, validateUpdateListingInfo, validateSaveOnboardingDetailsClientForm, validateSaveListingDetailsClientForm, validateUpdateOnboardingDetailsClientForm, validateUpdateListingDetailsClientForm, validateUpdateFinancialsInternalForm, validateUpdateManagementInternalForm, validateSubmitAllClientForms, validateUpdateAcknowledgement } from "../middleware/validation/Client/client.validation";
 import fileUpload from "../utils/upload.util";
+import { OnboardingUpdateController } from "../controllers/OnboardingUpdateController";
 
 const router = Router();
 const clientController = new ClientController();
+const onboardingUpdateController = new OnboardingUpdateController();
 
 router.route('/create').post(verifySession, validateCreateClient, clientController.createClient.bind(clientController));
 router.route('/update').put(verifySession, validateUpdateClient, clientController.updateClient.bind(clientController));
@@ -17,6 +19,8 @@ router.route('/listing/:listingId/contacts').get(verifySession, clientController
 router.route('/listing/:listingId/contacts').put(verifySession, clientController.updateListingClientContacts.bind(clientController));
 router.route('/listing/:listingId/property-access').put(verifySession, clientController.updateListingPropertyAccess.bind(clientController));
 router.route('/properties/names').get(verifySession, clientController.getClientPropertyNames.bind(clientController));
+router.route('/onboarding-updates').get(verifySession, onboardingUpdateController.list.bind(onboardingUpdateController));
+router.route('/property/:propertyId/onboarding-updates').post(verifySession, onboardingUpdateController.create.bind(onboardingUpdateController));
 router.route('/:id').delete(verifySession, clientController.deleteClient.bind(clientController));
 router.route('/property/:propertyId').delete(verifySession, clientController.deleteProperty.bind(clientController));
 
