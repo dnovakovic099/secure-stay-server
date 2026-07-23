@@ -1097,6 +1097,280 @@ export class AdminInsightsService {
 
     // -------------------------------------------------------------------------
     // Directory endpoints for filter UIs.
+    /**
+     * Per-rep performance for Admin Insights EVENT KINDS → "Per-rep performance".
+     * Manager feedback is keyed by subjectUserId (the sender). Response / missed /
+     * takeover use inbox_messages + Employees Schedule (America/New_York).
+     */
+    async repPerformance(f: InsightsFilters): Promise<{
+        since: string;
+        until: string;
+        timezone: string;
+        missedThresholdMinutes: number;
+        definitions: Record<string, string>;
+        reps: Array<{
+            userId: number;
+            name: string;
+            userType: string | null;
+            managerFeedback: {
+                thumbsUp: number;
+                thumbsDown: number;
+                withText: number;
+                withCorrection: number;
+                netScore: number;
+            };
+            replies: number;
+            avgResponseTimeMinutes: number | null;
+            responseSamples: number;
+            missedMessages: number;
+            takeoverMessages: number;
+        }>;
+    }> {
+        const { start, end } = this.dateRange(f);
+        const users = await this.userDirectory();
+        const listingId =
+            f.listingId != null && Number.isFinite(Number(f.listingId)) ? Number(f.listingId) : null;
+        const MISSED_MINUTES = 30;
+
+        // Manager feedback on sent replies — credit the REP who sent (subjectUserId).
+        const feedbackRows: any[] = await appDatabase.query(
+            `SELECT subjectUserId AS userId,
+                    SUM(rating = 'up') AS thumbsUp,
+                    SUM(rating = 'down') AS thumbsDown,
+                    SUM(feedbackText IS NOT NULL AND TRIM(feedbackText) <> '') AS withText,
+                    SUM(correctedResponse IS NOT NULL AND TRIM(correctedResponse) <> '') AS withCorrection
+             FROM ai_message_feedback
+             WHERE targetType = 'sent_reply'
+               AND subjectUserId IS NOT NULL
+               AND createdAt >= ? AND createdAt < ?
+               ${listingId != null ? "AND listingId = ?" : ""}
+             GROUP BY subjectUserId`,
+            listingId != null ? [start, end, listingId] : [start, end]
+        );
+
+        const byUser = new Map<
+            number,
+            {
+                userId: number;
+                name: string;
+                userType: string | null;
+                thumbsUp: number;
+                thumbsDown: number;
+                withText: number;
+                withCorrection: number;
+                replies: number;
+                responseSumMin: number;
+                responseSamples: number;
+                missedMessages: number;
+                takeoverMessages: number;
+            }
+        >();
+
+        const ensure = (userId: number) => {
+            if (byUser.has(userId)) return byUser.get(userId)!;
+            const u = users.get(userId);
+            const row = {
+                userId,
+                name: u?.name || `user ${userId}`,
+                userType: u?.userType || null,
+                thumbsUp: 0,
+                thumbsDown: 0,
+                withText: 0,
+                withCorrection: 0,
+                replies: 0,
+                responseSumMin: 0,
+                responseSamples: 0,
+                missedMessages: 0,
+                takeoverMessages: 0,
+            };
+            byUser.set(userId, row);
+            return row;
+        };
+
+        for (const r of feedbackRows) {
+            const uid = Number(r.userId);
+            if (!Number.isFinite(uid) || uid <= 0) continue;
+            const row = ensure(uid);
+            row.thumbsUp = Number(r.thumbsUp) || 0;
+            row.thumbsDown = Number(r.thumbsDown) || 0;
+            row.withText = Number(r.withText) || 0;
+            row.withCorrection = Number(r.withCorrection) || 0;
+        }
+
+        // Human Hostify replies attributed to SS users.
+        const replyRows: any[] = await appDatabase.query(
+            `SELECT sentByUserId AS userId, COUNT(*) AS c
+             FROM inbox_messages
+             WHERE direction = 'outgoing'
+               AND sentByUserId IS NOT NULL
+               AND COALESCE(isAutomatic, 0) = 0
+               AND sentVia = 'inbox_v2'
+               AND sentAt >= ? AND sentAt < ?
+               ${listingId != null ? "AND listingId = ?" : ""}
+             GROUP BY sentByUserId`,
+            listingId != null ? [start, end, listingId] : [start, end]
+        );
+        for (const r of replyRows) {
+            const uid = Number(r.userId);
+            if (!Number.isFinite(uid) || uid <= 0) continue;
+            ensure(uid).replies = Number(r.c) || 0;
+        }
+
+        // Shift-aware metrics (Guest Relations schedules).
+        const { EmployeeShiftService } = await import("./EmployeeShiftService");
+        const shiftSvc = new EmployeeShiftService();
+        const shiftCtx = await shiftSvc.loadShiftContext(start, end);
+        const grUserIds = [...shiftCtx.byUserId.keys()];
+
+        // Seed GR employees so they appear even with zero activity.
+        for (const uid of grUserIds) ensure(uid);
+
+        const inbound: any[] = await appDatabase.query(
+            `SELECT id, threadId, sentAt, listingId
+             FROM inbox_messages
+             WHERE direction = 'incoming'
+               AND COALESCE(isAutomatic, 0) = 0
+               AND sentAt >= ? AND sentAt < ?
+               ${listingId != null ? "AND listingId = ?" : ""}
+             ORDER BY threadId ASC, sentAt ASC, id ASC
+             LIMIT 8000`,
+            listingId != null ? [start, end, listingId] : [start, end]
+        );
+
+        const outbound: any[] = await appDatabase.query(
+            `SELECT id, threadId, sentAt, sentByUserId
+             FROM inbox_messages
+             WHERE direction = 'outgoing'
+               AND sentByUserId IS NOT NULL
+               AND COALESCE(isAutomatic, 0) = 0
+               AND sentVia = 'inbox_v2'
+               AND sentAt >= ? AND sentAt < ?
+               ${listingId != null ? "AND listingId = ?" : ""}
+             ORDER BY threadId ASC, sentAt ASC, id ASC
+             LIMIT 12000`,
+            listingId != null ? [start, end, listingId] : [start, end]
+        );
+
+        // Group outbound by thread for next-reply lookup.
+        const outboundByThread = new Map<number, Array<{ sentAt: Date; sentByUserId: number }>>();
+        for (const o of outbound) {
+            const tid = Number(o.threadId);
+            if (!outboundByThread.has(tid)) outboundByThread.set(tid, []);
+            outboundByThread.get(tid)!.push({
+                sentAt: new Date(o.sentAt),
+                sentByUserId: Number(o.sentByUserId),
+            });
+        }
+
+        const missedThresholdMs = MISSED_MINUTES * 60 * 1000;
+
+        for (const inn of inbound) {
+            const tid = Number(inn.threadId);
+            const inAt = new Date(inn.sentAt);
+            if (!Number.isFinite(inAt.getTime())) continue;
+            const outs = outboundByThread.get(tid) || [];
+            const next = outs.find((o) => o.sentAt.getTime() > inAt.getTime());
+
+            // Who was on shift when the guest wrote?
+            const onShiftUserIds: number[] = [];
+            for (const [uid, emp] of shiftCtx.byUserId) {
+                if (
+                    shiftSvc.isEmployeeOnShiftAt(
+                        emp,
+                        inAt,
+                        shiftCtx.overridesByEmployeeDate,
+                        shiftCtx.leaveByUserId
+                    )
+                ) {
+                    onShiftUserIds.push(uid);
+                }
+            }
+
+            if (next) {
+                const mins = (next.sentAt.getTime() - inAt.getTime()) / 60000;
+                if (Number.isFinite(mins) && mins >= 0 && mins < 24 * 60) {
+                    const row = ensure(next.sentByUserId);
+                    row.responseSumMin += mins;
+                    row.responseSamples += 1;
+                }
+                // Takeover: this rep answered an inbound that arrived outside THEIR shift.
+                const responderEmp = shiftCtx.byUserId.get(next.sentByUserId);
+                if (responderEmp) {
+                    const onShift = shiftSvc.isEmployeeOnShiftAt(
+                        responderEmp,
+                        inAt,
+                        shiftCtx.overridesByEmployeeDate,
+                        shiftCtx.leaveByUserId
+                    );
+                    if (!onShift) ensure(next.sentByUserId).takeoverMessages += 1;
+                }
+            }
+
+            // Missed: inbound while on shift, no human reply within threshold.
+            const repliedInTime =
+                !!next && next.sentAt.getTime() - inAt.getTime() <= missedThresholdMs;
+            if (!repliedInTime && onShiftUserIds.length) {
+                for (const uid of onShiftUserIds) {
+                    ensure(uid).missedMessages += 1;
+                }
+            }
+        }
+
+        // Apply user / userType filters.
+        let rows = [...byUser.values()];
+        if (f.userIds?.length) {
+            const allow = new Set(f.userIds.map(Number));
+            rows = rows.filter((r) => allow.has(r.userId));
+        }
+        if (f.userType) {
+            const want = String(f.userType).toLowerCase();
+            rows = rows.filter((r) => String(r.userType || "regular").toLowerCase() === want);
+        }
+
+        rows.sort((a, b) => {
+            const aScore = a.thumbsUp + a.thumbsDown + a.replies + a.missedMessages + a.takeoverMessages;
+            const bScore = b.thumbsUp + b.thumbsDown + b.replies + b.missedMessages + b.takeoverMessages;
+            if (bScore !== aScore) return bScore - aScore;
+            return a.name.localeCompare(b.name);
+        });
+
+        return {
+            since: start.toISOString(),
+            until: end.toISOString(),
+            timezone: shiftCtx.timezone,
+            missedThresholdMinutes: MISSED_MINUTES,
+            definitions: {
+                managerFeedback:
+                    "Thumbs / notes managers leave on sent replies, credited to the rep who sent the message.",
+                avgResponseTime:
+                    "Guest inbound → first human Inbox v2 reply by this rep in the same thread (minutes).",
+                missedMessages: `Guest inbound while this rep was on shift (Employees → Schedule, ${shiftCtx.timezone}) with no human reply within ${MISSED_MINUTES} minutes.`,
+                takeoverMessages:
+                    "Human replies by this rep to a guest message that arrived outside their scheduled shift.",
+            },
+            reps: rows.map((r) => ({
+                userId: r.userId,
+                name: r.name,
+                userType: r.userType,
+                managerFeedback: {
+                    thumbsUp: r.thumbsUp,
+                    thumbsDown: r.thumbsDown,
+                    withText: r.withText,
+                    withCorrection: r.withCorrection,
+                    netScore: r.thumbsUp - r.thumbsDown,
+                },
+                replies: r.replies,
+                avgResponseTimeMinutes:
+                    r.responseSamples > 0
+                        ? Math.round((r.responseSumMin / r.responseSamples) * 10) / 10
+                        : null,
+                responseSamples: r.responseSamples,
+                missedMessages: r.missedMessages,
+                takeoverMessages: r.takeoverMessages,
+            })),
+        };
+    }
+
     // -------------------------------------------------------------------------
     async listUsers(): Promise<any[]> {
         const rows: any[] = await appDatabase.query(

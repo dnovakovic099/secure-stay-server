@@ -69,6 +69,15 @@ export class AdminInsightsController {
         }
     };
 
+    repPerformance = async (req: CustomRequest, res: Response, next: NextFunction) => {
+        try {
+            const data = await new AdminInsightsService().repPerformance(filtersOf(req));
+            return res.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    };
+
     /** Drill-down: entries behind a "Who trains the AI" cell. */
     trainingDetail = async (req: CustomRequest, res: Response, next: NextFunction) => {
         try {

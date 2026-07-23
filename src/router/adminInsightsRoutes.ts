@@ -24,6 +24,7 @@ const requireAdmin = (req: Request & { user?: any }, res: Response, next: NextFu
 router.get("/me", verifySession, controller.me);
 router.get("/overview", verifySession, requireAdmin, controller.overview);
 router.get("/feedback-log", verifySession, requireAdmin, controller.feedbackLog);
+router.get("/rep-performance", verifySession, requireAdmin, controller.repPerformance);
 router.get("/training-detail/:userId", verifySession, requireAdmin, controller.trainingDetail);
 
 // Directory endpoints for filter dropdowns.
