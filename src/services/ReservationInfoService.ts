@@ -100,10 +100,35 @@ export class ReservationInfoService {
   }
 
   private shouldCreateImmediateResolutionsThread(reservation: Partial<ReservationInfoEntity> | null, source: string) {
-    if (source !== "webhook" || !reservation?.id) return false;
+    if (source !== "webhook" && source !== "internal") return false;
+    if (!reservation?.id) return false;
     if (!this.validStatus.includes(String(reservation.status || ""))) return false;
-    if (this.getDateKey(reservation.arrivalDate as any) !== getEasternDateString()) return false;
-    return this.isAfterResolutionsDailyPostTime();
+
+    const arrivalKey = this.getDateKey(reservation.arrivalDate as any);
+    if (!arrivalKey) return false;
+
+    // Fire for reservations whose arrival lands in the window the Mitigation UI
+    // and the daily Slack digest can plausibly cover — plus a small forward
+    // buffer so bookings made now for the next few days also get a review_checkout
+    // row and thread without waiting for the arrival-day cron.
+    const today = getEasternDateString();
+    const lookbackDate = format(
+      addDays(new Date(`${today}T00:00:00`), -ReservationInfoService.REVIEW_CHECKOUT_LOOKBACK_DAYS),
+      "yyyy-MM-dd",
+    );
+    const lookaheadDate = format(
+      addDays(new Date(`${today}T00:00:00`), ReservationInfoService.REVIEW_CHECKOUT_LOOKAHEAD_DAYS),
+      "yyyy-MM-dd",
+    );
+    if (arrivalKey < lookbackDate || arrivalKey > lookaheadDate) return false;
+
+    // Same-day arrivals before the 9:05 AM ET digest run stay in the digest's
+    // batch. After that hour, any late-landing same-day reservation goes through
+    // the immediate path so it doesn't have to wait until tomorrow's digest
+    // (which filters arrivalDate = today and would skip it anyway).
+    if (arrivalKey === today && !this.isAfterResolutionsDailyPostTime()) return false;
+
+    return true;
   }
 
   private queueImmediateResolutionsThreadIfNeeded(reservation: Partial<ReservationInfoEntity> | null, source: string) {
@@ -111,7 +136,7 @@ export class ReservationInfoService {
 
     runAsync(
       new ResolutionsTeamSlackService().ensureThreadForReservation(Number(reservation.id), "system"),
-      "ResolutionsTeamSlackService.ensureThreadForReservation.afterHostifyReservationWebhook"
+      `ResolutionsTeamSlackService.ensureThreadForReservation.after${source === "webhook" ? "Webhook" : "Sync"}`,
     );
   }
 
@@ -2207,6 +2232,12 @@ export class ReservationInfoService {
   // processReviewCheckout() already short-circuits when a review_checkout row already
   // exists, so widening the window is idempotent — never creates duplicates.
   static readonly REVIEW_CHECKOUT_LOOKBACK_DAYS = 14;
+  // Forward window for imminent (not-yet-arrived) reservations. Last-minute bookings
+  // made now for a check-in within the next few days would otherwise wait until their
+  // arrival day for a review_checkout row to be created — this lets the hourly cron
+  // prepare the row ahead of time so the reservation is on the Mitigation list the
+  // moment it becomes currently-staying, not an hour later.
+  static readonly REVIEW_CHECKOUT_LOOKAHEAD_DAYS = 3;
 
   async getCheckoutReservations(lookbackDays: number = ReservationInfoService.REVIEW_CHECKOUT_LOOKBACK_DAYS) {
     const today = getEasternDateString();
@@ -2225,13 +2256,18 @@ export class ReservationInfoService {
     return { reservations, total };
   }
 
-  async getCheckinReservations(lookbackDays: number = ReservationInfoService.REVIEW_CHECKOUT_LOOKBACK_DAYS) {
+  async getCheckinReservations(
+    lookbackDays: number = ReservationInfoService.REVIEW_CHECKOUT_LOOKBACK_DAYS,
+    lookaheadDays: number = ReservationInfoService.REVIEW_CHECKOUT_LOOKAHEAD_DAYS,
+  ) {
     const today = getEasternDateString();
     const safeLookback = Math.max(0, Math.floor(lookbackDays));
+    const safeLookahead = Math.max(0, Math.floor(lookaheadDays));
     const from = format(addDays(new Date(`${today}T00:00:00`), -safeLookback), "yyyy-MM-dd");
+    const until = format(addDays(new Date(`${today}T00:00:00`), safeLookahead), "yyyy-MM-dd");
     const [reservations, total] = await this.reservationInfoRepository.findAndCount({
       where: {
-        arrivalDate: Raw((alias) => `DATE(${alias}) BETWEEN :from AND :today`, { from, today }),
+        arrivalDate: Raw((alias) => `DATE(${alias}) BETWEEN :from AND :until`, { from, until }),
         status: In(this.validStatus),
       },
       order: { arrivalDate: "ASC" },

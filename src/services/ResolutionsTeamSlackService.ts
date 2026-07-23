@@ -834,15 +834,22 @@ export class ResolutionsTeamSlackService {
             logger.error("[ResolutionsTeam] Failed to ensure review checkout records before daily Slack post:", error);
         }
 
-        // Fetch all reservations checking in today that have a ReviewCheckout record
+        // Fetch reservations checking in today OR yesterday that have a ReviewCheckout
+        // record but no Slack thread. The yesterday lookback is a safety net for last-
+        // minute bookings that landed after this cron ran yesterday morning — they'd
+        // otherwise never be picked up (tomorrow's run only looks at arrival = today
+        // and they'll already be in the past). ensureThreadForReservation-created
+        // threads short-circuit via the slackThreadTs IS NULL guard, so this remains
+        // idempotent.
+        const yesterday = format(addDays(new Date(`${today}T00:00:00`), -1), "yyyy-MM-dd");
         const reviewCheckouts = await this.reviewCheckoutRepo
             .createQueryBuilder("rc")
             .leftJoinAndSelect("rc.reservationInfo", "reservation")
             .leftJoin(Listing, "listing", "listing.id = reservation.listingMapId")
             .addSelect(["listing.tags", "listing.ownerName"])
-            .where("DATE(reservation.arrivalDate) = :today", { today })
+            .where("DATE(reservation.arrivalDate) BETWEEN :from AND :today", { from: yesterday, today })
             .andWhere("rc.deletedAt IS NULL")
-            .andWhere("rc.slackThreadTs IS NULL") // Don't re-post if already sent today
+            .andWhere("rc.slackThreadTs IS NULL") // Don't re-post if already sent
             .getMany();
 
         if (reviewCheckouts.length === 0) {
