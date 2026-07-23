@@ -35,7 +35,7 @@ const AIRBNB_RESOLUTIONS_CENTER_PAYMENT_METHOD = "airbnb resolutions center";
 const FERDY_SLACK_USER_ID = "U07P974D65P";
 const ANJ_SLACK_USER_ID = "U08END0JTBM";
 const PAID_RC_REPORT_TYPE = "paid_rc_refund_report";
-const DEFAULT_PAID_RC_REPORT_CHANNEL = "C09DMD2H3LG";
+const DEFAULT_PAID_RC_REPORT_CHANNEL = "#worklog-ot-hours";
 
 type PaidRcRefundReportOptions = {
     force?: boolean;
