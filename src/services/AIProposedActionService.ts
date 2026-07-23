@@ -123,9 +123,10 @@ export class AIProposedActionService {
     }
 
     /**
-     * Late checkout / early check-in: fetch the live calendar night that the
-     * request hinges on and attach it as evidence. Proposed either way (the
-     * team decides); the evidence states whether the night is open.
+     * Late checkout / early check-in: use Upsells (rate config + charge type +
+     * SDTO) and reservation adjacency for same-day turnover. Calendar remains
+     * supporting evidence. When SDTO is Not Allowed and same-day turnover
+     * exists, auto-propose a decline reply (no fee).
      */
     private async proposeScheduleChange(
         input: ProposedActionInput,
@@ -156,25 +157,113 @@ export class AIProposedActionService {
             }
         }
 
-        const label = type === "late_checkout" ? "late checkout" : "early check-in";
-        const evidence =
-            nightOpen === true
-                ? `Live calendar: the night of ${key} is OPEN — no back-to-back turnover conflict.`
-                : nightOpen === false
-                ? `Live calendar: the night of ${key} is NOT open — likely a same-day turnover. Approve only if cleaning allows.`
-                : `Live calendar unavailable — check the ${key} night before approving.`;
+        const { UpsellQuoteService } = await import("./UpsellQuoteService");
+        const quoteService = new UpsellQuoteService();
+        const quotes = await quoteService
+            .listQuotesForListing({
+                listingId: Number(conv.listingId),
+                nights: conv.nights != null ? Number(conv.nights) : null,
+                checkin: conv.checkin,
+                checkout: conv.checkout,
+                reservationId: conv.reservationId != null ? Number(conv.reservationId) : null,
+            })
+            .catch(() => []);
+        const match = quotes.find((q) =>
+            type === "early_check_in" ? q.isEarlyCheckin : q.isLateCheckout
+        );
 
-        // Only promise outright when the calendar confirms the night is open;
-        // otherwise the default reply defers to housekeeping (staff can edit).
+        const label = type === "late_checkout" ? "late checkout" : "early check-in";
         const guestFirst = (conv.guestName || "").split(" ")[0] || "there";
-        const proposedReply =
+        const feeBit =
+            match?.guestFee != null
+                ? `$${Number(match.guestFee).toFixed(2)}${match.unitLabel ? ` (${match.unitLabel})` : ""}`
+                : null;
+
+        const calendarEvidence =
             nightOpen === true
-                ? type === "late_checkout"
-                    ? `Good news ${guestFirst}, we can do a late checkout for you. Take your time and let us know if you need anything else!`
-                    : `Good news ${guestFirst}, we can get you in early. We'll confirm the exact time as soon as the place is ready!`
-                : type === "late_checkout"
-                ? `Hi ${guestFirst}, we'd love to help with a late checkout — let us check the cleaning schedule and we'll confirm shortly!`
-                : `Hi ${guestFirst}, we'd love to get you in early — let us check with housekeeping and we'll confirm as soon as we can!`;
+                ? `Live calendar: the night of ${key} is OPEN.`
+                : nightOpen === false
+                  ? `Live calendar: the night of ${key} is NOT open.`
+                  : `Live calendar unavailable for ${key}.`;
+
+        const upsellEvidence = match
+            ? [
+                  `Upsells: ${match.title}`,
+                  `SDTO=${match.sdtoRaw || "Allowed"} (${match.sdto})`,
+                  `rate=${match.rateConfiguration || "Fixed Rate"}`,
+                  `charge=${match.chargeType || "n/a"}`,
+                  `fee=${feeBit || "n/a"}`,
+                  `autoRespond=${match.autoRespond}`,
+                  `sameDayTurnoverRelevant=${match.sameDayTurnoverRelevant}`,
+              ].join("; ")
+            : "Upsells: no Early/Late config found for this listing.";
+
+        // Deterministic auto-decline when SDTO Not Allowed + same-day turnover.
+        if (match?.autoRespond === "deny") {
+            const proposedReply =
+                type === "late_checkout"
+                    ? `Hi ${guestFirst}, unfortunately we can't offer a late checkout for this stay because of a same-day turnover. Standard check-out still applies — let us know if there's anything else we can help with!`
+                    : `Hi ${guestFirst}, unfortunately we can't offer an early check-in for this stay because of a same-day turnover. Standard check-in still applies — happy to help with anything else!`;
+
+            return this.repo.save(
+                this.repo.create({
+                    suggestionId: input.suggestion.id,
+                    source: "hostify",
+                    threadId: Number(conv.threadId),
+                    messageId: input.guestMessage ? Number(input.guestMessage.externalId) : null,
+                    reservationId: conv.reservationId ? Number(conv.reservationId) : null,
+                    listingId: conv.listingId ? Number(conv.listingId) : null,
+                    actionType: type,
+                    title: `Auto-decline ${label}: SDTO Not Allowed + same-day turnover`,
+                    evidence: this.withSettingsReference(
+                        `${upsellEvidence}\n${calendarEvidence}\nGuest said: "${guestText.slice(0, 200)}"`,
+                        settingsReference
+                    ),
+                    proposedReply,
+                    taskDescription: `${type === "late_checkout" ? "Late checkout" : "Early check-in"} declined for ${conv.guestName || "guest"} — SDTO Not Allowed with same-day turnover.`,
+                    payload: JSON.stringify({
+                        nightDate: key,
+                        nightOpen,
+                        guestQuote: guestText.slice(0, 500),
+                        upsellAutoRespond: "deny",
+                        upsellFee: match.guestFee,
+                        sdto: match.sdto,
+                        sameDayTurnoverRelevant: true,
+                    }),
+                    status: "proposed",
+                })
+            );
+        }
+
+        const evidence = `${upsellEvidence}\n${calendarEvidence}`;
+        let proposedReply: string;
+        if (match?.autoRespond === "quote" && feeBit) {
+            proposedReply =
+                type === "late_checkout"
+                    ? `Hi ${guestFirst}, late checkout is available for ${feeBit}, subject to availability. Want me to have the team confirm that for you?`
+                    : `Hi ${guestFirst}, early check-in is available for ${feeBit}, subject to availability. Want me to have the team confirm that for you?`;
+        } else if (match?.autoRespond === "escalate") {
+            proposedReply =
+                type === "late_checkout"
+                    ? `Hi ${guestFirst}, we'd love to help with a late checkout — let us check with the team and confirm shortly!`
+                    : `Hi ${guestFirst}, we'd love to get you in early — let us check with the team and confirm as soon as we can!`;
+        } else {
+            proposedReply =
+                nightOpen === true
+                    ? type === "late_checkout"
+                        ? `Good news ${guestFirst}, we can look at a late checkout for you. Let us confirm the details shortly!`
+                        : `Good news ${guestFirst}, we can look at getting you in early. We'll confirm as soon as the place is ready!`
+                    : type === "late_checkout"
+                      ? `Hi ${guestFirst}, we'd love to help with a late checkout — let us check the cleaning schedule and we'll confirm shortly!`
+                      : `Hi ${guestFirst}, we'd love to get you in early — let us check with housekeeping and we'll confirm as soon as we can!`;
+        }
+
+        const title =
+            match?.autoRespond === "quote" && feeBit
+                ? `Quote ${label} at ${feeBit}? (${key} night ${nightOpen === false ? "NOT open" : nightOpen === true ? "open" : "unverified"})`
+                : nightOpen === true
+                  ? `Approve ${label}? The ${key} night is open.`
+                  : `Guest asked for ${label} (${key} night ${nightOpen === false ? "NOT open" : "unverified"}).`;
 
         return this.repo.save(
             this.repo.create({
@@ -185,14 +274,21 @@ export class AIProposedActionService {
                 reservationId: conv.reservationId ? Number(conv.reservationId) : null,
                 listingId: conv.listingId ? Number(conv.listingId) : null,
                 actionType: type,
-                title:
-                    nightOpen === true
-                        ? `Approve ${label}? The ${key} night is open.`
-                        : `Guest asked for ${label} (${key} night ${nightOpen === false ? "NOT open" : "unverified"}).`,
+                title,
                 evidence: this.withSettingsReference(`${evidence}\nGuest said: "${guestText.slice(0, 200)}"`, settingsReference),
                 proposedReply,
-                taskDescription: `${type === "late_checkout" ? "Late checkout" : "Early check-in"} approved for ${conv.guestName || "guest"} (${conv.listingName || "listing " + conv.listingId}) — update the cleaning schedule.`,
-                payload: JSON.stringify({ nightDate: key, nightOpen, guestQuote: guestText.slice(0, 500) }),
+                taskDescription: `${type === "late_checkout" ? "Late checkout" : "Early check-in"} for ${conv.guestName || "guest"} (${conv.listingName || "listing " + conv.listingId})${feeBit ? ` — fee ${feeBit}` : ""} — update the cleaning schedule if approved.`,
+                payload: JSON.stringify({
+                    nightDate: key,
+                    nightOpen,
+                    guestQuote: guestText.slice(0, 500),
+                    upsellAutoRespond: match?.autoRespond || null,
+                    upsellFee: match?.guestFee ?? null,
+                    sdto: match?.sdto || null,
+                    sameDayTurnoverRelevant: match?.sameDayTurnoverRelevant ?? null,
+                    rateConfiguration: match?.rateConfiguration || null,
+                    chargeType: match?.chargeType || null,
+                }),
                 status: "proposed",
             })
         );

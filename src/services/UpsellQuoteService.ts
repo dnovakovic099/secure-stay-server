@@ -1,4 +1,6 @@
+import { In } from "typeorm";
 import { appDatabase } from "../utils/database.util";
+import { ReservationInfoEntity } from "../entity/ReservationInfo";
 
 export type SdtoStatus = "not_allowed" | "needs_confirmation" | "allowed" | "unknown";
 export type UpsellAutoRespond = "deny" | "escalate" | "quote";
@@ -12,6 +14,20 @@ export interface UpsellQuoteInput {
     quantity?: number | null;
     checkin?: string | null;
     checkout?: string | null;
+    /** Current reservation — excluded from same-day turnover adjacency scan. */
+    reservationId?: number | null;
+    /**
+     * Optional precomputed same-day turnover flags. When omitted, listQuotesForListing
+     * loads them from active reservations on the listing.
+     */
+    sameDayTurnover?: { early: boolean; late: boolean } | null;
+}
+
+export interface SameDayTurnoverFlags {
+    /** Another active reservation departs on this stay's arrival date. */
+    early: boolean;
+    /** Another active reservation arrives on this stay's departure date. */
+    late: boolean;
 }
 
 export interface UpsellQuote {
@@ -28,7 +44,15 @@ export interface UpsellQuote {
     description: string | null;
     isEarlyCheckin: boolean;
     isLateCheckout: boolean;
+    /**
+     * True when SDTO policy is relevant for THIS ask because a same-day
+     * turnover exists on the matching boundary (early → arrival day, late →
+     * departure day; other upsells → either).
+     */
+    sameDayTurnoverRelevant: boolean;
 }
+
+const ACTIVE_RESERVATION_STATUSES = ["new", "accepted", "modified", "ownerStay", "moved"];
 
 interface PricingRule {
     id: string;
@@ -207,6 +231,84 @@ function classifyTitle(title: string): { isEarlyCheckin: boolean; isLateCheckout
         isEarlyCheckin: /early/.test(t) && /check/.test(t),
         isLateCheckout: /late/.test(t) && /check/.test(t),
     };
+}
+
+function dateKey(raw: any): string | null {
+    if (raw == null || raw === "") return null;
+    if (raw instanceof Date && !Number.isNaN(raw.getTime())) return raw.toISOString().slice(0, 10);
+    const s = String(raw).trim();
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : null;
+}
+
+function sameDate(a: any, b: any): boolean {
+    const ak = dateKey(a);
+    const bk = dateKey(b);
+    return Boolean(ak && bk && ak === bk);
+}
+
+/**
+ * Same Day Turnover for upsell SDTO:
+ * - early: prior guest departs on this reservation's arrival date
+ * - late: next guest arrives on this reservation's departure date
+ */
+export async function detectSameDayTurnover(opts: {
+    listingId: number;
+    checkin?: string | null;
+    checkout?: string | null;
+    reservationId?: number | null;
+}): Promise<SameDayTurnoverFlags> {
+    const listingId = Number(opts.listingId);
+    const arrival = dateKey(opts.checkin);
+    const departure = dateKey(opts.checkout);
+    if (!Number.isFinite(listingId) || listingId <= 0 || (!arrival && !departure)) {
+        return { early: false, late: false };
+    }
+
+    const rows = await appDatabase.getRepository(ReservationInfoEntity).find({
+        where: {
+            listingMapId: listingId as any,
+            status: In(ACTIVE_RESERVATION_STATUSES) as any,
+        },
+    });
+
+    const selfId = opts.reservationId != null ? Number(opts.reservationId) : null;
+    let early = false;
+    let late = false;
+    for (const candidate of rows) {
+        if (selfId != null && Number(candidate.id) === selfId) continue;
+        if (arrival && sameDate(candidate.departureDate, arrival)) early = true;
+        if (departure && sameDate(candidate.arrivalDate, departure)) late = true;
+        if (early && late) break;
+    }
+    return { early, late };
+}
+
+/**
+ * SDTO = Same Day Turnover policy from the Upsells page.
+ * "Not Allowed" only forces auto-decline when a same-day turnover exists for
+ * the relevant boundary. Without SDT, quote the calculated fee (rate config +
+ * charge type) like Allowed.
+ */
+export function resolveUpsellAutoRespond(
+    sdto: SdtoStatus,
+    sameDayRelevant: boolean,
+    calc: { guestFee: number | null; needsUnits: boolean }
+): UpsellAutoRespond {
+    if (sdto === "not_allowed" && sameDayRelevant) return "deny";
+    if (sdto === "needs_confirmation") return "escalate";
+    if (calc.needsUnits || calc.guestFee == null) return "escalate";
+    return "quote";
+}
+
+function sameDayRelevantForQuote(
+    q: { isEarlyCheckin: boolean; isLateCheckout: boolean },
+    flags: SameDayTurnoverFlags
+): boolean {
+    if (q.isEarlyCheckin) return flags.early;
+    if (q.isLateCheckout) return flags.late;
+    // Other services with an SDTO column: either boundary counts as turnover risk.
+    return flags.early || flags.late;
 }
 
 /** Exported for unit tests — mirrors Upsells order-form fee math. */
@@ -437,6 +539,18 @@ export class UpsellQuoteService {
             )
         );
         const nights = nightCountFromStay(input.checkin, input.checkout, input.nights);
+        const sameDay: SameDayTurnoverFlags =
+            input.sameDayTurnover != null
+                ? {
+                      early: Boolean(input.sameDayTurnover.early),
+                      late: Boolean(input.sameDayTurnover.late),
+                  }
+                : await detectSameDayTurnover({
+                      listingId,
+                      checkin: input.checkin,
+                      checkout: input.checkout,
+                      reservationId: input.reservationId,
+                  });
         const ph = groupIds.map(() => "?").join(",");
 
         const rows: any[] = await appDatabase.query(
@@ -478,13 +592,8 @@ export class UpsellQuoteService {
             const { isEarlyCheckin, isLateCheckout } = classifyTitle(title);
             const sdto = normalizeSdto(r.sdto);
             const calc = calculateGuestFee(r, nights, input.hours, input.quantity);
-
-            // SDTO: Not Allowed → deny; Needs Confirmation → escalate; else quote when we can.
-            let autoRespond: UpsellAutoRespond = "quote";
-            if (sdto === "not_allowed") autoRespond = "deny";
-            else if (sdto === "needs_confirmation") autoRespond = "escalate";
-            else if (calc.needsUnits || calc.guestFee == null) autoRespond = "escalate";
-            else autoRespond = "quote";
+            const sdtRelevant = sameDayRelevantForQuote({ isEarlyCheckin, isLateCheckout }, sameDay);
+            const autoRespond = resolveUpsellAutoRespond(sdto, sdtRelevant, calc);
 
             quotes.push({
                 upSellId: Number(r.upSellId),
@@ -500,6 +609,7 @@ export class UpsellQuoteService {
                 description: r.description ? String(r.description).replace(/\s+/g, " ").trim() : null,
                 isEarlyCheckin,
                 isLateCheckout,
+                sameDayTurnoverRelevant: sdtRelevant,
             });
         }
         return quotes;
@@ -513,15 +623,21 @@ export class UpsellQuoteService {
         const lines: string[] = [];
 
         for (const q of quotes) {
-            if (q.sdto === "not_allowed") {
+            // Auto-decline only when SDTO Not Allowed AND same-day turnover exists.
+            if (q.autoRespond === "deny") {
+                const boundary = q.isEarlyCheckin
+                    ? "arrival day (prior guest checking out)"
+                    : q.isLateCheckout
+                      ? "departure day (next guest checking in)"
+                      : "this stay's check-in/out day";
                 lines.push(
-                    `- ${q.title}: NOT ALLOWED (SDTO). Tell the guest standard check-in/out / service is not available. Do NOT quote a fee. Do NOT escalate unless they push back angrily.`
+                    `- ${q.title}: AUTO-DECLINE — SDTO is Not Allowed AND there IS same-day turnover on the ${boundary}. Tell the guest it is not available for this stay. Do NOT quote a fee. Do NOT escalate unless they push back angrily.`
                 );
                 facts.push({
                     id: `upsell_${q.upSellId}`,
                     assertWhen: "always",
-                    assertText: `${q.title} is NOT ALLOWED for this property.`,
-                    policyText: `${q.title}: deny — not offered.`,
+                    assertText: `${q.title} is NOT available — Same Day Turnover policy (Not Allowed) and a same-day turnover exists.`,
+                    policyText: `${q.title}: deny — SDTO Not Allowed + same-day turnover.`,
                     kind: q.isEarlyCheckin || q.isLateCheckout ? "discretionary_upsell" : "upsell",
                 });
                 continue;
@@ -534,8 +650,9 @@ export class UpsellQuoteService {
                         : q.guestFee == null
                           ? "price needs calculation inputs / special rate"
                           : "needs team confirmation";
+                const sdtNote = q.sameDayTurnoverRelevant ? " Same-day turnover present — be extra careful." : "";
                 lines.push(
-                    `- ${q.title}: NEEDS HUMAN CONFIRMATION (${why}). Acknowledge the ask. Do NOT invent or quote a firm price. Set escalation_required=true.`
+                    `- ${q.title}: NEEDS HUMAN CONFIRMATION (${why}).${sdtNote} Acknowledge the ask. Do NOT invent or quote a firm price. Set escalation_required=true.`
                 );
                 facts.push({
                     id: `upsell_${q.upSellId}`,
@@ -547,7 +664,7 @@ export class UpsellQuoteService {
                 continue;
             }
 
-            // Allowed — quote calculated price
+            // Quote path — fee already computed from rate configuration + charge type.
             const feeBit =
                 q.guestFee != null
                     ? `${money(q.guestFee)}${q.unitLabel ? ` (${q.unitLabel})` : ""}`
@@ -559,8 +676,12 @@ export class UpsellQuoteService {
             const chargeBit = q.chargeType ? `; ${q.chargeType}` : "";
             const calcBit = q.breakdown.length ? ` [${q.breakdown.join("; ")}]` : "";
             const desc = q.description ? ` — ${q.description.slice(0, 140)}` : "";
+            const sdtPolicyNote =
+                q.sdto === "not_allowed" && !q.sameDayTurnoverRelevant
+                    ? " SDTO is Not Allowed but there is NO same-day turnover for this stay — you MAY quote the fee."
+                    : "";
             lines.push(
-                `- ${q.title}: ALLOWED — guest fee ${feeBit}${chargeBit}${rateBit}.${calcBit}${desc} You MAY quote this fee and say it is subject to availability. Do NOT approve a specific clock time unless a TEAM message already did. escalation_required=false for a simple fee quote.`
+                `- ${q.title}: QUOTE — guest fee ${feeBit}${chargeBit}${rateBit}.${calcBit}${desc}${sdtPolicyNote} Fee is from Upsells rate configuration + charge type. You MAY quote this fee and say it is subject to availability. Do NOT approve a specific clock time unless a TEAM message already did. escalation_required=false for a simple fee quote.`
             );
             facts.push({
                 id: `upsell_${q.upSellId}`,
@@ -574,13 +695,14 @@ export class UpsellQuoteService {
         return {
             facts,
             text: [
-                "## Available paid services (from Upsells database — SDTO governs auto-respond)",
-                "SDTO rules (STRICT):",
-                "1. NOT ALLOWED → tell guest it is not available. No fee. No escalate (unless angry).",
-                "2. NEEDS CONFIRMATION → acknowledge + escalate to team. Do NOT quote a firm price.",
-                "3. ALLOWED (or any other SDTO) → quote the calculated guest fee below. Subject to availability. Do NOT approve a specific clock time unless a TEAM message already confirmed it.",
+                "## Available paid services (from Upsells database — rate config + charge type + SDTO)",
+                "SDTO = Same Day Turnover policy (STRICT):",
+                "1. NOT ALLOWED + same-day turnover exists → AUTO-DECLINE (not available). No fee.",
+                "2. NOT ALLOWED but NO same-day turnover → quote the calculated fee like Allowed.",
+                "3. NEEDS CONFIRMATION → acknowledge + escalate to team. Do NOT quote a firm price.",
+                "4. ALLOWED (or blank/other) → quote the calculated guest fee below. Subject to availability. Do NOT approve a specific clock time unless a TEAM message already confirmed it.",
+                "Fees below already apply Upsells rate configuration (Fixed / Length of Stay / Tiered / Special) and charge type (Per Night / Per Stay / Per Week / Per Hour / Per Quantity), including PM + processing.",
                 "Use ONLY these services. Never invent add-ons or fees not listed here.",
-                "LOS / Length of Stay fees below are already calculated for THIS reservation's night count when nights are known.",
                 ...lines,
             ].join("\n"),
         };

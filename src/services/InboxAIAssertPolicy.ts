@@ -157,8 +157,8 @@ export function renderEarlyLateCheckPolicy(
     };
     return [
         "EARLY CHECK-IN / LATE CHECK-OUT HANDLING:",
-        "PRIORITY: If Available paid services lists Early/Late with an SDTO, that SDTO wins over the Settings lines below.",
-        "  NOT ALLOWED → deny. NEEDS CONFIRMATION → escalate, no firm price. ALLOWED → quote the calculated fee (subject to availability); do not approve a specific clock time unless a TEAM message already confirmed it.",
+        "PRIORITY: If Available paid services lists Early/Late with an SDTO, that SDTO (Same Day Turnover) wins over the Settings lines below.",
+        "  NOT ALLOWED + same-day turnover → auto-decline. NOT ALLOWED without same-day turnover → quote fee. NEEDS CONFIRMATION → escalate, no firm price. ALLOWED → quote the calculated fee (subject to availability); do not approve a specific clock time unless a TEAM message already confirmed it.",
         "Fallback Settings (only when Upsells SDTO is missing for that service):",
         describe("Early check-in", normalize(early)),
         describe("Late check-out", normalize(late)),

@@ -3277,7 +3277,7 @@ export class InboxAIService {
             "- LOCAL EVENTS & PROPERTY EXPERIENCE: never invent festivals, games, concerts, news, train noise, lake/beach swimability, neighborhood vibe, or on-site feel. Those require External KB / proven replies / TEAM messages. Approx drive times to well-known places are OK; property-experience claims are not.",
             "- NEVER quote a specific fee or price that does not appear in the provided context — not even a plausible-sounding one. If the amount isn't in context, say the team will confirm the exact cost. Prefer Available paid services (Upsells) for early/late/pool/parking fees.",
             "- NEVER promise to send a phone number, email address, or any personal contact info — you don't have one. Keep the conversation in this thread.",
-            "- DISCRETIONARY REQUESTS — early check-in / late check-out / pool heating / parking follow the Available paid services SDTO rules (Upsells database). NOT ALLOWED → deny. NEEDS CONFIRMATION → escalate (no firm price). ALLOWED → quote the calculated fee, subject to availability; do not approve a specific clock time unless a TEAM message already confirmed it. Extensions beyond listed nights, group-size changes, and fee waivers remain team-decided — always escalate those.",
+            "- DISCRETIONARY REQUESTS — early check-in / late check-out / pool heating / parking follow Available paid services from the Upsells page (rate configuration + charge type already baked into the guest fee). SDTO = Same Day Turnover: NOT ALLOWED + same-day turnover → auto-decline; NOT ALLOWED with no same-day turnover → quote fee; NEEDS CONFIRMATION → escalate (no firm price); ALLOWED → quote the calculated fee, subject to availability; do not approve a specific clock time unless a TEAM message already confirmed it. Extensions beyond listed nights, group-size changes, and fee waivers remain team-decided — always escalate those.",
             "- CALL SCHEDULING (hard rule for now): if the other party wants a phone call / to talk / to find a time to chat, defer to a live person. Never say you (or a named teammate) are free today/tomorrow or propose a specific slot. Acknowledge → a teammate will confirm timing → escalation_required=true.",
             "- AMENITY / GEAR FULFILLMENT (pack n play, high chair, crib, rollaway, extra towels, etc.): you may acknowledge and say the team will check what is on-site / with the owner. You must NEVER say we are already arranging it, that N units are confirmed, or that everything will be set for arrival — unless a TEAM message or [ops_confirm_ok] task in THIS thread already says so. Escalate; do not invent inventory.",
             "- BOOKING CONFIRMATION: never say the reservation/booking is confirmed, or that the guest 'has a place to go', unless Reservation status in context is clearly accepted/confirmed (not inquiry, preapproved, pending, or missing). If they are anxious about having a place and status is unclear, say the team will verify availability/status — escalation_required=true. Never invent a confirmation.",
@@ -3339,8 +3339,8 @@ export class InboxAIService {
             "- Apply it to THIS reply. Feedback tagged [this property] outranks [general] when they conflict. Preferred-wording examples show the style to emulate — do not copy them verbatim into unrelated answers, and never mention feedback to the guest.",
             "",
             "PAID SERVICES / UPSELLS (from Upsells database):",
-            "- If an 'Available paid services' section is present, those are the ONLY add-on services for this property with SDTO + calculated guest fees (including Length-of-Stay rates for this stay).",
-            "- SDTO: NOT ALLOWED → tell guest it is not available (no fee). NEEDS CONFIRMATION → acknowledge + escalate_required=true, do NOT quote a firm price. ALLOWED → quote the calculated fee, subject to availability; escalation_required=false for a simple fee quote.",
+            "- If an 'Available paid services' section is present, those are the ONLY add-on services for this property. Fees already apply Upsells rate configuration + charge type (and LOS when nights are known). SDTO = Same Day Turnover.",
+            "- SDTO: NOT ALLOWED + same-day turnover → decline (no fee). NOT ALLOWED without same-day turnover → quote the fee. NEEDS CONFIRMATION → acknowledge + escalate_required=true, do NOT quote a firm price. ALLOWED → quote the calculated fee, subject to availability; escalation_required=false for a simple fee quote.",
             "- Do not invent fees, discount fees, or approve a specific early/late clock time unless a TEAM message already confirmed it.",
             "- If the guest asks for a service NOT in that section, do NOT invent one — offer what IS documented, or say the team will confirm options (learning_question).",
             "",
@@ -4432,7 +4432,12 @@ export class InboxAIService {
     private async buildUpsellsBlock(
         groupIds: number[],
         preferredListingId?: number | null,
-        stay?: { nights?: number | null; checkin?: string | null; checkout?: string | null }
+        stay?: {
+            nights?: number | null;
+            checkin?: string | null;
+            checkout?: string | null;
+            reservationId?: number | null;
+        }
     ): Promise<{ text: string | null; facts: AssertableFact[] }> {
         const listingIds = (groupIds || []).map((n) => Number(n)).filter((n) => Number.isFinite(n));
         if (!listingIds.length) return { text: null, facts: [] };
@@ -4447,6 +4452,7 @@ export class InboxAIService {
                 nights: stay?.nights,
                 checkin: stay?.checkin,
                 checkout: stay?.checkout,
+                reservationId: stay?.reservationId,
             });
 
             // Staff fee overrides / quarantine (listing_ops_overrides) still win.
@@ -4623,6 +4629,7 @@ export class InboxAIService {
                 nights: conversation.nights != null ? Number(conversation.nights) : null,
                 checkin: conversation.checkin,
                 checkout: conversation.checkout,
+                reservationId: conversation.reservationId != null ? Number(conversation.reservationId) : null,
             });
             assertFacts.push(...ups.facts);
             if (ups.text) {

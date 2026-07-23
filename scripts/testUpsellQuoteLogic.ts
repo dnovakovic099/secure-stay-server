@@ -1,11 +1,12 @@
 /**
  * Offline unit checks for UpsellQuoteService fee + SDTO logic.
- * Run: npx ts-node scripts/testUpsellQuoteLogic.ts
+ * Run: npx ts-node --transpile-only scripts/testUpsellQuoteLogic.ts
  */
 import {
     normalizeSdto,
     nightCountFromStay,
     calculateGuestFee,
+    resolveUpsellAutoRespond,
     UpsellQuoteService,
 } from "../src/services/UpsellQuoteService";
 
@@ -32,7 +33,26 @@ assert(normalizeSdto("from HF") === "allowed", "custom text → allowed");
 assert(nightCountFromStay("2026-07-01", "2026-07-04") === 3, "3-night stay");
 assert(nightCountFromStay(null, null, 5) === 5, "nights hint");
 
-// --- Fixed Per Stay with stored guest fee (screenshot: $257.50) ---
+// --- SDTO Not Allowed only denies when same-day turnover is relevant ---
+assert(
+    resolveUpsellAutoRespond("not_allowed", true, { guestFee: 100, needsUnits: false }) === "deny",
+    "Not Allowed + SDT → deny"
+);
+assert(
+    resolveUpsellAutoRespond("not_allowed", false, { guestFee: 100, needsUnits: false }) === "quote",
+    "Not Allowed without SDT → quote"
+);
+assert(
+    resolveUpsellAutoRespond("needs_confirmation", true, { guestFee: 100, needsUnits: false }) ===
+        "escalate",
+    "Needs Confirmation → escalate"
+);
+assert(
+    resolveUpsellAutoRespond("allowed", false, { guestFee: 100, needsUnits: false }) === "quote",
+    "Allowed → quote"
+);
+
+// --- Fixed Per Stay with stored guest fee ---
 {
     const calc = calculateGuestFee(
         {
@@ -48,6 +68,40 @@ assert(nightCountFromStay(null, null, 5) === 5, "nights hint");
     );
     assert(calc.guestFee === 257.5, `fixed listed fee = 257.50 (got ${calc.guestFee})`);
     assert(!calc.needsUnits, "fixed listed fee needs no units");
+}
+
+// --- Fixed Per Night: charge type multiplies nights, then PM/processing ---
+{
+    const calc = calculateGuestFee(
+        {
+            rateConfiguration: "Fixed Rate",
+            chargeType: "Per Night",
+            actualFee: 50,
+            pmFee: 10,
+            processingFee: 0,
+            taxable: 0,
+        },
+        3
+    );
+    // actual 150 + 10% PM = 165
+    assert(calc.guestFee === 165, `fixed per night 3×50 +10% = 165 (got ${calc.guestFee})`);
+}
+
+// --- Fixed Per Week ---
+{
+    const calc = calculateGuestFee(
+        {
+            rateConfiguration: "Fixed Rate",
+            chargeType: "Per Week",
+            actualFee: 100,
+            pmFee: 0,
+            processingFee: 0,
+            taxable: 0,
+        },
+        10
+    );
+    // ceil(10/7)=2 weeks → 200
+    assert(calc.guestFee === 200, `fixed per week 10 nights = 200 (got ${calc.guestFee})`);
 }
 
 // --- Fixed Per Hour without hours: fall back to listed fee ---
@@ -87,7 +141,6 @@ assert(nightCountFromStay(null, null, 5) === 5, "nights hint");
         },
         3
     );
-    // 3 * 60 = 180 actual; with 0% PM/processing → guest 180
     assert(calc.guestFee === 180, `LOS 3 nights @60 = 180 (got ${calc.guestFee})`);
     assert(!calc.needsUnits, "LOS with nights should not need units");
 }
@@ -106,7 +159,7 @@ assert(nightCountFromStay(null, null, 5) === 5, "nights hint");
     assert(calc.guestFee == null && calc.needsUnits, "LOS without nights needs units");
 }
 
-// --- Prompt formatting respects SDTO ---
+// --- Prompt formatting respects SDTO + same-day turnover ---
 {
     const svc = new UpsellQuoteService();
     const { text } = svc.formatForPrompt([
@@ -124,6 +177,23 @@ assert(nightCountFromStay(null, null, 5) === 5, "nights hint");
             description: null,
             isEarlyCheckin: true,
             isLateCheckout: false,
+            sameDayTurnoverRelevant: true,
+        },
+        {
+            upSellId: 4,
+            title: "Early Check-In",
+            sdtoRaw: "Not Allowed",
+            sdto: "not_allowed",
+            chargeType: "Per Stay",
+            rateConfiguration: "Fixed Rate",
+            guestFee: 100,
+            unitLabel: "per stay",
+            breakdown: ["Listed guest fee $100.00."],
+            autoRespond: "quote",
+            description: null,
+            isEarlyCheckin: true,
+            isLateCheckout: false,
+            sameDayTurnoverRelevant: false,
         },
         {
             upSellId: 2,
@@ -139,6 +209,7 @@ assert(nightCountFromStay(null, null, 5) === 5, "nights hint");
             description: null,
             isEarlyCheckin: false,
             isLateCheckout: true,
+            sameDayTurnoverRelevant: true,
         },
         {
             upSellId: 3,
@@ -154,12 +225,18 @@ assert(nightCountFromStay(null, null, 5) === 5, "nights hint");
             description: null,
             isEarlyCheckin: false,
             isLateCheckout: false,
+            sameDayTurnoverRelevant: false,
         },
     ]);
-    assert(!!text && text.includes("NOT ALLOWED"), "prompt includes NOT ALLOWED");
+    assert(!!text && text.includes("AUTO-DECLINE"), "prompt includes AUTO-DECLINE for SDT deny");
+    assert(!!text && text.includes("Same Day Turnover"), "prompt explains SDTO = Same Day Turnover");
+    assert(
+        !!text && text.includes("NO same-day turnover"),
+        "prompt allows quote when Not Allowed but no SDT"
+    );
     assert(!!text && text.includes("NEEDS HUMAN CONFIRMATION"), "prompt includes needs confirmation");
-    assert(!!text && text.includes("ALLOWED — guest fee $180.00"), "prompt includes allowed quote");
-    assert(!!text && !/Pool Heating: NEEDS HUMAN/.test(text), "blank SDTO pool heating is quoteable");
+    assert(!!text && text.includes("QUOTE — guest fee $180.00"), "prompt includes quote fee");
+    assert(!!text && !/Pool Heating: NEEDS HUMAN/.test(text!), "blank SDTO pool heating is quoteable");
 }
 
 if (failed) {
