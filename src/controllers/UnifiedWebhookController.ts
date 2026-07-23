@@ -279,7 +279,8 @@ export class UnifiedWebhookController {
                             Number(requestObj.id),
                             requestObj.status,
                             user,
-                            requestObj.statusField === "gr" ? "gr" : "ir"
+                            requestObj.statusField === "gr" ? "gr" : "ir",
+                            { activitySource: "slack" }
                         );
                     } catch (error) {
                         logger.error(`Error updating issue status: ${error}`);

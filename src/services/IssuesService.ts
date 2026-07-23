@@ -41,6 +41,10 @@ import { OpenPhoneService } from "./OpenPhoneService";
 // Avoids 3 DB queries per request; invalidates automatically after 2 minutes.
 let _userDirectoryCache: { data: any[]; expiresAt: number } | null = null;
 
+type IssueStatusUpdateOptions = {
+  activitySource?: "slack" | "securestay";
+};
+
 export class IssuesService {
   private issueRepo = appDatabase.getRepository(Issue);
   private actionItemRepo = appDatabase.getRepository(ActionItems);
@@ -3605,14 +3609,27 @@ export class IssuesService {
     return await this.issueRepo.save(issue);
   }
 
-  async updateStatus(id: number, status: string, userId: string, statusField: "ir" | "gr" = "ir") {
+  private async createIssueSystemActivity(issue: Issue, updates: string, userId: string) {
+    const update = this.issueUpdatesRepo.create({
+      issue,
+      updates,
+      createdBy: userId,
+      source: "system",
+    });
+    return this.issueUpdatesRepo.save(update);
+  }
+
+  async updateStatus(id: number, status: string, userId: string, statusField: "ir" | "gr" = "ir", options: IssueStatusUpdateOptions = {}) {
     const issue = await this.issueRepo.findOne({ where: { id } });
     if (!issue) {
       throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
     }
-    if (statusField === "gr") {
-      issue.gr_status = status;
-      if (status === "Completed") {
+    const normalizedStatusField = statusField === "gr" ? "gr" : "ir";
+    const previousStatus = normalizedStatusField === "gr" ? (issue.gr_status || "New") : (issue.status || "New");
+    const nextStatus = status || "New";
+    if (normalizedStatusField === "gr") {
+      issue.gr_status = nextStatus;
+      if (nextStatus === "Completed") {
         issue.gr_completed_at = new Date();
         issue.gr_completed_by = userId;
       } else {
@@ -3620,8 +3637,8 @@ export class IssuesService {
         issue.gr_completed_by = null;
       }
     } else {
-      issue.status = status;
-      if (status === "Completed") {
+      issue.status = nextStatus;
+      if (nextStatus === "Completed") {
         issue.completed_at = new Date();
         issue.completed_by = userId;
       } else {
@@ -3630,7 +3647,18 @@ export class IssuesService {
       }
     }
     issue.updated_by = userId;
-    return await this.issueRepo.save(issue);
+    const savedIssue = await this.issueRepo.save(issue);
+
+    if (options.activitySource === "slack" && previousStatus !== nextStatus) {
+      const statusLabel = normalizedStatusField === "gr" ? "GR Status" : "IR Status";
+      await this.createIssueSystemActivity(
+        savedIssue,
+        `${statusLabel} changed from ${previousStatus} to ${nextStatus} via Slack by ${userId}.`,
+        userId
+      );
+    }
+
+    return savedIssue;
   }
 
   async generateAiSummary(issueId: number) {
