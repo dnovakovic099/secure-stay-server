@@ -26,7 +26,6 @@ jobs:
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
           port: ${{ secrets.EC2_PORT }}
-          script_stop: true
           command_timeout: 40m
           envs: REDDIT_CLIENT_ID,REDDIT_CLIENT_SECRET,REDDIT_REDIRECT_URI
           script: |
@@ -35,8 +34,12 @@ jobs:
             echo "========== Deploying secure-stay-server =========="
             cd /home/ec2-user/secure_stay/secure-stay-server || { echo "❌ Failed to change directory"; exit 1; }
 
-            echo ">>> Pulling latest code from dev-new..."
-            git pull origin dev-new || { echo "❌ Git pull origin dev-new failed"; exit 1; }
+            echo ">>> Syncing to origin/dev-new..."
+            git fetch origin dev-new || { echo "❌ Git fetch failed"; exit 1; }
+            # EC2 sometimes has leftover untracked scripts from prior smoke runs that
+            # block pull/merge when the same path later lands in the repo.
+            git clean -fd scripts/ || true
+            git reset --hard origin/dev-new || { echo "❌ Git reset to origin/dev-new failed"; exit 1; }
 
             if [ -n "$REDDIT_CLIENT_ID" ] && [ -n "$REDDIT_CLIENT_SECRET" ]; then
               echo ">>> Upserting Reddit OAuth env vars..."
