@@ -32,7 +32,7 @@ import { InboxConversationEntity } from "../entity/InboxConversation";
 import OpenAI from "openai";
 import { Employee } from "../entity/Employee";
 import updateSlackMessage from "../utils/updateSlackMsg";
-import { buildIssueUpdateMessage, formatSecureStayMarkdownForSlack } from "../utils/slackMessageBuilder";
+import { buildIssueUpdateMessage, buildResolutionsActivityMessage, formatSecureStayMarkdownForSlack } from "../utils/slackMessageBuilder";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import { uploadFileToSlack } from "../utils/uploadFileToSlack";
 import { OpenPhoneService } from "./OpenPhoneService";
@@ -1580,6 +1580,11 @@ export class IssuesService {
       throw new Error("Issue not found");
     }
 
+    const previousAssignee = issue.assignee || null;
+    const requestedAssignee = Object.prototype.hasOwnProperty.call(data, "assignee")
+      ? ((data.assignee as any) || null)
+      : previousAssignee;
+
     if (Object.prototype.hasOwnProperty.call(data, "status")) {
       if (issue.status !== "Completed" && data.status === "Completed") {
         data.completed_at = new Date();
@@ -1650,6 +1655,10 @@ export class IssuesService {
         fileRecord.originalName = file.originalName;
         await this.fileInfoRepo.save(fileRecord);
       }
+    }
+    if ((previousAssignee || null) !== (requestedAssignee || null)) {
+      this.postIssueAssigneeActivityToSlack(finalIssue, previousAssignee, requestedAssignee, userId)
+        .catch((error) => logger.error(`[IssuesService] Slack assignee activity post failed for issue ${finalIssue.id}`, error));
     }
     return finalIssue;
   }
@@ -3412,6 +3421,8 @@ export class IssuesService {
 
       // Update all issues with the provided data
       const updatePromises = existingIssues.map(async (issue) => {
+        const previousAssignee = issue.assignee || null;
+
         // Only update fields that are provided in updateData
         if (updateData.status !== undefined) {
           issue.status = updateData.status;
@@ -3533,7 +3544,12 @@ export class IssuesService {
         }
 
         issue.updated_by = userId;
-        return this.issueRepo.save(issue);
+        const savedIssue = await this.issueRepo.save(issue);
+        if (updateData.assignee !== undefined && (previousAssignee || null) !== (savedIssue.assignee || null)) {
+          this.postIssueAssigneeActivityToSlack(savedIssue, previousAssignee, savedIssue.assignee || null, userId)
+            .catch((error) => logger.error(`[IssuesService] Slack assignee activity post failed for issue ${savedIssue.id}`, error));
+        }
+        return savedIssue;
       });
 
       const updatedIssues = await Promise.all(updatePromises);
@@ -3590,9 +3606,13 @@ export class IssuesService {
     if (!issue) {
       throw CustomErrorHandler.notFound(`Issue with ID ${id} not found`);
     }
+    const previousAssignee = issue.assignee || null;
     issue.assignee = assignee || null;
     issue.updated_by = userId;
-    return await this.issueRepo.save(issue);
+    const savedIssue = await this.issueRepo.save(issue);
+    this.postIssueAssigneeActivityToSlack(savedIssue, previousAssignee, savedIssue.assignee || null, userId)
+      .catch((error) => logger.error(`[IssuesService] Slack assignee activity post failed for issue ${savedIssue.id}`, error));
+    return savedIssue;
   }
 
   async updateUrgency(id: number, urgency: number, userId: string) {
@@ -3628,6 +3648,83 @@ export class IssuesService {
       source: "system",
     });
     return this.issueUpdatesRepo.save(update);
+  }
+
+  private looksLikeInternalIdentifier(value: string) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i.test(value)
+      || /^[A-Za-z0-9_-]{20,}$/.test(value);
+  }
+
+  private async getIssueAssigneeActivityLabel(assigneeValue?: string | null) {
+    const rawValue = String(assigneeValue || "").trim();
+    if (!rawValue) return "Unassigned";
+
+    const user = await this.usersRepo.findOne({ where: { uid: rawValue } });
+    if (!user) return this.looksLikeInternalIdentifier(rawValue) ? "Unknown assignee" : rawValue;
+
+    const employee = await this.employeeRepo.findOne({
+      where: { userId: user.id, deletedAt: null as any },
+      select: ["userId", "preferredName", "slackUserId", "slackId"],
+    });
+
+    const slackMemberId = String(employee?.slackUserId || employee?.slackId || "").trim();
+    if (slackMemberId) return `<@${slackMemberId}>`;
+
+    return String(employee?.preferredName || "").trim()
+      || [user.firstName, user.lastName].map((item) => String(item || "").trim()).filter(Boolean).join(" ")
+      || user.email
+      || "Unknown assignee";
+  }
+
+  private async getIssueActorDisplayName(userId?: string | null) {
+    const rawValue = String(userId || "").trim();
+    if (!rawValue) return "SecureStay";
+
+    const user = await this.usersRepo.findOne({ where: { uid: rawValue } });
+    if (!user) return rawValue;
+
+    const employee = await this.employeeRepo.findOne({
+      where: { userId: user.id, deletedAt: null as any },
+      select: ["userId", "preferredName"],
+    });
+
+    return String(employee?.preferredName || "").trim()
+      || [user.firstName, user.lastName].map((item) => String(item || "").trim()).filter(Boolean).join(" ")
+      || user.email
+      || rawValue;
+  }
+
+  private async postIssueAssigneeActivityToSlack(
+    issue: Issue,
+    previousAssignee: string | null | undefined,
+    nextAssignee: string | null | undefined,
+    actorUserId: string
+  ) {
+    if ((previousAssignee || null) === (nextAssignee || null)) return;
+
+    const mainIssueThread = await this.getMainIssueSlackThread(Number(issue.id));
+    if (!mainIssueThread) return;
+
+    try {
+      const oldValue = await this.getIssueAssigneeActivityLabel(previousAssignee);
+      const newValue = await this.getIssueAssigneeActivityLabel(nextAssignee);
+      const actor = await this.getIssueActorDisplayName(actorUserId);
+      const notificationMentions = newValue.startsWith("<@") ? [newValue] : [];
+      const payload = buildResolutionsActivityMessage({
+        type: "assignee",
+        actor,
+        oldValue,
+        newValue,
+        notificationMentions,
+      });
+
+      await sendSlackMessage(
+        { ...payload, channel: mainIssueThread.channel },
+        mainIssueThread.threadTs || mainIssueThread.messageTs
+      );
+    } catch (error) {
+      logger.error(`[IssuesService] Slack assignee activity post failed for issue ${issue.id}`, error);
+    }
   }
 
   async updateStatus(id: number, status: string, userId: string, statusField: "ir" | "gr" = "ir", options: IssueStatusUpdateOptions = {}) {
@@ -3927,6 +4024,7 @@ export class IssuesService {
     const userDirectory = await this.buildIssueUserDirectory();
     const actor = userDirectory.find((item) => item.uid === userId);
     const actorName = actor?.name || "SecureStay";
+    const previousAssignee = issue.assignee || null;
 
     const messages: Record<string, string> = {
       assign_to_myself: `${actorName} assigned this issue to themselves.`,
@@ -3945,6 +4043,10 @@ export class IssuesService {
 
     issue.updated_by = userId;
     const updatedIssue = await this.issueRepo.save(issue);
+    if (action === "assign_to_myself" && (previousAssignee || null) !== (updatedIssue.assignee || null)) {
+      this.postIssueAssigneeActivityToSlack(updatedIssue, previousAssignee, updatedIssue.assignee || null, userId)
+        .catch((error) => logger.error(`[IssuesService] Slack assignee activity post failed for issue ${updatedIssue.id}`, error));
+    }
 
     const update = this.issueUpdatesRepo.create({
       issue: updatedIssue,

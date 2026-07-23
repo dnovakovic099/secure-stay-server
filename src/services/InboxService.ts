@@ -1092,9 +1092,19 @@ export class InboxService {
     async listConversations(options: ListOptions = {}) {
         const page = Math.max(options.page ?? 1, 1);
         const perPage = Math.min(Math.max(options.perPage ?? 30, 1), 100);
+        const latestRealMessageDirectionSubquery = `(
+            SELECT latest_message.direction
+            FROM inbox_messages latest_message
+            WHERE latest_message.threadId = c.threadId
+              AND latest_message.direction IN ('incoming', 'outgoing')
+              AND (latest_message.note IS NULL OR TRIM(latest_message.note) = '')
+            ORDER BY latest_message.sentAt DESC, latest_message.id DESC
+            LIMIT 1
+        )`;
 
         const qb = this.conversationRepo
             .createQueryBuilder("c")
+            .addSelect(latestRealMessageDirectionSubquery, "latestRealMessageDirection")
             .leftJoin(ReservationInfoEntity, "r", "r.id = c.reservationId")
             .leftJoin(Listing, "l", "l.id = c.listingId")
             // listing_info only stores a subset of listings (mostly parents);
@@ -1209,47 +1219,21 @@ export class InboxService {
             // even if the guest later sends more messages, so relying on it
             // mis-classified threads whose newest message was ours. Look at
             // the actual latest message row instead (mirrors `unresponded`).
-            const latestDirectionSubquery = `(
-                SELECT latest_message.direction
-                FROM inbox_messages latest_message
-                WHERE latest_message.threadId = c.threadId
-                  AND latest_message.direction IN ('incoming', 'outgoing')
-                  AND (latest_message.note IS NULL OR TRIM(latest_message.note) = '')
-                ORDER BY latest_message.sentAt DESC, latest_message.id DESC
-                LIMIT 1
-            )`;
             qb.andWhere(
                 new Brackets((b) => {
                     lastMessageBuckets.forEach((bucket, index) => {
                         const method = index === 0 ? "where" : "orWhere";
                         if (bucket === "guest") {
-                            b[method](`${latestDirectionSubquery} = 'incoming'`);
+                            b[method](`${latestRealMessageDirectionSubquery} = 'incoming'`);
                         } else if (bucket === "us" || bucket === "host" || bucket === "securestay") {
-                            b[method](`${latestDirectionSubquery} = 'outgoing'`);
+                            b[method](`${latestRealMessageDirectionSubquery} = 'outgoing'`);
                         }
                     });
                 })
             );
         }
         if (options.unresponded === true || String(options.unresponded || "").toLowerCase() === "true") {
-            qb.andWhere(`
-                EXISTS (
-                    SELECT 1
-                    FROM inbox_messages latest_incoming
-                    WHERE latest_incoming.threadId = c.threadId
-                      AND latest_incoming.direction = 'incoming'
-                      AND (latest_incoming.note IS NULL OR TRIM(latest_incoming.note) = '')
-                      AND latest_incoming.id = (
-                          SELECT latest_message.id
-                          FROM inbox_messages latest_message
-                          WHERE latest_message.threadId = c.threadId
-                            AND latest_message.direction IN ('incoming', 'outgoing')
-                            AND (latest_message.note IS NULL OR TRIM(latest_message.note) = '')
-                          ORDER BY latest_message.sentAt DESC, latest_message.id DESC
-                          LIMIT 1
-                      )
-                )
-            `);
+            qb.andWhere(`${latestRealMessageDirectionSubquery} = 'incoming'`);
         }
 
         const moodBuckets = parseListParam(options.mood).map((value) => value.toLowerCase());
@@ -1487,7 +1471,7 @@ export class InboxService {
             // Only recent inquiries get pinned — months-old expired inquiries
             // shouldn't sit above today's conversations forever.
             .addOrderBy(
-                `(CASE WHEN c.answered = 0
+                `(CASE WHEN ${latestRealMessageDirectionSubquery} = 'incoming'
                     AND LOWER(COALESCE(c.reservationStatus, '')) LIKE 'inquiry%'
                     AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%preapproved%'
                     AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%offer%'
@@ -1505,9 +1489,10 @@ export class InboxService {
             // inbox felt slow. hasMore makes pagination O(page size).
             .limit(perPage + 1);
 
-        const rows = await qb.getMany();
+        const { entities: rows, raw } = await qb.getRawAndEntities();
         const hasMore = rows.length > perPage;
         const conversations = hasMore ? rows.slice(0, perPage) : rows;
+        const rawRows = hasMore ? raw.slice(0, perPage) : raw;
         const listingIds = Array.from(
             new Set(
                 conversations
@@ -1572,6 +1557,11 @@ export class InboxService {
                 aiAutoRespondDisabled:
                     Number(conversation.aiAutoRespondDisabled) === 1 || guestMuted ? 1 : 0,
                 parentListingId,
+                latestRealMessageDirection:
+                    rawRows[index]?.latestRealMessageDirection === "incoming" ||
+                    rawRows[index]?.latestRealMessageDirection === "outgoing"
+                        ? rawRows[index].latestRealMessageDirection
+                        : null,
                 propertyType: this.normalizePropertyTypeValue(classificationListing),
                 serviceType: this.normalizeServiceTypeValue(classificationListing, normalizedListing),
             };

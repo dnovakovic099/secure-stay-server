@@ -2140,8 +2140,6 @@ export class ReviewService {
                     'to-be-removed': 'To be Removed',
                     removing: 'Removing',
                     removed: 'Removed',
-                    'unable to remove': 'Unable to Remove',
-                    'unable-to-remove': 'Unable to Remove',
                     'remove failed': 'Remove Failed',
                     'remove-failed': 'Remove Failed',
                     archived: 'Archived',
@@ -2530,7 +2528,7 @@ export class ReviewService {
 
 
     public async updateReviewVisibility(reviewVisibility: string, id: string, userId: string) {
-        const VALID_STATUSES = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Remove/Keep?', 'Keep', 'To be Removed', 'Removing', 'Removed', 'Unable to Remove', 'Remove Failed', 'Archived'];
+        const VALID_STATUSES = ['Awaiting Review', 'Submitted', 'Visible', 'No Review', 'Remove/Keep?', 'Keep', 'To be Removed', 'Removing', 'Removed', 'Remove Failed', 'Archived'];
         if (!VALID_STATUSES.includes(reviewVisibility)) {
             throw CustomErrorHandler.validationError(`Invalid visibility status: ${reviewVisibility}`);
         }
@@ -3771,7 +3769,6 @@ export class ReviewService {
             if (visibilityList.includes('Visible')) {
                 reviewConditions.push("(review.visibility = 'Visible')");
                 reviewConditions.push("(review.visibility = 'Keep')");
-                reviewConditions.push("(review.visibility = 'Unable to Remove')");
                 reviewConditions.push("(review.visibility IN ('Awaiting Review','No Review') AND review.rating IS NOT NULL AND review.rating > 0)");
             }
             if (visibilityList.includes('Awaiting Review')) {
@@ -3803,7 +3800,6 @@ export class ReviewService {
             if (visibilityList.includes('Visible')) {
                 checkoutVisibilityConditions.push("reviewCheckout.visibility = 'Visible'");
                 checkoutVisibilityConditions.push("reviewCheckout.visibility = 'Keep'");
-                checkoutVisibilityConditions.push("reviewCheckout.visibility = 'Unable to Remove'");
             }
             if (visibilityList.includes('Awaiting Review')) {
                 checkoutVisibilityConditions.push("reviewCheckout.visibility = 'Awaiting Review'");
