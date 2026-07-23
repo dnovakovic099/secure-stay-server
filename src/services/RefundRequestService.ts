@@ -1844,16 +1844,28 @@ export class RefundRequestService {
         }
     }
 
-    private async getPaidRcReportTargets(options: PaidRcRefundReportOptions = {}) {
-        const primaryChannel = String(options.channel || "").trim() || await this.getPaidRcReportSlackChannel();
-        const targets = primaryChannel ? [primaryChannel] : [];
-
-        if (options.includeGroupDm) {
-            const dmChannel = await this.getPaidRcReportGroupDmChannel();
-            if (dmChannel) targets.push(dmChannel);
+    private async openPaidRcReportDmChannel(userId: string): Promise<string | null> {
+        if (!process.env.SLACK_BOT_TOKEN) return null;
+        try {
+            const response = await axios.post(
+                "https://slack.com/api/conversations.open",
+                { users: userId },
+                {
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+                    },
+                }
+            );
+            if (!response.data?.ok) {
+                logger.error(`[RefundRequestService] Failed to open Paid RC report DM for ${userId}: ${response.data?.error || "unknown error"}`);
+                return null;
+            }
+            return response.data?.channel?.id || null;
+        } catch (error) {
+            logger.error(`[RefundRequestService] Error opening Paid RC report DM for ${userId}:`, error);
+            return null;
         }
-
-        return Array.from(new Set(targets));
     }
 
     private async getPaidRcRefundRequestsForReport(start: Date, end: Date) {
@@ -1980,9 +1992,22 @@ export class RefundRequestService {
     async sendWeeklyPaidRcRefundReport(now = new Date(), options: PaidRcRefundReportOptions = {}): Promise<PaidRcRefundReportResult> {
         const window = this.getPaidRcReportWindow(now);
         const reportKey = this.getPaidRcReportKey(window);
-        const targets = await this.getPaidRcReportTargets(options);
-        if (!targets.length) {
-            logger.error("[RefundRequestService] Paid RC refund report skipped because Slack channel could not be resolved.");
+
+        const explicitChannel = String(options.channel || "").trim();
+        const fallbackChannel = await this.getPaidRcReportSlackChannel();
+        const dmUserIds = explicitChannel ? [] : Array.from(new Set(this.getPaidRcReportRecipientUserIds()));
+
+        const plannedTargets: string[] = [];
+        if (explicitChannel) {
+            plannedTargets.push(explicitChannel);
+        } else {
+            plannedTargets.push(...dmUserIds.map((id) => `dm:${id}`));
+            if (fallbackChannel) plannedTargets.push(`fallback:${fallbackChannel}`);
+        }
+        if (options.includeGroupDm) plannedTargets.push("groupDm");
+
+        if (!plannedTargets.length) {
+            logger.error("[RefundRequestService] Paid RC refund report skipped because no Slack targets could be resolved.");
             return {
                 skipped: true,
                 dryRun: Boolean(options.dryRun),
@@ -1990,8 +2015,8 @@ export class RefundRequestService {
                 startLabel: window.startLabel,
                 endLabel: window.endLabel,
                 transactionCount: 0,
-                targets,
-                message: "Slack channel could not be resolved.",
+                targets: plannedTargets,
+                message: "No Slack targets could be resolved.",
                 lines: [],
             };
         }
@@ -2007,7 +2032,7 @@ export class RefundRequestService {
                     startLabel: window.startLabel,
                     endLabel: window.endLabel,
                     transactionCount: 0,
-                    targets,
+                    targets: plannedTargets,
                     message: "Report already sent for this cutoff window.",
                     lines: [],
                 };
@@ -2025,13 +2050,13 @@ export class RefundRequestService {
                 startLabel: window.startLabel,
                 endLabel: window.endLabel,
                 transactionCount: refundRequests.length,
-                targets,
+                targets: plannedTargets,
                 lines: reportLines,
             };
         }
 
         if (options.recordExternalSend) {
-            await this.markPaidRcReportSent(reportKey, window, targets, refundRequests.length, [{
+            await this.markPaidRcReportSent(reportKey, window, plannedTargets, refundRequests.length, [{
                 ok: true,
                 external: true,
                 recordedAt: new Date().toISOString(),
@@ -2044,22 +2069,73 @@ export class RefundRequestService {
                 startLabel: window.startLabel,
                 endLabel: window.endLabel,
                 transactionCount: refundRequests.length,
-                targets,
+                targets: plannedTargets,
                 message: "Recorded externally sent report.",
                 lines: reportLines,
             };
         }
 
-        const slackResponses = [];
-        for (const target of targets) {
-            const response = await sendSlackMessage(this.buildPaidRcRefundReportSlackMessage(target, window, reportLines));
+        const slackResponses: any[] = [];
+        const sentTargets: string[] = [];
+
+        if (explicitChannel) {
+            const response = await sendSlackMessage(this.buildPaidRcRefundReportSlackMessage(explicitChannel, window, reportLines));
             if (!response?.ok) {
-                throw new Error(`Paid RC refund report Slack send failed for ${target}: ${response?.error || "unknown error"}`);
+                throw new Error(`Paid RC refund report Slack send failed for ${explicitChannel}: ${response?.error || "unknown error"}`);
             }
             slackResponses.push(response);
+            sentTargets.push(explicitChannel);
+        } else {
+            let anyDmFailed = false;
+            for (const userId of dmUserIds) {
+                const dmChannel = await this.openPaidRcReportDmChannel(userId);
+                if (!dmChannel) {
+                    anyDmFailed = true;
+                    continue;
+                }
+                try {
+                    const response = await sendSlackMessage(this.buildPaidRcRefundReportSlackMessage(dmChannel, window, reportLines));
+                    if (!response?.ok) {
+                        anyDmFailed = true;
+                        logger.error(`[RefundRequestService] Paid RC refund report DM send failed for ${userId} (${dmChannel}): ${response?.error || "unknown error"}`);
+                        continue;
+                    }
+                    slackResponses.push(response);
+                    sentTargets.push(dmChannel);
+                } catch (error) {
+                    anyDmFailed = true;
+                    logger.error(`[RefundRequestService] Error sending Paid RC refund report DM to ${userId}:`, error);
+                }
+            }
+
+            if (anyDmFailed && fallbackChannel) {
+                logger.warn(`[RefundRequestService] One or more Paid RC refund report DMs failed; falling back to channel ${fallbackChannel}.`);
+                const response = await sendSlackMessage(this.buildPaidRcRefundReportSlackMessage(fallbackChannel, window, reportLines));
+                if (!response?.ok) {
+                    throw new Error(`Paid RC refund report fallback channel send failed for ${fallbackChannel}: ${response?.error || "unknown error"}`);
+                }
+                slackResponses.push(response);
+                sentTargets.push(fallbackChannel);
+            }
         }
 
-        await this.markPaidRcReportSent(reportKey, window, targets, refundRequests.length, slackResponses);
+        if (options.includeGroupDm) {
+            const groupDm = await this.getPaidRcReportGroupDmChannel();
+            if (groupDm) {
+                const response = await sendSlackMessage(this.buildPaidRcRefundReportSlackMessage(groupDm, window, reportLines));
+                if (!response?.ok) {
+                    throw new Error(`Paid RC refund report Slack send failed for group DM ${groupDm}: ${response?.error || "unknown error"}`);
+                }
+                slackResponses.push(response);
+                sentTargets.push(groupDm);
+            }
+        }
+
+        if (!sentTargets.length) {
+            throw new Error("Paid RC refund report failed to send: no DM, channel, or group DM succeeded.");
+        }
+
+        await this.markPaidRcReportSent(reportKey, window, sentTargets, refundRequests.length, slackResponses);
 
         return {
             skipped: false,
@@ -2068,7 +2144,7 @@ export class RefundRequestService {
             startLabel: window.startLabel,
             endLabel: window.endLabel,
             transactionCount: refundRequests.length,
-            targets,
+            targets: sentTargets,
             lines: reportLines,
         };
     }

@@ -66,7 +66,7 @@ export function scheduleGetReservation() {
   schedule.scheduleJob("0 14 * * *", checkForPendingRefundRequest);
 
   schedule.scheduleJob(
-    { hour: 12, minute: 20, tz: "America/New_York" },
+    { hour: 6, minute: 5, dayOfWeek: 1, tz: "America/New_York" },
     async () => {
       try {
         logger.info("Sending weekly Paid RC refund report...");
