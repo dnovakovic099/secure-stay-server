@@ -2604,6 +2604,58 @@ export class IssuesService {
         }
       }
 
+      // Pre-filter reservation_info by stayStatus so the query can use the
+      // arrivalDate / departureDate indexes. Without this the DB had to scan
+      // the entire reservation_info table (millions of rows) and hand every
+      // one to JS for timezone-aware filtering, which is the ~20s bottleneck
+      // seen on the "CI today" / "Currently staying" tabs.
+      //
+      // ±1 day slop is deliberate: the JS filter uses the property timezone's
+      // local "today" while SQL uses server UTC, so the exact match date can
+      // differ by up to ~1 day depending on the reservation's timezone. The
+      // JS pass afterward still narrows to the precise timezone-adjusted set.
+      const preFilterStayStatus = Array.isArray(stayStatus) && stayStatus.length > 0
+        ? this.normalizeStayStatusValues(stayStatus)
+        : null;
+      if (preFilterStayStatus) {
+        const now = new Date();
+        const toKey = (offsetDays: number) => {
+          const d = new Date(now);
+          d.setUTCDate(d.getUTCDate() + offsetDays);
+          return d.toISOString().slice(0, 10);
+        };
+        const yesterday = toKey(-1);
+        const today = toKey(0);
+        const tomorrow = toKey(1);
+
+        // OR together the per-status conditions so multi-value filters work
+        // (e.g. ["Ongoing", "Future"]). Each branch narrows to a small window
+        // around the relevant date.
+        const conditions: string[] = [];
+        const params: Record<string, string> = { yesterday, today, tomorrow };
+        if (preFilterStayStatus.has("checkin_today")) {
+          conditions.push("(r.arrivalDate BETWEEN :yesterday AND :tomorrow)");
+        }
+        if (preFilterStayStatus.has("checkout_today")) {
+          conditions.push("(r.departureDate BETWEEN :yesterday AND :tomorrow)");
+        }
+        if (preFilterStayStatus.has("Future")) {
+          // Future arrivals: today or later (yesterday slop for timezones).
+          conditions.push("(r.arrivalDate >= :yesterday)");
+        }
+        if (preFilterStayStatus.has("Past")) {
+          // Past stays: departure was today or earlier (tomorrow slop).
+          conditions.push("(r.departureDate <= :tomorrow)");
+        }
+        if (preFilterStayStatus.has("Ongoing")) {
+          // Ongoing = arrived on/before today AND leaves on/after today.
+          conditions.push("(r.arrivalDate <= :tomorrow AND r.departureDate >= :yesterday)");
+        }
+        if (conditions.length > 0) {
+          qb.andWhere(`(${conditions.join(" OR ")})`, params);
+        }
+      }
+
       const rows = await qb.getRawMany<{
         id: number;
         arrivalDate: any;
