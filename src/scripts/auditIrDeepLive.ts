@@ -202,7 +202,7 @@ async function main() {
                     category: s.category,
                 });
             }
-            if (region === "tpa" && pr === "other" && pr !== "unknown") {
+            if (region === "tpa" && pr === "other") {
                 wrongMarket += 1;
                 badExamples.push({
                     kind: "wrong_market_action",
