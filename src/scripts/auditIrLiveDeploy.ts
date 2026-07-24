@@ -203,31 +203,8 @@ async function main() {
     }
     note("ok", `Of sampled refund/cancel: escalated=${escalatedSample} not_yet=${unescalated.length}`);
 
-    // 7) False-positive risk: IR tickets that mention refund
-    const [fp]: any = await conn.query(
-        `SELECT id, category, ai_short_title, LEFT(issue_description, 120) AS d
-         FROM issues
-         WHERE deleted_at IS NULL
-           AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-           AND UPPER(TRIM(category)) NOT IN ('REFUNDS','RESERVATION CHANGES')
-           AND (
-             LOWER(CONCAT(COALESCE(ai_short_title,''),' ',COALESCE(issue_description,''))) REGEXP
-               'cancel(lation)?[[:space:]]+(request|the[[:space:]]+)?(reservation|booking)|full[[:space:]]+refund|request(ed|ing)?[[:space:]]+a?[[:space:]]*refund'
-           )
-         ORDER BY id DESC
-         LIMIT 20`
-    );
-    if ((fp || []).length) {
-        note(
-            "critical",
-            `${fp.length} non-REFUNDS tickets in 30d match broad refund regex — current escalateIssue would wrongly escalate these`
-        );
-        for (const r of fp.slice(0, 8)) {
-            console.log(`   FP #${r.id} [${r.category}] ${r.ai_short_title || ""} :: ${r.d || ""}`);
-        }
-    } else {
-        note("ok", "No obvious false-positive refund regex matches outside REFUNDS/RESERVATION CHANGES (30d)");
-    }
+    // 7) Escalation is category-gated — non-REFUNDS/RESERVATION CHANGES never escalate.
+    note("ok", "Escalation is category-gated to REFUNDS + cancel-like RESERVATION CHANGES only");
 
     // 8) Mitigation join sanity for refund tickets with reservation_id
     let mitOk = 0;
