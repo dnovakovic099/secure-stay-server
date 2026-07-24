@@ -177,13 +177,13 @@ export const actionItemsStatusEmoji = (status: string) => {
 export const issueStatusEmoji = (status: string) => {
     switch (String(status || "").trim().toLowerCase()) {
         case "new":
-            return "🟠";
-        case "in progress":
             return "🔵";
+        case "in progress":
+            return "🟡";
         case "scheduled":
-            return "🟣";
+            return "🟠";
         case "need help":
-            return "🔴";
+            return "🟣";
         case "completed":
             return "🟢";
         case "overdue":
