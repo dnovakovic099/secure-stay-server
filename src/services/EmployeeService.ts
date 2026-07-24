@@ -8,12 +8,15 @@ import { FileInfo } from "../entity/FileInfo";
 import { DepartmentEntity } from "../entity/Department";
 import { UserDepartmentEntity } from "../entity/UserDepartment";
 import { LeaveRequestEntity } from "../entity/LeaveRequest";
+import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { LeaveRequestStatus, PaymentType } from "../constant";
 import { Between, IsNull } from "typeorm";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import logger from "../utils/logger.utils";
 
 const WORKLOG_OT_HOURS_SLACK_CHANNEL = process.env.WORKLOG_OT_HOURS_SLACK_CHANNEL || "#worklog-ot-hours";
+const SCHEDULE_OVERRIDE_SLACK_ENTITY = "employee_schedule_override";
+const REGULAR_SCHEDULE_SLACK_ENTITY = "employee_regular_schedule";
 
 interface CreateEmployeeDto {
     userId: number;
@@ -96,6 +99,7 @@ export class EmployeeService {
     private departmentRepo = appDatabase.getRepository(DepartmentEntity);
     private userDepartmentRepo = appDatabase.getRepository(UserDepartmentEntity);
     private leaveRequestRepo = appDatabase.getRepository(LeaveRequestEntity);
+    private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
 
     private normalizeDepartmentName(name: string) {
         const trimmed = name.trim();
@@ -745,32 +749,83 @@ export class EmployeeService {
         newValue?: string | null;
         date?: string | null;
         changedBy?: number;
+        threadEntityType: string;
+        threadEntityId: number;
     }) {
         try {
-            const [employee, changedByUser] = await Promise.all([
+            const [employee, changedByUser, existingSlackThread] = await Promise.all([
                 this.employeeRepo.findOne({
                     where: { id: options.employeeId, deletedAt: IsNull() },
                     relations: ['user'],
                 }),
                 options.changedBy ? this.usersRepo.findOne({ where: { id: options.changedBy } }) : Promise.resolve(null),
+                this.slackMessageRepo.findOne({
+                    where: {
+                        entityType: options.threadEntityType,
+                        entityId: options.threadEntityId,
+                    },
+                    order: { createdAt: 'DESC' },
+                }),
             ]);
 
             const employeeName = employee?.user ? this.formatPersonName(employee.user) : `Employee #${options.employeeId}`;
             const changedByName = changedByUser ? this.formatPersonName(changedByUser) : 'SecureStay';
-            const lines = [
-                '*Employee shift/schedule adjusted*',
-                `*Employee:* ${this.escapeSlackText(employeeName)}`,
-                `*Change:* ${this.escapeSlackText(options.changeType)}`,
-                options.date ? `*Date:* ${this.escapeSlackText(options.date)}` : null,
-                `*Previous:* ${this.escapeSlackText(options.previousValue)}`,
-                `*New:* ${this.escapeSlackText(options.newValue)}`,
-                `*Updated by:* ${this.escapeSlackText(changedByName)}`,
-            ].filter(Boolean);
+            const title = `Schedule Updated: ${employeeName}`;
+            const employeeProfileUrl = `https://securestay.ai/hr/employees/${options.employeeId}`;
+            const fields = [
+                { type: 'mrkdwn', text: `*Employee:*\n<${employeeProfileUrl}|${this.escapeSlackText(employeeName)}>` },
+                { type: 'mrkdwn', text: `*Change:*\n${this.escapeSlackText(options.changeType)}` },
+                ...(options.date ? [{ type: 'mrkdwn', text: `*Date:*\n${this.escapeSlackText(options.date)}` }] : []),
+                { type: 'mrkdwn', text: `*Updated By:*\n${this.escapeSlackText(changedByName)}` },
+            ];
 
-            await sendSlackMessage({
+            const slackMessage = {
                 channel: WORKLOG_OT_HOURS_SLACK_CHANNEL,
-                text: lines.join('\n'),
-            });
+                text: title,
+                blocks: [
+                    {
+                        type: 'section',
+                        text: {
+                            type: 'mrkdwn',
+                            text: `*${this.escapeSlackText(title)}* *<${employeeProfileUrl}|View>*`,
+                        },
+                    },
+                    {
+                        type: 'section',
+                        fields,
+                    },
+                    {
+                        type: 'section',
+                        text: {
+                            type: 'mrkdwn',
+                            text: `*Previous:*\n${this.escapeSlackText(options.previousValue)}`,
+                        },
+                    },
+                    {
+                        type: 'section',
+                        text: {
+                            type: 'mrkdwn',
+                            text: `*New:*\n${this.escapeSlackText(options.newValue)}`,
+                        },
+                    },
+                ],
+            };
+            const threadTs = existingSlackThread?.threadTs || existingSlackThread?.messageTs;
+            const response = await sendSlackMessage(slackMessage, threadTs || undefined);
+
+            if (response?.ok && response.ts) {
+                const channel = response.channel || existingSlackThread?.channel || WORKLOG_OT_HOURS_SLACK_CHANNEL;
+                const rootThreadTs = threadTs || response.ts;
+                const slackRecord = this.slackMessageRepo.create({
+                    channel,
+                    messageTs: response.ts,
+                    threadTs: rootThreadTs,
+                    entityType: options.threadEntityType,
+                    entityId: options.threadEntityId,
+                    originalMessage: JSON.stringify(slackMessage),
+                });
+                await this.slackMessageRepo.save(slackRecord);
+            }
         } catch (error) {
             logger.error('[EmployeeService] Failed to send schedule adjustment Slack notification:', error);
         }
@@ -968,6 +1023,8 @@ export class EmployeeService {
                 previousValue: previousSlackSummary,
                 newValue: this.formatScheduleOverrideForSlack(saved),
                 changedBy,
+                threadEntityType: SCHEDULE_OVERRIDE_SLACK_ENTITY,
+                threadEntityId: saved.id,
             });
         }
 
@@ -1010,6 +1067,8 @@ export class EmployeeService {
             previousValue: this.formatScheduleOverrideForSlack(entry),
             newValue: null,
             changedBy,
+            threadEntityType: SCHEDULE_OVERRIDE_SLACK_ENTITY,
+            threadEntityId: entry.id,
         });
 
         return { success: true };
@@ -1114,6 +1173,8 @@ export class EmployeeService {
                 previousValue: this.formatRegularScheduleForSlack(previousSchedule),
                 newValue: this.formatRegularScheduleForSlack(nextSchedule),
                 changedBy,
+                threadEntityType: REGULAR_SCHEDULE_SLACK_ENTITY,
+                threadEntityId: id,
             });
         }
 
