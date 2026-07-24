@@ -21,7 +21,10 @@ import {
     AIMessagingSettingsService,
     normalizeEarlyLateHandling,
 } from "./AIMessagingSettingsService";
-import { collectCategoryNames, resolveDetectorInstructions } from "./AIDetectorInstructions";
+import {
+    collectCategoryNames,
+    resolveDetectorInstructions,
+} from "./AIDetectorInstructions";
 import { applyScheduleCriticalUrgency } from "./AITicketCreationHelpers";
 import { AIMessagingSettingsEntity } from "../entity/AIMessagingSettings";
 import { AILearnedFactsService } from "./AILearnedFactsService";

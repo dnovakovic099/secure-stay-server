@@ -58,6 +58,13 @@ export const DEFAULT_DETECTION_EXCLUSION_RULES = [
     "10. NO RESERVATION, NO TICKET: if the thread is not tied to a real guest reservation (pre-booking inquiry, support-only channel, orphan chat), return an empty array. Tickets require a stay context.",
 ].join("\n");
 
+export const RUNTIME_TICKET_CREATION_CLARIFICATIONS = [
+    "UNRESOLVED REQUEST CLARIFICATION:",
+    "- For reservation changes that need human approval or coordination (early check-in, late checkout, stay extension, date change, occupancy/pet changes), create a ticket unless the conversation clearly shows the request was approved, denied, completed, or the guest withdrew it.",
+    "- Do NOT treat an internal note, a Slack link, 'checking with the team', 'we will follow up', or a generic acknowledgement as resolved. Those mean the work is still pending.",
+    "- A guest-facing reply only resolves the ticket need if it gives the final decision or confirms the requested action is complete.",
+].join("\n");
+
 export const DEFAULT_DETECTION_CONFIDENCE_FLOOR = 0.6;
 
 export const DEFAULT_QUO_DETECTOR_SYSTEM_PROMPT = [
@@ -90,6 +97,7 @@ export interface EffectiveDetectorInstructions {
 export interface DetectorInstructionDefaults {
     detectorSystemPersona: string;
     detectionExclusionRules: string;
+    ticketCreationClarifications: string;
     detectionConfidenceFloor: number;
     quoDetectorSystemPrompt: string;
     betaDetectorSystemPrompt: string;
@@ -98,6 +106,7 @@ export interface DetectorInstructionDefaults {
 export const DETECTOR_INSTRUCTION_DEFAULTS: DetectorInstructionDefaults = {
     detectorSystemPersona: DEFAULT_DETECTOR_SYSTEM_PERSONA,
     detectionExclusionRules: DEFAULT_DETECTION_EXCLUSION_RULES,
+    ticketCreationClarifications: RUNTIME_TICKET_CREATION_CLARIFICATIONS,
     detectionConfidenceFloor: DEFAULT_DETECTION_CONFIDENCE_FLOOR,
     quoDetectorSystemPrompt: DEFAULT_QUO_DETECTOR_SYSTEM_PROMPT,
     betaDetectorSystemPrompt: DEFAULT_BETA_DETECTOR_SYSTEM_PROMPT,
@@ -191,8 +200,11 @@ export const resolveDetectorInstructions = (
     settings: Partial<AIMessagingSettingsEntity> | null | undefined
 ): EffectiveDetectorInstructions => {
     const persona = (settings?.detectorSystemPersona || "").trim() || DEFAULT_DETECTOR_SYSTEM_PERSONA;
-    const exclusionRules =
+    const configuredExclusionRules =
         (settings?.detectionExclusionRules || "").trim() || DEFAULT_DETECTION_EXCLUSION_RULES;
+    const exclusionRules = configuredExclusionRules.includes("UNRESOLVED REQUEST CLARIFICATION")
+        ? configuredExclusionRules
+        : [configuredExclusionRules, RUNTIME_TICKET_CREATION_CLARIFICATIONS].join("\n\n");
     const rawFloor = settings?.detectionConfidenceFloor;
     const floor =
         rawFloor === null || rawFloor === undefined || rawFloor === (undefined as any)
