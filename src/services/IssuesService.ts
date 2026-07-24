@@ -2813,6 +2813,7 @@ export class IssuesService {
         id: "DESC",
       },
     });
+    await this.enrichHostifyReservationIds(issues);
 
     // Batch-load issueUpdates for the current page in one query instead of the ORM eager join.
     const pageIssueIdsForUpdates = issues.map((issue) => issue.id);
@@ -2845,7 +2846,7 @@ export class IssuesService {
     // Batch-load all reservations for the current page in one query (avoids N+1).
     const reservationIdsToLoad = Array.from(new Set(
       issues
-        .map((i) => i.reservation_id)
+        .map((i) => (i as any).hostifyReservationId || i.reservation_id)
         .filter((rid): rid is string => Boolean(rid) && rid !== "NA" && !Number.isNaN(Number(rid)))
         .map(Number)
     ));
@@ -2858,9 +2859,10 @@ export class IssuesService {
     }
     for (const issue of issues) {
       const issueWithInfo = issue as Issue & { reservationInfo?: any };
+      const canonicalReservationId = String((issue as any).hostifyReservationId || issue.reservation_id || "");
       issueWithInfo.reservationInfo =
-        issue.reservation_id && issue.reservation_id !== "NA"
-          ? (reservationMap.get(Number(issue.reservation_id)) ?? null)
+        canonicalReservationId && canonicalReservationId !== "NA"
+          ? (reservationMap.get(Number(canonicalReservationId)) ?? null)
           : null;
     }
 

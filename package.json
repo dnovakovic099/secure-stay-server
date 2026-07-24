@@ -15,6 +15,7 @@
     "migrate": "npx ts-node-dev src/runMigrations.ts",
     "migrate:prod": "NODE_ENV=production node dist/out-tsc/runMigrations.js",
     "backfill:slack-thread-replies": "npx ts-node-dev src/scripts/backfillSlackThreadReplies.ts",
+    "backfill:issue-reservations": "npx ts-node src/scripts/backfillIssueReservationIds.ts",
     "refund:paid-rc-report": "NODE_ENV=development npx ts-node src/scripts/sendPaidRcRefundReport.ts",
     "refund:paid-rc-report:prod": "NODE_ENV=production node dist/out-tsc/scripts/sendPaidRcRefundReport.js"
   },
