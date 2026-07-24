@@ -374,7 +374,16 @@ export class InboxV2Controller {
             if (!question) {
                 return response.status(400).json({ status: false, message: "Question is required" });
             }
-            const data = await new InboxAIService().askInternal(threadId, question);
+            const history = Array.isArray(request.body?.history)
+                ? request.body.history
+                    .map((item: any) => ({
+                        role: item?.role === "assistant" ? "assistant" : "user",
+                        content: typeof item?.content === "string" ? item.content.trim() : "",
+                    }))
+                    .filter((item: { content: string }) => item.content)
+                    .slice(-12)
+                : [];
+            const data = await new InboxAIService().askInternal(threadId, question, history);
             return response.status(200).json({ status: true, data });
         } catch (error) {
             return next(error);

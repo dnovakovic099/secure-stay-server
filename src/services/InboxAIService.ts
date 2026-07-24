@@ -394,7 +394,11 @@ export class InboxAIService {
      * knowledge assembly as AI suggestions, but it never creates or persists a
      * guest-facing draft and never sends anything.
      */
-    async askInternal(threadId: number, question: string): Promise<{ answer: string }> {
+    async askInternal(
+        threadId: number,
+        question: string,
+        history: Array<{ role: "user" | "assistant"; content: string }> = []
+    ): Promise<{ answer: string }> {
         const trimmedQuestion = String(question || "").trim();
         if (!trimmedQuestion) throw new Error("Question is required");
 
@@ -408,6 +412,14 @@ export class InboxAIService {
         const inbound = messages.filter((m) => m.direction === "incoming");
         const targetMessage = inbound.length ? inbound[inbound.length - 1] : null;
         const context = await this.buildContext(conversation, messages, targetMessage, {});
+        const recentAskAiHistory = history
+            .slice(-12)
+            .map((item) => {
+                const role = item.role === "assistant" ? "Assistant" : "Staff";
+                return `${role}: ${String(item.content || "").trim()}`;
+            })
+            .filter(Boolean)
+            .join("\n\n");
 
         const completion = await this.getClient().chat.completions.create({
             model: INBOX_AI_MODEL,
@@ -424,7 +436,14 @@ export class InboxAIService {
                 },
                 {
                     role: "user",
-                    content: `${context}\n\n## Staff question\n${trimmedQuestion}\n\nAnswer for SecureStay staff only.`,
+                    content: [
+                        context,
+                        recentAskAiHistory ? `## Prior Ask AI conversation\n${recentAskAiHistory}` : null,
+                        `## Staff question\n${trimmedQuestion}`,
+                        "Answer for SecureStay staff only.",
+                    ]
+                        .filter(Boolean)
+                        .join("\n\n"),
                 },
             ],
         });

@@ -248,6 +248,9 @@ const buildLocalTodayDateFilter = (dateColumn: string, timeZoneColumn: string, p
     return { condition: `(${clauses.join(" OR ")})`, params };
 };
 
+const easternDateExpression = (dateExpression: string) =>
+    `DATE(COALESCE(CONVERT_TZ(${dateExpression}, '+00:00', 'America/New_York'), ${dateExpression}))`;
+
 export class InboxService {
     /** 5-minute cache for the filter dropdown options (see getFilterOptions). */
     private static filterOptionsCache: { at: number; channels: string[]; repliedByUsers: string[] } | null = null;
@@ -1101,10 +1104,20 @@ export class InboxService {
             ORDER BY latest_message.sentAt DESC, latest_message.id DESC
             LIMIT 1
         )`;
+        const latestRealMessageAtSubquery = `(
+            SELECT latest_message.sentAt
+            FROM inbox_messages latest_message
+            WHERE latest_message.threadId = c.threadId
+              AND latest_message.direction IN ('incoming', 'outgoing')
+              AND (latest_message.note IS NULL OR TRIM(latest_message.note) = '')
+            ORDER BY latest_message.sentAt DESC, latest_message.id DESC
+            LIMIT 1
+        )`;
 
         const qb = this.conversationRepo
             .createQueryBuilder("c")
             .addSelect(latestRealMessageDirectionSubquery, "latestRealMessageDirection")
+            .addSelect(latestRealMessageAtSubquery, "latestRealMessageAt")
             .leftJoin(ReservationInfoEntity, "r", "r.id = c.reservationId")
             .leftJoin(Listing, "l", "l.id = c.listingId")
             // listing_info only stores a subset of listings (mostly parents);
@@ -1196,7 +1209,7 @@ export class InboxService {
                     break;
                 case "updated":
                 default:
-                    applyDateWindow("DATE(c.lastMessageAt)", "dateFromUpdated", "dateToUpdated");
+                    applyDateWindow(easternDateExpression(latestRealMessageAtSubquery), "dateFromUpdated", "dateToUpdated");
                     break;
             }
         }

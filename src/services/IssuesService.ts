@@ -29,6 +29,7 @@ import axios from "axios";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { AIDetectedItemEntity } from "../entity/AIDetectedItem";
 import { InboxConversationEntity } from "../entity/InboxConversation";
+import { InboxMessageEntity } from "../entity/InboxMessage";
 import OpenAI from "openai";
 import { Employee } from "../entity/Employee";
 import updateSlackMessage from "../utils/updateSlackMsg";
@@ -1515,6 +1516,8 @@ export class IssuesService {
 
     const detectedIdByIssue = new Map<number, number>();
     const reservationIdByIssue = new Map<number, number>();
+    const noteThreadIdByIssue = new Map<number, number>();
+    const inboxMessageExternalIdByIssue = new Map<number, number>();
     for (const issue of issues) {
       const ref = String((issue as any).aiSourceRef || "");
       if (ref.startsWith("ai_detected_items:")) {
@@ -1524,6 +1527,15 @@ export class IssuesService {
       const reservationId = Number((issue as any).reservation_id);
       if (Number.isFinite(reservationId) && reservationId > 0) {
         reservationIdByIssue.set(issue.id, reservationId);
+      }
+      const ownerNotes = String((issue as any).owner_notes || "");
+      const noteThreadId = Number(ownerNotes.match(/Inbox V2 thread ID:\s*(\d+)/i)?.[1]);
+      if (Number.isFinite(noteThreadId) && noteThreadId > 0) {
+        noteThreadIdByIssue.set(issue.id, noteThreadId);
+      }
+      const noteMessageId = Number(ownerNotes.match(/Created from Inbox V2 message\s+(\d+)/i)?.[1]);
+      if (Number.isFinite(noteMessageId) && noteMessageId > 0) {
+        inboxMessageExternalIdByIssue.set(issue.id, noteMessageId);
       }
     }
 
@@ -1543,6 +1555,34 @@ export class IssuesService {
         const detectedId = detectedIdByIssue.get(issue.id);
         const threadId = detectedId != null ? threadIdByDetected.get(detectedId) : null;
         if (threadId != null) threadIdByIssue.set(issue.id, threadId);
+      }
+    }
+
+    for (const [issueId, threadId] of noteThreadIdByIssue) {
+      if (!threadIdByIssue.has(issueId)) {
+        threadIdByIssue.set(issueId, threadId);
+      }
+    }
+
+    if (inboxMessageExternalIdByIssue.size) {
+      const messageExternalIds = Array.from(new Set(inboxMessageExternalIdByIssue.values()));
+      const inboxMessages = await appDatabase
+        .getRepository(InboxMessageEntity)
+        .find({ where: { externalId: In(messageExternalIds) } })
+        .catch(() => [] as InboxMessageEntity[]);
+      const threadIdByExternalMessageId = new Map<number, number>();
+      for (const message of inboxMessages) {
+        const externalId = Number(message.externalId);
+        const threadId = Number(message.threadId);
+        if (Number.isFinite(externalId) && Number.isFinite(threadId)) {
+          threadIdByExternalMessageId.set(externalId, threadId);
+        }
+      }
+      for (const [issueId, externalMessageId] of inboxMessageExternalIdByIssue) {
+        const threadId = threadIdByExternalMessageId.get(externalMessageId);
+        if (threadId != null && !threadIdByIssue.has(issueId)) {
+          threadIdByIssue.set(issueId, threadId);
+        }
       }
     }
 
@@ -1570,16 +1610,18 @@ export class IssuesService {
       }
     }
 
+    const resolvedThreadIdByIssue = new Map<number, number>();
     for (const issue of issues) {
       const reservationId = reservationIdByIssue.get(issue.id);
       const fallbackThreadId = reservationId != null ? threadIdByReservation.get(reservationId) : null;
       const threadId = threadIdByIssue.get(issue.id) ?? fallbackThreadId;
       if (threadId != null) {
         (issue as any).inboxThreadId = threadId;
+        resolvedThreadIdByIssue.set(issue.id, threadId);
       }
     }
 
-    const threadIds = Array.from(new Set(Array.from(threadIdByIssue.values())));
+    const threadIds = Array.from(new Set(Array.from(resolvedThreadIdByIssue.values())));
     if (!threadIds.length) return;
 
     const conversations = await appDatabase
@@ -1595,7 +1637,7 @@ export class IssuesService {
     }
 
     for (const issue of issues) {
-      const threadId = threadIdByIssue.get(issue.id);
+      const threadId = resolvedThreadIdByIssue.get(issue.id);
       if (threadId == null) continue;
       const currentResId = reservationIdByThread.get(threadId);
       if (currentResId != null) {
@@ -2050,12 +2092,94 @@ export class IssuesService {
     }
   }
 
-  public async getIssuesByReservationId(reservationId: string) {
-    const issues = await this.issueRepo.find({
-      where: {
-        reservation_id: reservationId,
-      },
+  private async findIssuesForReservationIdsIncludingInboxSource(reservationIds: string[]) {
+    const requestedIds = Array.from(
+      new Set(reservationIds.map((id) => String(id || "").trim()).filter((id) => id && id !== "NA"))
+    );
+    if (!requestedIds.length) {
+      return { issues: [] as Issue[], issueReservationKeys: new Map<number, Set<string>>() };
+    }
+
+    const issueReservationKeys = new Map<number, Set<string>>();
+    const addIssueKey = (issueId: number, reservationKey: string) => {
+      if (!issueReservationKeys.has(issueId)) issueReservationKeys.set(issueId, new Set<string>());
+      issueReservationKeys.get(issueId)!.add(reservationKey);
+    };
+
+    const directIssues = await this.issueRepo.find({
+      where: { reservation_id: In(requestedIds) },
     });
+    for (const issue of directIssues) {
+      if (issue.reservation_id) addIssueKey(issue.id, String(issue.reservation_id));
+    }
+
+    const numericReservationIds = requestedIds
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    let sourceIssues: Issue[] = [];
+    if (numericReservationIds.length) {
+      const conversations = await appDatabase
+        .getRepository(InboxConversationEntity)
+        .find({ where: { reservationId: In(numericReservationIds) } })
+        .catch(() => [] as InboxConversationEntity[]);
+      const threadIds = Array.from(
+        new Set(conversations.map((conversation) => Number(conversation.threadId)).filter((id) => Number.isFinite(id)))
+      );
+      const reservationIdByThread = new Map<number, string>();
+      for (const conversation of conversations) {
+        if (conversation.reservationId != null) {
+          reservationIdByThread.set(Number(conversation.threadId), String(conversation.reservationId));
+        }
+      }
+
+      const detectedWhere: any[] = [{ reservationId: In(numericReservationIds) }];
+      if (threadIds.length) detectedWhere.push({ threadId: In(threadIds) });
+      const detectedItems = await appDatabase
+        .getRepository(AIDetectedItemEntity)
+        .find({ where: detectedWhere })
+        .catch(() => [] as AIDetectedItemEntity[]);
+
+      const sourceRefs = Array.from(new Set(detectedItems.map((item) => `ai_detected_items:${item.id}`)));
+      if (sourceRefs.length) {
+        sourceIssues = await this.issueRepo.find({ where: { aiSourceRef: In(sourceRefs) } });
+      }
+
+      const detectedById = new Map(detectedItems.map((item) => [item.id, item]));
+      for (const issue of sourceIssues) {
+        const ref = String((issue as any).aiSourceRef || "");
+        const detectedId = ref.startsWith("ai_detected_items:") ? Number(ref.split(":")[1]) : null;
+        if (!detectedId || !Number.isFinite(detectedId)) continue;
+        const detectedItem = detectedById.get(detectedId);
+        const reservationKey =
+          detectedItem?.threadId != null
+            ? reservationIdByThread.get(Number(detectedItem.threadId)) || String(detectedItem.reservationId || "")
+            : String(detectedItem?.reservationId || "");
+        if (reservationKey && requestedIds.includes(reservationKey)) {
+          addIssueKey(issue.id, reservationKey);
+        }
+      }
+    }
+
+    const issuesById = new Map<number, Issue>();
+    for (const issue of [...directIssues, ...sourceIssues]) {
+      issuesById.set(issue.id, issue);
+    }
+
+    const issues = Array.from(issuesById.values());
+    await this.enrichHostifyReservationIds(issues);
+    for (const issue of issues) {
+      const canonicalReservationId = String((issue as any).hostifyReservationId || "");
+      if (canonicalReservationId && requestedIds.includes(canonicalReservationId)) {
+        addIssueKey(issue.id, canonicalReservationId);
+      }
+    }
+
+    return { issues, issueReservationKeys };
+  }
+
+  public async getIssuesByReservationId(reservationId: string) {
+    const { issues } = await this.findIssuesForReservationIdsIncludingInboxSource([reservationId]);
 
     const listingIds = Array.from(new Set(issues.map((issue) => Number(issue.listing_id)).filter(Boolean)));
     const listings = listingIds.length
@@ -2092,9 +2216,7 @@ export class IssuesService {
   public async getIssuesByReservationIds(reservationIds: string[]): Promise<Record<string, any[]>> {
     if (reservationIds.length === 0) return {};
 
-    const issues = await this.issueRepo.find({
-      where: { reservation_id: In(reservationIds) },
-    });
+    const { issues, issueReservationKeys } = await this.findIssuesForReservationIdsIncludingInboxSource(reservationIds);
 
     const listingIds = Array.from(new Set(issues.map((issue) => Number(issue.listing_id)).filter(Boolean)));
     const listings = listingIds.length
@@ -2109,13 +2231,12 @@ export class IssuesService {
 
     const grouped: Record<string, any[]> = Object.fromEntries(reservationIds.map((id) => [id, []]));
     for (const issue of issues) {
-      const key = issue.reservation_id;
-      if (!key || !grouped[key]) continue;
+      const keys = issueReservationKeys.get(issue.id) || new Set([String((issue as any).hostifyReservationId || issue.reservation_id || "")]);
       const listing = listingMap.get(Number(issue.listing_id));
       const creatorEmail = String(issue.creator || "").trim().toLowerCase();
       const createdByUser = userMap.get(issue.created_by) || (creatorEmail ? userEmailMap.get(creatorEmail) : undefined);
       const creatorName = createdByUser?.name || issue.creator || issue.created_by || null;
-      grouped[key].push({
+      const hydratedIssue = {
         ...issue,
         creator: creatorName,
         created_by: createdByUser?.name || issue.created_by,
@@ -2123,7 +2244,11 @@ export class IssuesService {
         creatorName,
         propertyTypeTag: this.extractPropertyTypeTag(listing?.tags),
         serviceTypeTag: this.extractServiceTypeTag(listing?.tags),
-      });
+      };
+      for (const key of keys) {
+        if (!key || !grouped[key]) continue;
+        grouped[key].push(hydratedIssue);
+      }
     }
     return grouped;
   }
@@ -2376,6 +2501,9 @@ export class IssuesService {
       assignee,
       vendor,
       urgency,
+      quickCritical,
+      quickScheduledToday,
+      quickScheduledDate,
       activityType,
       activityUser,
       activityFromDate,
@@ -2533,6 +2661,23 @@ export class IssuesService {
       : urgency
       ? [Number(urgency)].filter((value: number) => Number.isFinite(value))
       : [];
+    const quickCriticalActive = quickCritical === true || quickCritical === "true";
+    const quickScheduledTodayActive = quickScheduledToday === true || quickScheduledToday === "true";
+    const quickScheduledDateKey = String(quickScheduledDate || format(new Date(), "yyyy-MM-dd")).slice(0, 10);
+    const effectiveIssueStatus = quickScheduledTodayActive
+      ? (Array.isArray(issueStatus) && issueStatus.length > 0
+          ? issueStatus.filter((value: any) => String(value) === "Scheduled")
+          : ["Scheduled"])
+      : issueStatus;
+    if (quickScheduledTodayActive && Array.isArray(effectiveIssueStatus) && effectiveIssueStatus.length === 0) {
+      return { issues: [], total: 0 };
+    }
+    const effectiveUrgency = quickCriticalActive
+      ? (normalizedUrgency.length > 0 ? normalizedUrgency.filter((value) => Number(value) === 5) : [5])
+      : normalizedUrgency;
+    if (quickCriticalActive && effectiveUrgency.length === 0) {
+      return { issues: [], total: 0 };
+    }
     const normalizedActivityUsers = Array.isArray(activityUser)
       ? activityUser.map((value: any) => String(value || "").trim()).filter(Boolean)
       : activityUser
@@ -2638,8 +2783,8 @@ export class IssuesService {
         ...(category && category.length > 0 && { category: In(category) }),
         ...(listingIds &&
           listingIds.length > 0 && { listing_id: In(listingIds) }),
-        ...(issueStatus &&
-          issueStatus.length > 0 && { status: In(issueStatus) }),
+        ...(effectiveIssueStatus &&
+          effectiveIssueStatus.length > 0 && { status: In(effectiveIssueStatus) }),
         ...(grIssueStatus &&
           grIssueStatus.length > 0 && { gr_status: In(grIssueStatus) }),
         ...(dateColumn && dateColumnFilter && { [dateColumn]: dateColumnFilter }),
@@ -2653,7 +2798,10 @@ export class IssuesService {
         ...(channel && channel.length > 0 && { channel: In(channel) }),
         ...(normalizedAssignee.length > 0 && { assignee: In(normalizedAssignee) }),
         ...(normalizedVendor.length > 0 && { final_contractor_name: In(normalizedVendor) }),
-        ...(normalizedUrgency.length > 0 && { urgency: In(normalizedUrgency) }),
+        ...(effectiveUrgency.length > 0 && { urgency: In(effectiveUrgency) }),
+        ...(quickScheduledTodayActive && {
+          due_date: Raw((alias) => `DATE(${alias}) = :quickScheduledDate`, { quickScheduledDate: quickScheduledDateKey }),
+        }),
         ...(eventActivityType === "completed" && { completed_at: Not(IsNull()) }),
         ...(eventActivityType === "gr_completed" && { gr_completed_at: Not(IsNull()) }),
         ...(issueResolution && { ai_resolution_status: issueResolution }),
@@ -2739,6 +2887,12 @@ export class IssuesService {
     const transformedIssues = issues.map((issue) => {
       const listing = listingMap.get(Number(issue.listing_id));
       const reservationInfo = (issue as any).reservationInfo;
+      const resolvedListingName =
+        String(issue.listing_name || "").trim() ||
+        String(listing?.internalListingName || "").trim() ||
+        String(reservationInfo?.listingName || "").trim() ||
+        String(listing?.name || "").trim() ||
+        String(listing?.externalListingName || "").trim();
       const parsedChecklist = (() => {
         try {
           return issue.ai_checklist ? JSON.parse(issue.ai_checklist) : [];
@@ -2748,6 +2902,8 @@ export class IssuesService {
       })();
       return {
         ...issue,
+        listing_name: resolvedListingName,
+        listingName: resolvedListingName,
         created_by_uid: issue.created_by,
         updated_by_uid: issue.updated_by,
         completed_by_uid: issue.completed_by,

@@ -96,6 +96,7 @@ export const validateGetResolutions = (request: Request, response: Response, nex
         dateType: Joi.string().required().valid('claimDate', 'arrivalDate', 'departureDate', 'createdAt').optional(),
         propertyType: Joi.array().items(Joi.string().required()).min(1).optional(),
         keyword: Joi.string().optional(),
+        searchField: Joi.string().optional(),
     });
     const { error } = schema.validate(request.query);
     if (error) {

@@ -400,6 +400,7 @@ export class ExpenseService {
             type,
             excludeCategories,
             excludeContractorName,
+            searchField,
             sort
         } = request.query;
         const page = Number(request.query.page) || 1;
@@ -473,6 +474,118 @@ export class ExpenseService {
             return acc;
         }, {} as Record<string, "ASC" | "DESC">);
         const keywordText = String(keyword || "").trim();
+        const keywordParam = `%${keywordText}%`;
+        const searchFieldText = String(searchField || "all").trim();
+        const normalizedSearchField = searchFieldText || "all";
+        const searchableExpenseColumns: Record<string, string[]> = {
+            contractorNumber: ["expense.contractorNumber"],
+            contractorName: ["expense.contractorName"],
+            paymentMethod: ["expense.paymentMethod"],
+            paymentDetails: ["expense.paymentDetails"],
+            description: ["expense.concept"],
+            findings: ["expense.findings"],
+            status: ["expense.status"],
+            dateAdded: ["expense.expenseDate"],
+            dateOfWork: ["expense.dateOfWork"],
+            datePaid: ["expense.datePaid"],
+            createdBy: ["expense.createdBy"],
+            updatedBy: ["expense.updatedBy"],
+            attachments: ["expense.fileNames"],
+        };
+        const allSearchableExpenseColumns = Object.values(searchableExpenseColumns).flat();
+        const shouldSearchProperty = keywordText && (normalizedSearchField === "all" || normalizedSearchField === "property");
+        const shouldSearchCategory = keywordText && (normalizedSearchField === "all" || normalizedSearchField === "category");
+        const keywordListingIds = shouldSearchProperty
+            ? (await this.listingRepository
+                .createQueryBuilder("listing")
+                .select("listing.id", "id")
+                .where("listing.internalListingName LIKE :keyword", { keyword: keywordParam })
+                .orWhere("listing.name LIKE :keyword", { keyword: keywordParam })
+                .orWhere("listing.address LIKE :keyword", { keyword: keywordParam })
+                .orWhere("listing.externalListingName LIKE :keyword", { keyword: keywordParam })
+                .withDeleted()
+                .getRawMany())
+                .map((row: any) => Number(row.id))
+                .filter((id) => Number.isFinite(id))
+            : [];
+        const keywordCategoryIds = shouldSearchCategory
+            ? (await this.categoryRepo
+                .createQueryBuilder("category")
+                .select("category.id", "id")
+                .where("category.categoryName LIKE :keyword", { keyword: keywordParam })
+                .getRawMany())
+                .map((row: any) => Number(row.id))
+                .filter((id) => Number.isFinite(id))
+            : [];
+
+        const applyKeywordSearch = (qb: ReturnType<typeof this.expenseRepo.createQueryBuilder>) => {
+            if (!keywordText) return qb;
+
+            qb.andWhere(new Brackets((keywordQb) => {
+                const fieldsToSearch = normalizedSearchField === "all"
+                    ? allSearchableExpenseColumns
+                    : searchableExpenseColumns[normalizedSearchField] || [];
+                let hasCondition = false;
+
+                fieldsToSearch.forEach((column) => {
+                    const expression = column === "expense.amount" ? `CAST(${column} AS CHAR)` : column;
+                    if (!hasCondition) {
+                        keywordQb.where(`${expression} LIKE :keyword`, { keyword: keywordParam });
+                        hasCondition = true;
+                    } else {
+                        keywordQb.orWhere(`${expression} LIKE :keyword`, { keyword: keywordParam });
+                    }
+                });
+
+                if (normalizedSearchField === "all" || normalizedSearchField === "amount") {
+                    if (!hasCondition) {
+                        keywordQb.where("CAST(expense.amount AS CHAR) LIKE :keyword", { keyword: keywordParam });
+                        hasCondition = true;
+                    } else {
+                        keywordQb.orWhere("CAST(expense.amount AS CHAR) LIKE :keyword", { keyword: keywordParam });
+                    }
+                }
+
+                if (shouldSearchProperty) {
+                    const condition = keywordListingIds.length
+                        ? "expense.listingMapId IN (:...keywordListingIds)"
+                        : normalizedSearchField === "property"
+                            ? "1 = 0"
+                            : "";
+                    if (condition) {
+                        if (!hasCondition) {
+                            keywordQb.where(condition, { keywordListingIds });
+                            hasCondition = true;
+                        } else {
+                            keywordQb.orWhere(condition, { keywordListingIds });
+                        }
+                    }
+                }
+
+                if (shouldSearchCategory) {
+                    const condition = keywordCategoryIds.length
+                        ? "expense.categories REGEXP :keywordCategoriesRegex"
+                        : normalizedSearchField === "category"
+                            ? "1 = 0"
+                            : "";
+                    if (condition) {
+                        const params = keywordCategoryIds.length
+                            ? { keywordCategoriesRegex: `(^|[^0-9])(${keywordCategoryIds.join("|")})([^0-9]|$)` }
+                            : {};
+                        if (!hasCondition) {
+                            keywordQb.where(condition, params);
+                            hasCondition = true;
+                        } else {
+                            keywordQb.orWhere(condition, params);
+                        }
+                    }
+                }
+
+                if (!hasCondition) keywordQb.where("1 = 0");
+            }));
+
+            return qb;
+        };
 
         const applyExpenseFilters = (qb: ReturnType<typeof this.expenseRepo.createQueryBuilder>) => {
             if (fromDate && toDate) {
@@ -564,15 +677,7 @@ export class ExpenseService {
             if (type && type == "expense") qb.andWhere('expense.amount < 0');
             if (request.hostname !== "securestay.ai") qb.andWhere('expense.llCover = 0');
 
-            if (keywordText) {
-                qb.andWhere(new Brackets((keywordQb) => {
-                    keywordQb
-                        .where('expense.contractorNumber LIKE :keyword', { keyword: `%${keywordText}%` })
-                        .orWhere('expense.contractorName LIKE :keyword', { keyword: `%${keywordText}%` })
-                        .orWhere('expense.paymentMethod LIKE :keyword', { keyword: `%${keywordText}%` })
-                        .orWhere('expense.concept LIKE :keyword', { keyword: `%${keywordText}%` });
-                }));
-            }
+            applyKeywordSearch(qb);
 
             return qb;
         };
@@ -802,15 +907,7 @@ export class ExpenseService {
             qb.andWhere('expense.isRecurring = :isRecurring', { isRecurring: Number(isRecurring) });
         }
 
-        if (keywordText) {
-            qb.andWhere(new Brackets((keywordQb) => {
-                keywordQb
-                    .where('expense.contractorNumber LIKE :keyword', { keyword: `%${keywordText}%` })
-                    .orWhere('expense.contractorName LIKE :keyword', { keyword: `%${keywordText}%` })
-                    .orWhere('expense.paymentMethod LIKE :keyword', { keyword: `%${keywordText}%` })
-                    .orWhere('expense.concept LIKE :keyword', { keyword: `%${keywordText}%` });
-            }));
-        }
+        applyKeywordSearch(qb);
 
         const { totalExpense } = await qb.getRawOne();
 
@@ -2280,7 +2377,7 @@ export class ExpenseService {
                 newExpense.findings = "";
                 newExpense.userId = "system";
                 newExpense.fileNames = "";
-                newExpense.status = ExpenseStatus.APPROVED;
+                newExpense.status = ExpenseStatus.NA;
                 newExpense.createdBy = "system";
                 newExpense.datePaid = todayStr;
                 newExpense.paymentMethod = "";

@@ -1,4 +1,4 @@
-import { Between, ILike, In } from "typeorm";
+import { Between, ILike, In, Raw } from "typeorm";
 import { Resolution } from "../entity/Resolution";
 import { appDatabase } from "../utils/database.util";
 import CustomErrorHandler from "../middleware/customError.middleware";
@@ -430,7 +430,7 @@ export class ResolutionService {
     }
 
     async getResolutions(filters: any) {
-        const { listingId, reservationId, category, dateType, fromDate, toDate, page, limit, keyword, propertyType, sort } = filters;
+        const { listingId, reservationId, category, dateType, fromDate, toDate, page, limit, keyword, searchField, propertyType, sort } = filters;
 
         let listingIds = [];
         const listingService = new ListingService();
@@ -448,12 +448,62 @@ export class ResolutionService {
             ...(dateType && { [`${dateType}`]: Between(String(fromDate), String(toDate)) }),
         }
 
-        const where = keyword
-        ? [
-            { ...baseWhere, guestName: ILike(`%${keyword}%`) },
-            { ...baseWhere, category: ILike(`%${keyword}%`) },
-        ]
-        : baseWhere;
+        const keywordText = String(keyword || "").trim();
+        const searchFieldText = String(searchField || "all").trim() || "all";
+        const keywordListingIds = keywordText && (searchFieldText === "all" || searchFieldText === "property")
+            ? (await this.listingInfoRepository
+                .createQueryBuilder("listing")
+                .select("listing.id", "id")
+                .where("listing.internalListingName LIKE :keyword", { keyword: `%${keywordText}%` })
+                .orWhere("listing.name LIKE :keyword", { keyword: `%${keywordText}%` })
+                .orWhere("listing.address LIKE :keyword", { keyword: `%${keywordText}%` })
+                .orWhere("listing.externalListingName LIKE :keyword", { keyword: `%${keywordText}%` })
+                .withDeleted()
+                .getRawMany())
+                .map((row: any) => Number(row.id))
+                .filter((id) => Number.isFinite(id))
+            : [];
+
+        const resolutionSearchWhere = () => {
+            if (!keywordText) return baseWhere;
+            const likeKeyword = `%${keywordText}%`;
+            const optionsByField: Record<string, any[]> = {
+                guestName: [{ ...baseWhere, guestName: ILike(likeKeyword) }],
+                category: [{ ...baseWhere, category: ILike(likeKeyword) }],
+                description: [{ ...baseWhere, description: ILike(likeKeyword) }],
+                amount: [{ ...baseWhere, amount: Raw((alias) => `CAST(${alias} AS CHAR) LIKE :keyword`, { keyword: likeKeyword }) }],
+                amountToPayout: [{ ...baseWhere, amountToPayout: Raw((alias) => `CAST(${alias} AS CHAR) LIKE :keyword`, { keyword: likeKeyword }) }],
+                claimDate: [{ ...baseWhere, claimDate: Raw((alias) => `CAST(${alias} AS CHAR) LIKE :keyword`, { keyword: likeKeyword }) }],
+                checkInDate: [{ ...baseWhere, arrivalDate: Raw((alias) => `CAST(${alias} AS CHAR) LIKE :keyword`, { keyword: likeKeyword }) }],
+                checkOutDate: [{ ...baseWhere, departureDate: Raw((alias) => `CAST(${alias} AS CHAR) LIKE :keyword`, { keyword: likeKeyword }) }],
+                createdBy: [{ ...baseWhere, createdBy: ILike(likeKeyword) }],
+                updatedBy: [{ ...baseWhere, updatedBy: ILike(likeKeyword) }],
+            };
+
+            if (searchFieldText === "property") {
+                return keywordListingIds.length ? { ...baseWhere, listingMapId: In(keywordListingIds) } : { ...baseWhere, id: In([]) };
+            }
+
+            if (searchFieldText !== "all") {
+                return optionsByField[searchFieldText] || baseWhere;
+            }
+
+            return [
+                ...optionsByField.guestName,
+                ...optionsByField.category,
+                ...optionsByField.description,
+                ...optionsByField.amount,
+                ...optionsByField.amountToPayout,
+                ...optionsByField.claimDate,
+                ...optionsByField.checkInDate,
+                ...optionsByField.checkOutDate,
+                ...optionsByField.createdBy,
+                ...optionsByField.updatedBy,
+                ...(keywordListingIds.length ? [{ ...baseWhere, listingMapId: In(keywordListingIds) }] : []),
+            ];
+        };
+
+        const where = resolutionSearchWhere();
 
         const sortRules = this.normalizeSortRules(sort);
         const order = sortRules.reduce((acc, rule) => {
