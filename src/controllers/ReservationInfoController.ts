@@ -46,12 +46,12 @@ export class ReservationInfoController {
     async syncReservations(request: Request, response: Response, next: NextFunction) {
         try {
             const reservationInfoService = new ReservationInfoService();
-            const { startingDate } = request.body;
+            const { startingDate, endDate } = request.body;
             if (!startingDate) {
                 return response.status(400).json({ error: 'Starting date is required' });
             }
-            
-            const result = await reservationInfoService.syncReservations(startingDate);
+
+            const result = await reservationInfoService.syncReservations(startingDate, endDate);
             return response.status(200).json(result);
         } catch (error) {
             return next(error);

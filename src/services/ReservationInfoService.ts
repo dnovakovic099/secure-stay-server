@@ -925,10 +925,14 @@ export class ReservationInfoService {
   }
 
 
-  async syncReservations(start_date: string) {
+  async syncReservations(start_date: string, end_date?: string) {
     // const reservations = await this.hostAwayClient.syncReservations(startingDate);
     const apiKey = process.env.HOSTIFY_API_KEY || "";
-    const reservations = await this.hostifyClient.getReservations({ start_date }, apiKey);
+    const filter: { start_date: string; end_date?: string } = { start_date };
+    if (end_date) {
+      filter.end_date = end_date;
+    }
+    const reservations = await this.hostifyClient.getReservations(filter, apiKey);
 
     // Track which reservations were touched by this sync so the fee-enrichment
     // pass below only reaches for the detail endpoint for rows we just synced,
