@@ -39,10 +39,16 @@ async function main() {
   await initDatabase();
 
   const repo = appDatabase.getRepository(ReservationInfoEntity);
+  // Backfill any reservation whose fee breakdown is incomplete — not just rows
+  // where resortFee is NULL. Reservations that only carry an insurance/
+  // accommodation/cleaning fee were previously skipped, leaving the Claims Fee
+  // Funds report under-counted.
   const qb = repo
     .createQueryBuilder("r")
     .select(["r.id"])
-    .where("r.resortFee IS NULL");
+    .where(
+      "(r.resortFee IS NULL OR r.insuranceFee IS NULL OR r.accommodationFee IS NULL OR r.cleaningFeeAmount IS NULL OR r.managementCommission IS NULL)"
+    );
   if (from) qb.andWhere("r.arrivalDate >= :from", { from });
   if (to) qb.andWhere("r.arrivalDate <= :to", { to });
   qb.orderBy("r.arrivalDate", "DESC");

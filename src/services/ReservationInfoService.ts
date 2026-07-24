@@ -992,11 +992,18 @@ export class ReservationInfoService {
     // syncs should only backfill a handful of newly-added rows.
     const MAX_PER_SYNC = 200;
 
+    // Enrich when ANY fee column is still NULL. Gating on resortFee alone left
+    // reservations that only carry an insurance fee (or any other non-resort
+    // fee) permanently un-enriched, because their resortFee wouldn't be NULL
+    // after the first successful detail fetch — even though insuranceFee still
+    // was.
     const missingFees = await this.reservationInfoRepository
       .createQueryBuilder("r")
       .select(["r.id"])
       .where("r.id IN (:...ids)", { ids: syncedIds })
-      .andWhere("r.resortFee IS NULL")
+      .andWhere(
+        "(r.resortFee IS NULL OR r.insuranceFee IS NULL OR r.accommodationFee IS NULL OR r.cleaningFeeAmount IS NULL OR r.managementCommission IS NULL)"
+      )
       .limit(MAX_PER_SYNC)
       .getMany();
 
