@@ -1435,6 +1435,44 @@ export class ClientService {
 
     const listingService = new ListingService();
     const listings = await listingService.getListingNames(userId);
+    const propertyIds = data.flatMap((client) => client.properties || []).map((property) => String(property.id));
+    const pageClientIds = data.map((client) => String(client.id));
+    const onboardingSlackLinkMap = new Map<string, string>();
+    const onboardingSlackLinkByClient = new Map<string, string>();
+    const workspaceUrl = String(process.env.SLACK_WORKSPACE_URL || "").trim().replace(/\/?$/, "/");
+
+    if (propertyIds.length > 0 && workspaceUrl) {
+      const slackQuery = this.slackMessageRepo.createQueryBuilder("slack")
+        .where("slack.entityType = :entityType", { entityType: "client_onboarding" })
+        .andWhere("slack.originalMessage IS NOT NULL")
+        .andWhere(
+          `(${[
+            ...propertyIds.map((_, index) => `slack.originalMessage LIKE :propertyPattern${index}`),
+            ...pageClientIds.map((_, index) => `slack.originalMessage LIKE :clientPattern${index}`),
+          ].join(" OR ")})`,
+          {
+            ...Object.fromEntries(propertyIds.map((propertyId, index) => [`propertyPattern${index}`, `%"propertyId":"${propertyId}"%`])),
+            ...Object.fromEntries(pageClientIds.map((clientId, index) => [`clientPattern${index}`, `%"clientId":"${clientId}"%`])),
+          }
+        )
+        .orderBy("slack.createdAt", "DESC");
+      const slackThreads = await slackQuery.getMany();
+
+      slackThreads.forEach((thread) => {
+        try {
+          const originalMessage = JSON.parse(thread.originalMessage || "{}");
+          const propertyId = String(originalMessage.propertyId || "");
+          const clientId = String(originalMessage.clientId || "");
+          const threadTs = thread.threadTs || thread.messageTs;
+          if (!thread.channel || !threadTs) return;
+          const slackThreadUrl = `${workspaceUrl}archives/${thread.channel}/p${String(threadTs).replace(".", "")}`;
+          if (propertyId && !onboardingSlackLinkMap.has(propertyId)) onboardingSlackLinkMap.set(propertyId, slackThreadUrl);
+          if (clientId && !onboardingSlackLinkByClient.has(clientId)) onboardingSlackLinkByClient.set(clientId, slackThreadUrl);
+        } catch {
+          // Ignore legacy Slack metadata that was not stored as JSON.
+        }
+      });
+    }
 
     // Build client -> listingIds map for batch queries
     const clientListingMap = new Map<string, string[]>();
@@ -1454,7 +1492,14 @@ export class ClientService {
       if (client.properties) {
         client.properties = client.properties.map((property) => {
           const listing = listings.find((l) => l.id === Number(property.listingId));
-          return { ...property, listingName: listing ? listing.internalListingName : "Unknown Listing" };
+          return {
+            ...property,
+            listingName: listing ? listing.internalListingName : "Unknown Listing",
+            slackThreadUrl:
+              onboardingSlackLinkMap.get(String(property.id)) ||
+              onboardingSlackLinkByClient.get(String(client.id)) ||
+              null,
+          };
         });
       }
       const clientSatisfaction = satisfactionMap.get(client.id) || "Neutral";
@@ -2184,20 +2229,13 @@ export class ClientService {
       //   .catch(err => logger.error('Property onboarding SMS failed:', err));
     }
 
-    // Trigger Slack notification for newly added properties
-    if (results.length > 0) {
-      this.userRepo.findOne({ where: { uid: userId } }).then(async user => {
-        const userName = user ? `${user.firstName} ${user.lastName}` : 'Unknown';
-        const threadTs = await this.getClientOnboardingThreadTs(clientId);
-        for (const item of results) {
-          const slackMsg = buildOnboardingSlackMessage("new_property", client, item.clientProperty, userName, threadTs);
-          sendSlackMessage(slackMsg).catch(err => logger.error('Slack notification for new property addition failed:', err));
-        }
-      }).catch(err => logger.error('Failed to fetch user for Slack notification:', err));
-    }
-
     await Promise.all(results.map((item) =>
-      new OnboardingUpdateService().addSystemUpdate(item.clientProperty.id, "Pre-onboarding information was added.", "information_changed", userId)
+      new OnboardingUpdateService().addSystemUpdate(
+        item.clientProperty.id,
+        "Onboarding form was received.",
+        "onboarding_form_received",
+        userId
+      )
     ));
     return { message: "Property pre-onboarding info saved", results };
   }
@@ -2575,6 +2613,7 @@ export class ClientService {
     }
 
     const results: Array<{ clientProperty: ClientPropertyEntity; onboarding: PropertyOnboarding; }> = [];
+    const newlyCreatedPropertyIds = new Set<string>();
 
     for (const property of clientProperties) {
       let clientProperty: ClientPropertyEntity;
@@ -2618,6 +2657,7 @@ export class ClientService {
           status: PropertyStatus.ONBOARDING,
         });
         clientProperty = await this.propertyRepo.save(clientProperty);
+        newlyCreatedPropertyIds.add(String(clientProperty.id));
       }
 
       // Map Onboarding (sales, listing, photography) - no serviceInfo for internal onboarding
@@ -2694,9 +2734,15 @@ export class ClientService {
       }
     }
 
-    await Promise.all(results.map((item) =>
-      new OnboardingUpdateService().addSystemUpdate(item.clientProperty.id, "Onboarding information was added.", "information_changed", userId)
-    ));
+    await Promise.all(results.map((item) => {
+      const isNewProperty = newlyCreatedPropertyIds.has(String(item.clientProperty.id));
+      return new OnboardingUpdateService().addSystemUpdate(
+        item.clientProperty.id,
+        isNewProperty ? "Onboarding form was received." : "Onboarding information was added.",
+        isNewProperty ? "onboarding_form_received" : "information_changed",
+        userId
+      );
+    }));
     return { message: "Internal onboarding details saved", results };
   }
 

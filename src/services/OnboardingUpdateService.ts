@@ -69,7 +69,10 @@ export class OnboardingUpdateService {
     const client = property.client as any;
     if (!client?.id) return;
     const existing = await this.slackRepo.findOne({
-      where: { entityType: "client_onboarding", originalMessage: Like(`%"clientId":"${client.id}"%`) },
+      where: {
+        entityType: "client_onboarding",
+        originalMessage: Like(`%"propertyId":"${property.id}"%`),
+      },
       order: { createdAt: "DESC" },
     });
     if (existing?.threadTs) return;
@@ -89,6 +92,10 @@ export class OnboardingUpdateService {
         entityId: null as any,
         originalMessage: JSON.stringify({ clientId: client.id, propertyId: property.id, source: "onboarding_form_received" }),
       }));
+    } else {
+      logger.error(
+        `Failed to create onboarding Slack thread for property ${property.id}: ${response?.error || "No Slack response"}`
+      );
     }
   }
 
@@ -96,7 +103,14 @@ export class OnboardingUpdateService {
     try {
       const clientId = (property.client as any)?.id;
       if (!clientId) return;
-      const root = await this.slackRepo.findOne({
+      const propertyRoot = await this.slackRepo.findOne({
+        where: {
+          entityType: "client_onboarding",
+          originalMessage: Like(`%"propertyId":"${property.id}"%`),
+        },
+        order: { createdAt: "DESC" },
+      });
+      const root = propertyRoot || await this.slackRepo.findOne({
         where: { entityType: "client_onboarding", originalMessage: Like(`%"clientId":"${clientId}"%`) },
         order: { createdAt: "DESC" },
       });
