@@ -11,6 +11,12 @@ import {
     buildTeamCommunicationRulesText,
 } from "./AIMessagingSettingsService";
 import { AI_REPLY_RULE_DEFAULTS } from "./InboxAIService";
+import {
+    collectCategoryNames,
+    resolveDetectorInstructions,
+    resolveTicketCategories,
+} from "./AIDetectorInstructions";
+import { PROPOSED_ACTION_DEFAULTS } from "./AIProposedActionService";
 
 export type RuleSource = "settings" | "code" | "learned" | "feedback" | "mode";
 
@@ -149,6 +155,21 @@ export class AICommunicationRulesService {
             settings.quoUnlinkedThreadRules,
             AI_REPLY_RULE_DEFAULTS.quoUnlinkedThreadRules
         );
+        const detectorInstructions = resolveDetectorInstructions(settings);
+        const ticketCategories = resolveTicketCategories(settings);
+        const categoryNames = collectCategoryNames(settings);
+        const proposedInstructions = textOrDefault(
+            settings.proposedActionInstructions,
+            PROPOSED_ACTION_DEFAULTS.proposedActionInstructions
+        );
+        const proposedApprove = textOrDefault(
+            settings.proposedActionApproveInstructions,
+            PROPOSED_ACTION_DEFAULTS.proposedActionApproveInstructions
+        );
+        const proposedApproveSend = textOrDefault(
+            settings.proposedActionApproveSendInstructions,
+            PROPOSED_ACTION_DEFAULTS.proposedActionApproveSendInstructions
+        );
 
         const early = normalizeEarlyLateHandling(settings.earlyCheckinHandling);
         const late = normalizeEarlyLateHandling(settings.lateCheckoutHandling);
@@ -271,6 +292,83 @@ export class AICommunicationRulesService {
                 },
             },
             {
+                id: "ticket_detector_persona",
+                title: "Ticket creation detector prompt",
+                source: settings.detectorSystemPersona && String(settings.detectorSystemPersona).trim() ? "settings" : "code",
+                howUsed: "Used by Guest Issue ticket detection to decide what counts as a ticket.",
+                editableInSettings: true,
+                usingDefault: !(settings.detectorSystemPersona && String(settings.detectorSystemPersona).trim()),
+                body: detectorInstructions.persona,
+                meta: {
+                    itemDetectionEnabled: settings.itemDetectionEnabled === 1,
+                    confidenceFloor: detectorInstructions.confidenceFloor,
+                },
+            },
+            {
+                id: "ticket_detector_exclusions",
+                title: "Ticket creation exclusions",
+                source: settings.detectionExclusionRules && String(settings.detectionExclusionRules).trim() ? "settings" : "code",
+                howUsed: "Used by Guest Issue ticket detection to avoid resolved, noisy, duplicate, or unsupported tickets.",
+                editableInSettings: true,
+                usingDefault: !(settings.detectionExclusionRules && String(settings.detectionExclusionRules).trim()),
+                body: detectorInstructions.exclusionRules,
+                meta: {
+                    confidenceFloor: detectorInstructions.confidenceFloor,
+                },
+            },
+            {
+                id: "ticket_categories",
+                title: "Ticket categories",
+                source: ticketCategories.length ? "settings" : "code",
+                howUsed: "Detector output must fit one of these categories; auto-create off categories are skipped for Guest Issues.",
+                editableInSettings: true,
+                usingDefault: ticketCategories.length === 0,
+                body: ticketCategories.length
+                    ? ticketCategories
+                          .map((c) => {
+                              const name = (c?.name || "").trim() || "(unnamed)";
+                              const auto = c?.autoCreate === false ? "auto-create OFF" : "auto-create ON";
+                              const desc = (c?.description || "").trim();
+                              const examples = (c?.examples || "").trim();
+                              return [
+                                  `- ${name} (${auto})`,
+                                  desc ? `  ${desc}` : "",
+                                  examples ? `  Examples: ${examples}` : "",
+                              ]
+                                  .filter(Boolean)
+                                  .join("\n");
+                          })
+                          .join("\n")
+                    : categoryNames.map((name) => `- ${name} (default category)`).join("\n"),
+                meta: {
+                    itemDetectionEnabled: settings.itemDetectionEnabled === 1,
+                    categoryCount: ticketCategories.length || categoryNames.length,
+                },
+            },
+            {
+                id: "proposed_action_rules",
+                title: "Proposed Action controls",
+                source:
+                    proposedInstructions.usingDefault && proposedApprove.usingDefault && proposedApproveSend.usingDefault
+                        ? "code"
+                        : "settings",
+                howUsed: "Shown in Inbox V2 proposed-action cards and used to explain what Approve vs Approve & send do.",
+                editableInSettings: true,
+                usingDefault:
+                    proposedInstructions.usingDefault &&
+                    proposedApprove.usingDefault &&
+                    proposedApproveSend.usingDefault,
+                body: [
+                    `Enabled: ${settings.proposedActionsEnabled !== 0 ? "ON" : "OFF"}`,
+                    `\nDetection / generation:\n${proposedInstructions.body}`,
+                    `\nApprove:\n${proposedApprove.body}`,
+                    `\nApprove & send:\n${proposedApproveSend.body}`,
+                ].join("\n"),
+                meta: {
+                    proposedActionsEnabled: settings.proposedActionsEnabled !== 0,
+                },
+            },
+            {
                 id: "quo_sms",
                 title: "Quo SMS / PM / unlinked rules",
                 source: "mode",
@@ -281,6 +379,46 @@ export class AICommunicationRulesService {
                     `\n\nPM client:\n${quoPm.body}`,
                     `\n\nUnlinked thread:\n${quoUnlinked.body}`,
                 ].join(""),
+            },
+            {
+                id: "quo_detector_prompt",
+                title: "Quo detector prompt",
+                source: settings.quoDetectorSystemPrompt && String(settings.quoDetectorSystemPrompt).trim() ? "settings" : "code",
+                howUsed: "Used when extracting actionable follow-up work from Quo / SMS conversations.",
+                editableInSettings: true,
+                usingDefault: !(settings.quoDetectorSystemPrompt && String(settings.quoDetectorSystemPrompt).trim()),
+                body: detectorInstructions.quoSystemPrompt,
+            },
+            {
+                id: "quo_automation",
+                title: "Quo automation gates",
+                source: "settings",
+                howUsed: "Controls whether Quo / SMS drafts may auto-send; does not change wording by itself.",
+                editableInSettings: true,
+                body: [
+                    `Quo auto-respond: ${settings.quoAutoRespondEnabled === 1 ? "ON" : "OFF"}`,
+                    `Min confidence: ${settings.autosendMinConfidence}`,
+                    `Tiered autosend: ${settings.autosendTierEnabled === 1 ? "ON" : "OFF"}`,
+                ].join("\n"),
+            },
+            {
+                id: "ops_rescue",
+                title: "Ops / Rescue controls",
+                source: "settings",
+                howUsed: "Controls payment emergency recipients, Ops Radar digest recipients, IR automation, and Rescue Copilot.",
+                editableInSettings: true,
+                body: [
+                    `Payment alert recipients:\n${(settings.paymentAlertEmails || "").trim() || "(none configured)"}`,
+                    `\nOps Radar recipients:\n${(settings.opsAlertEmails || "").trim() || "(none configured)"}`,
+                    `\nIR auto-assign: ${settings.irAutoAssignEnabled === 1 ? "ON" : "OFF"}`,
+                    `IR auto-ack: ${settings.irAutoAckEnabled === 1 ? "ON" : "OFF"}`,
+                    `IR auto-ack listing IDs: ${(settings.irAutoAckListingIds || "").trim() || "(all when enabled)"}`,
+                    `IR stale in-house hours: ${settings.irStaleHoursInHouse ?? 2}`,
+                    `\nRescue Copilot: ${settings.rescueCopilotEnabled !== 0 ? "ON" : "OFF"}`,
+                    `Notify Anj when rescue fails: ${settings.rescueNotifyAnjEnabled !== 0 ? "ON" : "OFF"}`,
+                    `Unanswered minutes before shift ping: ${settings.rescueUnansweredMinutes ?? 30}`,
+                    `Allowed goodwill gestures:\n${(settings.rescueGestures || "").trim() || "(none configured)"}`,
+                ].join("\n"),
             },
             {
                 id: "learned_style",
