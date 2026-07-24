@@ -440,9 +440,6 @@ export class IssueAIService {
                 c.phone &&
                 /clean/i.test(`${c.role} ${c.name} ${c.reason}`)
         );
-        const topCleaner: { name?: string | null; phone?: string | null } | undefined = portfolioCleaner
-            ? { name: portfolioCleaner.name, phone: portfolioCleaner.phone }
-            : topCleanerContact;
         const topOwner = recommendedContacts.find((c) => c.source === "owner" && (c.phone || c.email || c.name));
         const topVendor = recommendedContacts.find(
             (c) => (c.source === "memory" || c.source === "poc" || c.source === "contact") && (c.phone || c.name)
@@ -461,17 +458,31 @@ export class IssueAIService {
                       ? `Walk guest through entry steps from KB/messages; if still locked out call ${topVendor.name} at ${topVendor.phone}.`
                       : "Walk guest through entry steps from listing KB/messages; confirm door-code procedure; escalate to lock vendor/cleaner only if still locked out.";
         } else if (ticketLane.isSupplies) {
-            primaryAction = topCleaner?.phone
-                ? `Contact cleaner ${topCleaner.name} at ${topCleaner.phone} about missing supplies (cleaner restock — not a trade vendor).`
+            const suppliesCleaner = portfolioCleaner || topCleanerContact;
+            primaryAction = suppliesCleaner?.phone
+                ? `Contact cleaner ${suppliesCleaner.name} at ${suppliesCleaner.phone} about missing supplies (cleaner restock — not a trade vendor).`
                 : "Contact the listing cleaner about missing supplies (cleaner restock — not a trade vendor).";
         } else if (ticketLane.isEarlyCheckinAsk || ticketLane.isLateCheckoutAsk || ticketLane.isReservationChange) {
             // Enforce decision order even if the model reorders steps.
+            // Prefer city-scoped portfolio cleaner for turnover confirmation.
+            const turnoverCleaner: IrRecommendedContact | undefined = portfolioCleaner
+                ? {
+                      rank: 1,
+                      role: "Cleaner",
+                      name: portfolioCleaner.name,
+                      phone: portfolioCleaner.phone,
+                      email: portfolioCleaner.email || null,
+                      reason: "portfolio memory",
+                      contactId: null,
+                      source: "memory",
+                  }
+                : topCleanerContact;
             primaryAction = this.buildReservationChangePrimaryAction({
                 ticketLane,
                 specialRules,
                 earlyUpsell,
                 lateUpsell,
-                topCleaner,
+                topCleaner: turnoverCleaner,
                 topOwner,
             });
         } else if (
