@@ -85,7 +85,8 @@ async function main() {
         }
         for (const person of people || []) {
             const trust = String(person.trust || "").toLowerCase();
-            if (trust && trust !== "high" && trust !== "medium") {
+            // High-trust only — medium scrape rows are too noisy for prod dispatch.
+            if (trust !== "high") {
                 skipped += 1;
                 continue;
             }

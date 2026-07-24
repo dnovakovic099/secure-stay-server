@@ -46,17 +46,32 @@ async function main() {
          WHERE LOWER(email) = ? AND deletedAt IS NULL`,
         [emails[0]]
     );
-    const [named]: any = await conn.query(
+    const [jadeRows]: any = await conn.query(
         `SELECT id, uid, email, firstName, lastName, isActive FROM users
          WHERE isActive = 1 AND deletedAt IS NULL
-           AND (LOWER(firstName) LIKE 'jade%' OR LOWER(firstName) LIKE 'anj%' OR LOWER(firstName) LIKE 'angelica%')
+           AND (
+             LOWER(firstName) = 'jade'
+             OR LOWER(email) LIKE 'jade%@%'
+             OR LOWER(email) LIKE '%jade%@luxurylodging%'
+             OR LOWER(lastName) = 'jade'
+             OR LOWER(CONCAT(COALESCE(firstName,''),' ',COALESCE(lastName,''))) LIKE '% jade %'
+           )
          LIMIT 20`
     );
     if (!anj?.length) note("critical", "Anj email angelica@luxurylodgingpm.com not found/active in users");
     else note("ok", `Anj user id=${anj[0].id} uid=${anj[0].uid} active=${anj[0].isActive}`);
-    const jade = (named || []).filter((u: any) => String(u.firstName || "").toLowerCase().startsWith("jade"));
-    if (!jade.length) note("high", "No active user with firstName Jade* — default name lookup will miss Jade");
-    else note("ok", `Jade candidates: ${jade.map((u: any) => `${u.firstName} ${u.lastName} <${u.email}>`).join("; ")}`);
+    if (!jadeRows?.length) {
+        note("high", "No Jade user matched by firstName/email — set GR refund managers in AI Settings → Ops");
+        const [guess]: any = await conn.query(
+            `SELECT id, email, firstName, lastName FROM users
+             WHERE deletedAt IS NULL AND isActive = 1
+               AND (LOWER(email) LIKE '%jade%' OR LOWER(firstName) LIKE '%jade%')
+             LIMIT 10`
+        );
+        for (const g of guess || []) console.log(`   jade-guess: ${g.firstName} ${g.lastName} <${g.email}> id=${g.id}`);
+    } else {
+        note("ok", `Jade candidates: ${jadeRows.map((u: any) => `${u.firstName} ${u.lastName} <${u.email}>`).join("; ")}`);
+    }
 
     // 3) Vendor memory seed
     const [memCounts]: any = await conn.query(
@@ -125,11 +140,11 @@ async function main() {
            SELECT MAX(id) FROM issue_ai_suggestions GROUP BY issueId
          )
          AND s.generatedAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+         AND s.promptVersion LIKE '%v6%'
          AND (
            LOWER(COALESCE(s.primaryAction,'')) LIKE '%reservation changes vendor%'
-           OR LOWER(COALESCE(s.primaryAction,'')) LIKE '%supplies vendor%'
-           OR LOWER(COALESCE(s.primaryAction,'')) LIKE '%need the vendor%'
-           OR LOWER(COALESCE(s.clarifyingQuestionsJson,'')) LIKE '%reservation changes vendor%'
+           OR LOWER(COALESCE(s.primaryAction,'')) LIKE '%need a supplies vendor%'
+           OR LOWER(COALESCE(s.primaryAction,'')) LIKE '%need the vendor identity%'
          )
          ORDER BY s.generatedAt DESC
          LIMIT 25`

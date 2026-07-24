@@ -430,12 +430,19 @@ export class IssueAIService {
             if (!warnings.includes(tip)) warnings.push(tip);
         }
 
-        const topCleaner = recommendedContacts.find(
+        // Prefer city-scoped portfolio cleaners over listing contacts from other markets.
+        const portfolioCleaner = portfolioVendors.find(
+            (v) => v.phone && /clean/i.test(`${v.role || ""} ${v.name || ""} ${v.category || ""}`)
+        );
+        const topCleanerContact = recommendedContacts.find(
             (c) =>
                 (c.source === "memory" || c.source === "poc" || c.source === "contact") &&
                 c.phone &&
                 /clean/i.test(`${c.role} ${c.name} ${c.reason}`)
         );
+        const topCleaner: { name?: string | null; phone?: string | null } | undefined = portfolioCleaner
+            ? { name: portfolioCleaner.name, phone: portfolioCleaner.phone }
+            : topCleanerContact;
         const topOwner = recommendedContacts.find((c) => c.source === "owner" && (c.phone || c.email || c.name));
         const topVendor = recommendedContacts.find(
             (c) => (c.source === "memory" || c.source === "poc" || c.source === "contact") && (c.phone || c.name)
@@ -455,8 +462,8 @@ export class IssueAIService {
                       : "Walk guest through entry steps from listing KB/messages; confirm door-code procedure; escalate to lock vendor/cleaner only if still locked out.";
         } else if (ticketLane.isSupplies) {
             primaryAction = topCleaner?.phone
-                ? `Contact cleaner ${topCleaner.name} at ${topCleaner.phone} about missing supplies (not a supplies vendor).`
-                : "Contact the listing cleaner about missing supplies (not a supplies vendor).";
+                ? `Contact cleaner ${topCleaner.name} at ${topCleaner.phone} about missing supplies (cleaner restock — not a trade vendor).`
+                : "Contact the listing cleaner about missing supplies (cleaner restock — not a trade vendor).";
         } else if (ticketLane.isEarlyCheckinAsk || ticketLane.isLateCheckoutAsk || ticketLane.isReservationChange) {
             // Enforce decision order even if the model reorders steps.
             primaryAction = this.buildReservationChangePrimaryAction({
@@ -663,6 +670,20 @@ export class IssueAIService {
                 listing = await this.listingRepo.findOne({ where: { id: resListingId }, withDeleted: true });
             }
         }
+        // Last resort: match by listing display name (many AI tickets have orphan listing_id strings).
+        if (!listing && issue.listing_name) {
+            const name = String(issue.listing_name).trim();
+            if (name) {
+                listing = await this.listingRepo
+                    .createQueryBuilder("l")
+                    .where("l.internalListingName = :name OR l.name = :name OR l.externalListingName = :name", {
+                        name,
+                    })
+                    .withDeleted()
+                    .orderBy("l.deletedAt", "ASC")
+                    .getOne();
+            }
+        }
 
         const resolvedCity = await this.resolveListingCity(listing, issue);
 
@@ -843,23 +864,29 @@ export class IssueAIService {
         const isLateCheckoutAsk =
             /late\s*check[\s-]*out|check[\s-]*out\s*late|depart\s*late|later\s*departure|lco\b/.test(text);
         const isReservationChange = category === "RESERVATION CHANGES" || isEarlyCheckinAsk || isLateCheckoutAsk;
-        // Keep aligned with GrRefundEscalationService — category-gated, skip pure early/late.
+        // Keep aligned with GrRefundEscalationService — category-gated.
         const looksLikeEarlyLate =
             /early\s*check[\s-]*in|late\s*check[\s-]*out|check[\s-]*in\s*early|check[\s-]*out\s*late/.test(text) &&
             !/cancel|cancellation/.test(text);
         const isRefundOrCancel =
-            !looksLikeEarlyLate &&
-            (category === "REFUNDS" ||
-                (category === "RESERVATION CHANGES" &&
-                    /cancel|cancellation|refund|reimburse|compensation|goodwill/.test(text)));
+            category === "REFUNDS" ||
+            (category === "RESERVATION CHANGES" &&
+                !looksLikeEarlyLate &&
+                /cancel|cancellation|refund|reimburse|compensation|goodwill/.test(text));
         const isSupplies =
             category === "SUPPLIES" ||
             /\b(toilet\s*paper|paper\s*towels|toiletries|missing\s+towels|extra\s+towels|supplies|shampoo|conditioner|trash\s*bags)\b/.test(
                 text
             );
+        // Word-boundary access signals — avoid matching "clock" / "locked thermostat".
         const isAccessIssue =
             category === "PROPERTY ACCESS" ||
-            /lock|lockout|access code|can't get in|cant get in|door code|keypad|entry code|schlage/.test(text);
+            /\b(lockout|access\s*code|can't\s*get\s*in|cant\s*get\s*in|door\s*code|keypad|entry\s*code|schlage)\b/.test(
+                text
+            ) ||
+            (category !== "MAINTENANCE" &&
+                category !== "HVAC" &&
+                /\b(lock\s*box|smart\s*lock|door\s*lock)\b/.test(text));
         const lane: IrTicketLane["lane"] = GR_CATEGORIES.has(category)
             ? "GR"
             : IR_CATEGORIES.has(category)
@@ -1895,19 +1922,21 @@ export class IssueAIService {
             if (/pool/i.test(category)) roleNeedles.push("pool");
         }
 
+        // Never return cross-market vendors when city is unknown — better empty than wrong.
+        if (!cities.length) return [];
+
         try {
             const qb = this.vendorMemoryRepo
                 .createQueryBuilder("v")
                 .andWhere("LOWER(TRIM(v.vendorName)) NOT IN (:...badNames)", { badNames: ["null", "undefined", ""] })
+                .andWhere("v.phone IS NOT NULL AND TRIM(v.phone) <> ''")
+                .andWhere(
+                    "LOWER(TRIM(v.city)) IN (:...cities)",
+                    { cities: cities.map((c) => c.toLowerCase()) }
+                )
                 .orderBy("v.useCount", "DESC")
                 .addOrderBy("v.lastUsedAt", "DESC")
                 .take(12);
-            if (cities.length) {
-                qb.andWhere(
-                    "LOWER(TRIM(v.city)) IN (:...cities)",
-                    { cities: cities.map((c) => c.toLowerCase()) }
-                );
-            }
             if (categoryNeedles.length || roleNeedles.length) {
                 const parts: string[] = [];
                 const params: Record<string, any> = {};
@@ -1926,7 +1955,7 @@ export class IssueAIService {
             const rows = await qb.getMany();
             return rows
                 .filter((r) => r.vendorName && !/^null$/i.test(r.vendorName))
-                .filter((r) => !r.phone || !this.isBogusPhone(r.phone))
+                .filter((r) => r.phone && !this.isBogusPhone(r.phone))
                 .map((r) => ({
                     id: r.id,
                     name: r.vendorName,

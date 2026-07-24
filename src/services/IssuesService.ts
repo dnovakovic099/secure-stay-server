@@ -1758,6 +1758,22 @@ export class IssuesService {
       this.postIssueAssigneeActivityToSlack(finalIssue, previousAssignee, requestedAssignee, userId)
         .catch((error) => logger.error(`[IssuesService] Slack assignee activity post failed for issue ${finalIssue.id}`, error));
     }
+
+    // Category may move into REFUNDS/cancel after create — escalate then too.
+    if (Object.prototype.hasOwnProperty.call(data, "category")) {
+      void (async () => {
+        try {
+          const { GrRefundEscalationService } = require("./GrRefundEscalationService");
+          await new GrRefundEscalationService().escalateIssue(finalIssue, {
+            uid: userId || null,
+            name: "SecureStay",
+          });
+        } catch (err: any) {
+          logger.warn(`[IssuesService] GR refund escalate-on-update failed for #${finalIssue.id}: ${err?.message}`);
+        }
+      })();
+    }
+
     return finalIssue;
   }
 

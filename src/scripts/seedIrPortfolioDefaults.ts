@@ -74,6 +74,24 @@ async function main() {
         }
     }
 
+    // Repair known portfolio phones if older null-phone duplicate rows linger.
+    const repairs = [
+        { name: "ana", phone: "(773) 592-5234", cities: ["Chicago", "Elmwood Park", "Lombard"] },
+        { name: "miguel", phone: "(773) 243-9091", cities: ["Chicago", "Elmwood Park", "Lombard"] },
+        { name: "diana", phone: "(813) 830-3287", cities: ["Tampa", "Bradenton", "St. Petersburg", "Largo", "Clearwater", "Madeira Beach"] },
+        { name: "rodolfo", phone: "(813) 947-4704", cities: ["Tampa", "Bradenton", "St. Petersburg", "Largo", "Clearwater", "Madeira Beach"] },
+    ];
+    for (const r of repairs) {
+        await conn.query(
+            `UPDATE ir_vendor_memory
+             SET phone = ?, updatedAt = NOW()
+             WHERE normalizedName = ?
+               AND LOWER(TRIM(city)) IN (${r.cities.map(() => "?").join(",")})
+               AND (phone IS NULL OR TRIM(phone) = '')`,
+            [r.phone, r.name, ...r.cities.map((c) => c.toLowerCase())]
+        );
+    }
+
     await conn.end();
     console.log(`Done. Total upserts: ${total}`);
     process.exit(0);

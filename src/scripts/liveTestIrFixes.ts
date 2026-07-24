@@ -52,8 +52,9 @@ async function main() {
                 const qs = (suggestion.clarifyingQuestions || []).map((q) => q.question).join(" | ");
                 const okAction = sample.expect.test(pa) || sample.expect.test(playbook) || sample.expect.test(qs);
                 const badVendorHunt =
-                    /reservation changes vendor|supplies vendor|need the vendor identity/i.test(pa) ||
-                    /reservation changes vendor|supplies vendor/i.test(qs);
+                    /reservation changes vendor|need the vendor identity|need a supplies vendor/i.test(
+                        `${pa}\n${qs}`
+                    ) && !/not a (supplies|trade) vendor/i.test(pa);
                 results.push({
                     sample: sample.label,
                     issueId: id,
