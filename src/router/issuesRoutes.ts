@@ -22,6 +22,15 @@ router.route('/')
         issuesController.createIssue
     );
 
+// Aggregate endpoint that returns { New: N, "In Progress": N, ... } for the
+// status cards on the Guest Issues page. Replaces 5 parallel /issues calls
+// (one per status) that were previously firing on every filter change.
+router.route('/status-counts').get(
+    verifySession,
+    validateGetIssues,
+    issuesController.getGuestIssueStatusCounts
+);
+
 router.route('/bulk-update')
     .put(
         verifySession,

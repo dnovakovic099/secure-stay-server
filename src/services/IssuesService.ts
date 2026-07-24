@@ -2477,7 +2477,11 @@ export class IssuesService {
     return issueUpdate;
   }
 
-  async getGuestIssues(body: any, userId: string) {
+  async getGuestIssues(
+    body: any,
+    userId: string,
+    options: { statusCountsOnly?: boolean } = {}
+  ) {
     const {
       category,
       listingId,
@@ -2520,6 +2524,15 @@ export class IssuesService {
       managerNotesKeyword,
     } = body;
 
+    // statusCountsOnly short-circuits before the paginated fetch + all post-
+    // query enrichment (issueUpdates batch load, listings, reservations, user
+    // directory, file_info, transforms) and instead runs a single GROUP BY
+    // status aggregate. Callers use this to replace the 5-parallel /issues
+    // fan-out that was firing on every tab click / filter change.
+    const statusCountsOnly = options.statusCountsOnly === true;
+    const emptyReturn = () =>
+      statusCountsOnly ? { statusCounts: {} as Record<string, number> } : { issues: [], total: 0 };
+
     const hasListingTypeFilter = Boolean(propertyType?.length || serviceType?.length);
     let listingIds = Array.isArray(listingId) ? listingId : [];
     const listingService = new ListingService();
@@ -2542,7 +2555,7 @@ export class IssuesService {
     }
 
     if (hasListingTypeFilter && listingIds.length === 0) {
-      return { issues: [], total: 0 };
+      return emptyReturn();
     }
 
     const issueStatus = status;
@@ -2632,7 +2645,7 @@ export class IssuesService {
       }
 
       if (resolvedReservationIds.length === 0) {
-        return { issues: [], total: 0 };
+        return emptyReturn();
       }
     }
 
@@ -2670,13 +2683,13 @@ export class IssuesService {
           : ["Scheduled"])
       : issueStatus;
     if (quickScheduledTodayActive && Array.isArray(effectiveIssueStatus) && effectiveIssueStatus.length === 0) {
-      return { issues: [], total: 0 };
+      return emptyReturn();
     }
     const effectiveUrgency = quickCriticalActive
       ? (normalizedUrgency.length > 0 ? normalizedUrgency.filter((value) => Number(value) === 5) : [5])
       : normalizedUrgency;
     if (quickCriticalActive && effectiveUrgency.length === 0) {
-      return { issues: [], total: 0 };
+      return emptyReturn();
     }
     const normalizedActivityUsers = Array.isArray(activityUser)
       ? activityUser.map((value: any) => String(value || "").trim()).filter(Boolean)
@@ -2743,39 +2756,120 @@ export class IssuesService {
     };
 
     if (!applyIssueIdFilter(keywordIssueIds)) {
-      return { issues: [], total: 0 };
+      return emptyReturn();
     }
 
     if (!applyIssueIdFilter(activityKeywordIssueIds)) {
-      return { issues: [], total: 0 };
+      return emptyReturn();
     }
 
     if (!applyIssueIdFilter(activityUserIssueIds)) {
-      return { issues: [], total: 0 };
+      return emptyReturn();
     }
 
     if (!applyIssueIdFilter(activityTimelineDateIssueIds)) {
-      return { issues: [], total: 0 };
+      return emptyReturn();
     }
 
     if (!applyIssueIdFilter(vendorThreadStatusIssueIds)) {
-      return { issues: [], total: 0 };
+      return emptyReturn();
     }
 
     if (!applyIssueIdFilter(resolutionNotesKeywordIssueIds)) {
-      return { issues: [], total: 0 };
+      return emptyReturn();
     }
 
     if (!applyIssueIdFilter(resolutionNotesPresenceIssueIds)) {
-      return { issues: [], total: 0 };
+      return emptyReturn();
     }
 
     if (!applyIssueIdFilter(managerNotesKeywordIssueIds)) {
-      return { issues: [], total: 0 };
+      return emptyReturn();
     }
 
     if (!applyIssueIdFilter(managerNotesPresenceIssueIds)) {
-      return { issues: [], total: 0 };
+      return emptyReturn();
+    }
+
+    // Status-count fast path: skip the paginated fetch, batch loads, user
+    // directory, and row transforms — none of which the count needs — and run
+    // one aggregate query grouped by status. The status filter itself is
+    // deliberately excluded here (the caller wants to see the count for each
+    // status, so scoping by status would defeat the purpose); every other
+    // filter is applied to keep counts consistent with the filtered list.
+    if (statusCountsOnly) {
+      const countQb = this.issueRepo
+        .createQueryBuilder("issue")
+        .select("issue.status", "status")
+        .addSelect("COUNT(*)", "count")
+        .where("issue.deleted_at IS NULL");
+      if (category && category.length > 0) {
+        countQb.andWhere("issue.category IN (:...categories)", { categories: category });
+      }
+      if (listingIds && listingIds.length > 0) {
+        countQb.andWhere("issue.listing_id IN (:...listingIds)", { listingIds });
+      }
+      if (grIssueStatus && grIssueStatus.length > 0) {
+        countQb.andWhere("issue.gr_status IN (:...grStatuses)", { grStatuses: grIssueStatus });
+      }
+      if (dateColumn && (fromDate || toDate)) {
+        if (fromDate && toDate) {
+          countQb.andWhere(`issue.${dateColumn} BETWEEN :dateFrom AND :dateTo`, { dateFrom: fromDate, dateTo: toDate });
+        } else if (fromDate) {
+          countQb.andWhere(`issue.${dateColumn} >= :dateFrom`, { dateFrom: fromDate });
+        } else if (toDate) {
+          countQb.andWhere(`issue.${dateColumn} <= :dateTo`, { dateTo: toDate });
+        }
+      }
+      if (guestName) {
+        countQb.andWhere("issue.guest_name = :guestName", { guestName });
+      }
+      if (isClaimOnly) {
+        countQb.andWhere("issue.claim_resolution_status != :naStatus", { naStatus: "N/A" });
+      }
+      if (claimAmount) {
+        countQb.andWhere("issue.claim_resolution_amount = :claimAmount", { claimAmount });
+      }
+      if (effectiveIssueIds && effectiveIssueIds.length > 0) {
+        countQb.andWhere("issue.id IN (:...effectiveIssueIds)", { effectiveIssueIds });
+      }
+      if (effectiveReservationIds && effectiveReservationIds.length > 0) {
+        countQb.andWhere("issue.reservation_id IN (:...effectiveReservationIds)", { effectiveReservationIds });
+      }
+      if (channel && channel.length > 0) {
+        countQb.andWhere("issue.channel IN (:...channels)", { channels: channel });
+      }
+      if (normalizedAssignee.length > 0) {
+        countQb.andWhere("issue.assignee IN (:...assignees)", { assignees: normalizedAssignee });
+      }
+      if (normalizedVendor.length > 0) {
+        countQb.andWhere("issue.final_contractor_name IN (:...vendors)", { vendors: normalizedVendor });
+      }
+      if (effectiveUrgency.length > 0) {
+        countQb.andWhere("issue.urgency IN (:...urgencies)", { urgencies: effectiveUrgency });
+      }
+      if (quickScheduledTodayActive) {
+        countQb.andWhere("DATE(issue.due_date) = :quickScheduledDate", { quickScheduledDate: quickScheduledDateKey });
+      }
+      if (eventActivityType === "completed") {
+        countQb.andWhere("issue.completed_at IS NOT NULL");
+      }
+      if (eventActivityType === "gr_completed") {
+        countQb.andWhere("issue.gr_completed_at IS NOT NULL");
+      }
+      if (issueResolution) {
+        countQb.andWhere("issue.ai_resolution_status = :issueResolution", { issueResolution });
+      }
+      if (guestSentiment) {
+        countQb.andWhere("issue.ai_guest_sentiment = :guestSentiment", { guestSentiment });
+      }
+      const rows = await countQb.groupBy("issue.status").getRawMany<{ status: string; count: string | number }>();
+      const statusCounts: Record<string, number> = {};
+      for (const row of rows) {
+        if (!row.status) continue;
+        statusCounts[row.status] = Number(row.count) || 0;
+      }
+      return { statusCounts };
     }
 
     const [issues, total] = await this.issueRepo.findAndCount({

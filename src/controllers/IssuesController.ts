@@ -517,15 +517,45 @@ export class IssuesController {
     try {
       const userId = request.user.id;
       const issuesService = new IssuesService();
-      const { issues, total, assigneeList } = await issuesService.getGuestIssues(
+      const result = (await issuesService.getGuestIssues(
         request.query,
         userId
-      );
+      )) as { issues: any[]; total: number; assigneeList?: any[] };
       return response.status(200).json({
         status: true,
-        data: issues,
-        total,
-        assigneeList,
+        data: result.issues,
+        total: result.total,
+        assigneeList: result.assigneeList,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Single-shot aggregate that replaces the 5-parallel /issues fan-out the
+  // frontend used to fire on every filter/tab change. Runs the same filter
+  // resolution as the main list query but ends with GROUP BY status, so one
+  // call returns { statusCounts: { New: N, "In Progress": N, ... } }.
+  async getGuestIssueStatusCounts(request: any, response: Response, next: NextFunction) {
+    try {
+      const userId = request.user.id;
+      const issuesService = new IssuesService();
+      // page/limit aren't consulted in status-count mode, but the shared
+      // validator requires them — supply harmless defaults if the client
+      // omits them.
+      const query = {
+        ...request.query,
+        page: request.query.page || 1,
+        limit: request.query.limit || 1,
+      };
+      const result = (await issuesService.getGuestIssues(
+        query,
+        userId,
+        { statusCountsOnly: true }
+      )) as { statusCounts: Record<string, number> };
+      return response.status(200).json({
+        status: true,
+        data: result.statusCounts || {},
       });
     } catch (error) {
       next(error);
