@@ -92,8 +92,13 @@ jobs:
             timeout 60 npx ts-node src/scripts/seedIrPortfolioDefaults.ts || echo "⚠️ IR portfolio defaults seed failed/timed out (non-fatal)"
             timeout 120 npx ts-node src/scripts/seedIrVendorScrape.ts || echo "⚠️ IR vendor scrape seed failed/timed out (non-fatal)"
 
-            # Heavy IR audit/functional tests live in workflow audit-ir-live.yml / scripts;
-            # keep deploy lean after the initial verification pass.
+            echo ">>> Deep IR quality audit (force-suggest sample)..."
+            timeout 90 npx ts-node src/scripts/auditIrDeepLive.ts || echo "⚠️ deep DB audit flagged issues (non-fatal)"
+            if [ -f dist/out-tsc/scripts/auditIrDeepLive.js ]; then
+              NODE_ENV=production timeout 600 node dist/out-tsc/scripts/auditIrDeepLive.js --force-suggest || echo "⚠️ deep force-suggest audit flagged issues (non-fatal)"
+            elif [ -f dist/out-tsc/src/scripts/auditIrDeepLive.js ]; then
+              NODE_ENV=production timeout 600 node dist/out-tsc/src/scripts/auditIrDeepLive.js --force-suggest || echo "⚠️ deep force-suggest audit flagged issues (non-fatal)"
+            fi
 
             echo ">>> Pruning dev dependencies to reclaim disk..."
             npm prune --omit=dev || { echo "❌ npm prune failed"; exit 1; }
