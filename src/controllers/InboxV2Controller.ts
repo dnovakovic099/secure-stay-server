@@ -360,6 +360,27 @@ export class InboxV2Controller {
         }
     }
 
+    /** Staff-only internal Q&A over the selected inbox thread context. */
+    async aiAsk(request: Request, response: Response, next: NextFunction) {
+        try {
+            if (!InboxAIService.isEnabled()) {
+                return response.status(503).json({ status: false, disabled: true, message: "AI messaging is disabled" });
+            }
+            const threadId = Number(request.params.threadId);
+            const question = typeof request.body?.question === "string" ? request.body.question.trim() : "";
+            if (!Number.isFinite(threadId)) {
+                return response.status(400).json({ status: false, message: "Invalid threadId" });
+            }
+            if (!question) {
+                return response.status(400).json({ status: false, message: "Question is required" });
+            }
+            const data = await new InboxAIService().askInternal(threadId, question);
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     /** Draft a Guest Issues ticket from one selected message plus thread context. */
     async aiDraftGuestIssue(request: Request, response: Response, next: NextFunction) {
         try {

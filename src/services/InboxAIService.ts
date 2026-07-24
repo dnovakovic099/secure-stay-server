@@ -389,6 +389,51 @@ export class InboxAIService {
         });
     }
 
+    /**
+     * Staff-only Q&A for the open inbox thread. This reuses the same context /
+     * knowledge assembly as AI suggestions, but it never creates or persists a
+     * guest-facing draft and never sends anything.
+     */
+    async askInternal(threadId: number, question: string): Promise<{ answer: string }> {
+        const trimmedQuestion = String(question || "").trim();
+        if (!trimmedQuestion) throw new Error("Question is required");
+
+        const conversation = await this.conversationRepo.findOne({ where: { threadId } });
+        if (!conversation) throw new Error(`Conversation ${threadId} not found`);
+
+        const messages = await this.messageRepo.find({
+            where: { threadId },
+            order: { sentAt: "ASC", id: "ASC" },
+        });
+        const inbound = messages.filter((m) => m.direction === "incoming");
+        const targetMessage = inbound.length ? inbound[inbound.length - 1] : null;
+        const context = await this.buildContext(conversation, messages, targetMessage, {});
+
+        const completion = await this.getClient().chat.completions.create({
+            model: INBOX_AI_MODEL,
+            temperature: 0.2,
+            messages: [
+                {
+                    role: "system",
+                    content:
+                        "You are SecureStay's internal inbox assistant for staff. " +
+                        "Answer the staff member's question using the provided thread context, reservation/listing data, internal notes, learned facts, and knowledge blocks. " +
+                        "This is internal-only: you may mention internal details, uncertainties, and operational context. " +
+                        "Do not send or draft a guest-facing message unless the staff member explicitly asks for draft wording. " +
+                        "If the context does not contain the answer, say what is missing and what should be checked.",
+                },
+                {
+                    role: "user",
+                    content: `${context}\n\n## Staff question\n${trimmedQuestion}\n\nAnswer for SecureStay staff only.`,
+                },
+            ],
+        });
+
+        return {
+            answer: completion.choices[0]?.message?.content?.trim() || "I could not find an answer in the available context.",
+        };
+    }
+
     async draftGuestIssueFromMessage(threadId: number, messageExternalId: number): Promise<GuestIssueDraftResult> {
         const conversation = await this.conversationRepo.findOne({ where: { threadId } });
         if (!conversation) throw new Error(`Conversation ${threadId} not found`);
