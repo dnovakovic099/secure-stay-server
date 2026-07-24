@@ -11,7 +11,8 @@ import { appDatabase } from "../utils/database.util";
 import { IssueAIService } from "../services/IssueAIService";
 
 async function main() {
-    await appDatabase.initialize();
+    // Avoid hanging the process on open MySQL handles after work completes.
+    if (!appDatabase.isInitialized) await appDatabase.initialize();
     const svc = new IssueAIService();
     const cities = [
         "Chicago",
@@ -31,13 +32,14 @@ async function main() {
         console.log(`${city}: seeded/updated ${n}`);
     }
     console.log(`Done. Total upserts: ${total}`);
-    await appDatabase.destroy();
+    if (appDatabase.isInitialized) await appDatabase.destroy();
+    process.exit(0);
 }
 
 main().catch(async (err) => {
     console.error(err);
     try {
-        await appDatabase.destroy();
+        if (appDatabase.isInitialized) await appDatabase.destroy();
     } catch {
         /* ignore */
     }

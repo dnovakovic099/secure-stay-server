@@ -50,7 +50,7 @@ async function main() {
     const data = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
     const byCity: Record<string, ScrapePerson[]> = data.byCity || {};
 
-    await appDatabase.initialize();
+    if (!appDatabase.isInitialized) await appDatabase.initialize();
     const svc = new IssueAIService();
 
     let upserts = 0;
@@ -93,13 +93,14 @@ async function main() {
     }
 
     console.log(`Done. upserts=${upserts} skipped=${skipped} dryRun=${dryRun}`);
-    await appDatabase.destroy();
+    if (appDatabase.isInitialized) await appDatabase.destroy();
+    process.exit(0);
 }
 
 main().catch(async (err) => {
     console.error(err);
     try {
-        await appDatabase.destroy();
+        if (appDatabase.isInitialized) await appDatabase.destroy();
     } catch {
         /* ignore */
     }
