@@ -13,6 +13,7 @@ import {
 import * as XLSX from "xlsx";
 import { sendUnresolvedIssuesEmail } from "./IssuesEmailService";
 import { Listing } from "../entity/Listing";
+import { ListingGroupMapEntity } from "../entity/ListingGroupMap";
 import CustomErrorHandler from "../middleware/customError.middleware";
 import { ActionItems } from "../entity/ActionItems";
 import { IssueUpdates } from "../entity/IsssueUpdates";
@@ -55,9 +56,61 @@ export class IssuesService {
   private fileInfoRepo = appDatabase.getRepository(FileInfo);
   private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
   private employeeRepo = appDatabase.getRepository(Employee);
+  private listingGroupMapRepo = appDatabase.getRepository(ListingGroupMapEntity);
   private openai: OpenAI | null = process.env.OPENAI_API_KEY
     ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
     : null;
+
+  private normalizeListingId(value: unknown): number | null {
+    const listingId = Number(value);
+    return Number.isFinite(listingId) && listingId > 0 ? listingId : null;
+  }
+
+  private async resolveCanonicalListingId(value: unknown): Promise<number | null> {
+    const listingId = this.normalizeListingId(value);
+    if (!listingId) return null;
+
+    const mapped = await this.listingGroupMapRepo
+      .findOne({ where: { listingId } })
+      .catch(() => null);
+    const groupId = this.normalizeListingId(mapped?.groupId);
+    return groupId || listingId;
+  }
+
+  private async expandListingFilterIds(listingIds: unknown[]): Promise<string[]> {
+    const normalizedIds = Array.from(
+      new Set(
+        (listingIds || [])
+          .map((id) => this.normalizeListingId(id))
+          .filter((id): id is number => id != null)
+      )
+    );
+    if (!normalizedIds.length) return [];
+
+    const rows = await this.listingGroupMapRepo
+      .createQueryBuilder("map")
+      .where("map.listingId IN (:...listingIds)", { listingIds: normalizedIds })
+      .orWhere("map.groupId IN (:...listingIds)", { listingIds: normalizedIds })
+      .getMany()
+      .catch(() => [] as ListingGroupMapEntity[]);
+
+    const expanded = new Set(normalizedIds.map(String));
+    for (const row of rows) {
+      const listingId = this.normalizeListingId(row.listingId);
+      const groupId = this.normalizeListingId(row.groupId);
+      if (listingId) expanded.add(String(listingId));
+      if (groupId) expanded.add(String(groupId));
+    }
+
+    return Array.from(expanded);
+  }
+
+  private async canonicalizeIssueListing(data: Partial<Issue>): Promise<void> {
+    const canonicalListingId = await this.resolveCanonicalListingId(data.listing_id);
+    if (canonicalListingId) {
+      data.listing_id = String(canonicalListingId);
+    }
+  }
 
   private buildIssueCalendarDateFilter(fromDate?: string, toDate?: string) {
     if (fromDate && toDate) {
@@ -1336,6 +1389,7 @@ export class IssuesService {
       originalName: string;
     }[]
   ) {
+    await this.canonicalizeIssueListing(data);
     const listing_name =
       (
         await appDatabase
@@ -1482,7 +1536,7 @@ export class IssuesService {
     }
 
     if (listingId && Array.isArray(listingId)) {
-      queryOptions.where.listing_id = In(listingId);
+      queryOptions.where.listing_id = In(await this.expandListingFilterIds(listingId));
     }
 
     if (isClaimOnly) {
@@ -1716,6 +1770,7 @@ export class IssuesService {
 
     let listing_name = "";
     if (data.listing_id) {
+      await this.canonicalizeIssueListing(data);
       listing_name =
         (
           await appDatabase
@@ -2292,9 +2347,10 @@ export class IssuesService {
   }
 
   async getIssuesByListingId(listingId: string) {
+    const listingIds = await this.expandListingFilterIds([listingId]);
     return await this.issueRepo.find({
       where: {
-        listing_id: String(listingId),
+        listing_id: In(listingIds.length ? listingIds : [String(listingId)]),
         status: Not("Completed"),
       },
     });
@@ -2302,9 +2358,10 @@ export class IssuesService {
 
   async getIssuesByListingIds(listingIds: string[]) {
     if (listingIds.length === 0) return [];
+    const expandedListingIds = await this.expandListingFilterIds(listingIds);
     return await this.issueRepo.find({
       where: {
-        listing_id: In(listingIds),
+        listing_id: In(expandedListingIds.length ? expandedListingIds : listingIds),
         status: Not("Completed"),
       },
     });
@@ -2585,6 +2642,10 @@ export class IssuesService {
 
     if (hasListingTypeFilter && listingIds.length === 0) {
       return emptyReturn();
+    }
+
+    if (listingIds.length > 0) {
+      listingIds = await this.expandListingFilterIds(listingIds);
     }
 
     const issueStatus = status;

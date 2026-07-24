@@ -175,37 +175,22 @@ export const actionItemsStatusEmoji = (status: string) => {
 };
 
 export const issueStatusEmoji = (status: string) => {
-    let emoji = "";
-    switch (status) {
-        case "Overdue": {
-            emoji = "🟤";
-            break;
-        }
-        case "Need Help": {
-            emoji = "🟣";
-            break;
-        }
-        case "Completed": {
-            emoji = "🟢";
-            break;
-        }
-        case "In Progress": {
-            emoji = "🟡";
-            break;
-        }
-        case "New": {
-            emoji = "🔵";
-            break;
-        }
-        case "Scheduled": {
-            emoji = "⚪";
-            break;
-        }
-        default: {
-            emoji = "";
-        }
+    switch (String(status || "").trim().toLowerCase()) {
+        case "new":
+            return "🟠";
+        case "in progress":
+            return "🔵";
+        case "scheduled":
+            return "🟣";
+        case "need help":
+            return "🔴";
+        case "completed":
+            return "🟢";
+        case "overdue":
+            return "🟤";
+        default:
+            return "";
     }
-    return emoji;
 };
 
 export const clientTicketStatusEmoji = (status: string) => {
@@ -340,4 +325,3 @@ export function isEmail(value: string) {
 // | Overdue | 🟤    |
 // | Expired | 🔴    |
 // | Completed | 🟢    |
-
