@@ -916,7 +916,9 @@ export class ExpenseService {
         const fromDate = String(request.query.fromDate || "");
         const toDate = String(request.query.toDate || "");
         const includeDetails = String(request.query.includeDetails || "").toLowerCase() === "true";
-        const dateTypeInput = String(request.query.dateType || "").trim();
+        const dateTypeInput = String(
+            request.query.reservationDateType || request.query.dateType || ""
+        ).trim();
         // Reservation date column the range applies to. Defaults to arrivalDate
         // (check-in) so calls without an explicit dateType keep behaving like the
         // legacy Accounting dashboard.
@@ -932,6 +934,28 @@ export class ExpenseService {
             confirmation: "reservationDate",
         };
         const reservationDateColumn = dateTypeMap[dateTypeInput] || "arrivalDate";
+        const accountingDateTypeInput = String(request.query.accountingDateType || "").trim();
+        const accountingDateTypeMap: Record<string, string> = {
+            expenseDate: "expenseDate",
+            dateOfWork: "dateOfWork",
+            datePaid: "datePaid",
+            createdAt: "DATE(createdAt)",
+            updatedAt: "DATE(updatedAt)",
+        };
+        const accountingDateColumn = accountingDateTypeMap[accountingDateTypeInput] || "expenseDate";
+
+        const rawAccountingCategoryIds =
+            request.query.accountingCategoryIds ?? request.query["accountingCategoryIds[]"];
+        const accountingCategoryIds = Array.from(new Set(
+            (Array.isArray(rawAccountingCategoryIds)
+                ? rawAccountingCategoryIds
+                : rawAccountingCategoryIds
+                    ? String(rawAccountingCategoryIds).split(",")
+                    : []
+            )
+                .map((value) => Number(String(value).trim()))
+                .filter((value) => Number.isFinite(value) && value > 0)
+        ));
 
         const rawListingIds = request.query.listingIds ?? request.query["listingIds[]"];
         const listingIdsInput = Array.isArray(rawListingIds)
@@ -987,12 +1011,18 @@ export class ExpenseService {
         const expenseParams: any[] = [];
         let reservationDateWhere = "";
         let expenseDateWhere = "";
+        let expenseCategoryWhere = "";
 
         if (fromDate && toDate) {
             reservationDateWhere = `AND ${reservationDateColumn} BETWEEN ? AND ?`;
-            expenseDateWhere = "AND expenseDate BETWEEN ? AND ?";
+            expenseDateWhere = `AND ${accountingDateColumn} BETWEEN ? AND ?`;
             reservationParams.push(fromDate, toDate);
             expenseParams.push(fromDate, toDate);
+        }
+        if (accountingCategoryIds.length > 0) {
+            const categoryAlternation = accountingCategoryIds.join("|");
+            expenseCategoryWhere = "AND categories REGEXP ?";
+            expenseParams.push(`(^|[^0-9])(${categoryAlternation})([^0-9]|$)`);
         }
 
         let reservationListingWhere = "";
@@ -1057,6 +1087,7 @@ export class ExpenseService {
                 AND isDeleted = 0
                 AND fromClaimsFee = 1
                 ${expenseDateWhere}
+                ${expenseCategoryWhere}
                 ${expenseListingWhere}
                 GROUP BY listingMapId
             `,
@@ -1113,8 +1144,9 @@ export class ExpenseService {
                     AND isDeleted = 0
                     AND fromClaimsFee = 1
                     ${expenseDateWhere}
+                    ${expenseCategoryWhere}
                     ${expenseListingWhere}
-                    ORDER BY expenseDate DESC, id DESC
+                    ORDER BY ${accountingDateColumn} DESC, id DESC
                 `,
                 expenseParams
             );
