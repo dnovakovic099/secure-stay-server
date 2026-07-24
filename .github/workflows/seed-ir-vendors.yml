@@ -1,0 +1,29 @@
+name: Seed IR Vendor Memory
+
+on:
+  workflow_dispatch:
+
+jobs:
+  seed:
+    name: Seed IR vendors on EC2
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run IR seed scripts on EC2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT }}
+          command_timeout: 15m
+          script: |
+            set -e
+            cd /home/ec2-user/secure_stay/secure-stay-server || exit 1
+            git fetch origin dev-new
+            git reset --hard origin/dev-new
+            npm install --no-audit --no-fund
+            echo ">>> Portfolio defaults..."
+            npx ts-node src/scripts/seedIrPortfolioDefaults.ts
+            echo ">>> Scraped vendors..."
+            npx ts-node src/scripts/seedIrVendorScrape.ts
+            echo ">>> Done"
