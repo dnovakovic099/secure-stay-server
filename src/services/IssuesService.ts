@@ -1506,35 +1506,80 @@ export class IssuesService {
    * (cohost) reservation while the Inbox v2 side panel, which reads the
    * conversation live, opens the correct (main-host) one.
    *
-   * This helper enriches each AI-linked issue with a `hostifyReservationId`
-   * that reflects the current, live conversation value. Frontend prefers this
-   * over the stored `reservation_id` for external Hostify links. Two batched
-   * DB queries regardless of issue count. No-op for issues without an
-   * `aiSourceRef` pointing at ai_detected_items.
+   * This helper enriches each issue with Inbox V2 link data. AI-linked issues
+   * use the exact detected thread; manually created issues fall back to the
+   * newest Inbox conversation for the reservation.
    */
   private async enrichHostifyReservationIds(issues: Issue[]): Promise<void> {
     if (!issues?.length) return;
 
     const detectedIdByIssue = new Map<number, number>();
+    const reservationIdByIssue = new Map<number, number>();
     for (const issue of issues) {
       const ref = String((issue as any).aiSourceRef || "");
-      if (!ref.startsWith("ai_detected_items:")) continue;
-      const id = Number(ref.split(":")[1]);
-      if (Number.isFinite(id)) detectedIdByIssue.set(issue.id, id);
+      if (ref.startsWith("ai_detected_items:")) {
+        const id = Number(ref.split(":")[1]);
+        if (Number.isFinite(id)) detectedIdByIssue.set(issue.id, id);
+      }
+      const reservationId = Number((issue as any).reservation_id);
+      if (Number.isFinite(reservationId) && reservationId > 0) {
+        reservationIdByIssue.set(issue.id, reservationId);
+      }
     }
-    if (!detectedIdByIssue.size) return;
 
-    const detectedIds = Array.from(new Set(detectedIdByIssue.values()));
-    const detectedItems = await appDatabase
-      .getRepository(AIDetectedItemEntity)
-      .find({ where: { id: In(detectedIds) } })
-      .catch(() => [] as AIDetectedItemEntity[]);
+    const threadIdByIssue = new Map<number, number>();
+    if (detectedIdByIssue.size) {
+      const detectedIds = Array.from(new Set(detectedIdByIssue.values()));
+      const detectedItems = await appDatabase
+        .getRepository(AIDetectedItemEntity)
+        .find({ where: { id: In(detectedIds) } })
+        .catch(() => [] as AIDetectedItemEntity[]);
 
-    const threadIdByDetected = new Map<number, number>();
-    for (const d of detectedItems) {
-      if (d.threadId != null) threadIdByDetected.set(d.id, Number(d.threadId));
+      const threadIdByDetected = new Map<number, number>();
+      for (const d of detectedItems) {
+        if (d.threadId != null) threadIdByDetected.set(d.id, Number(d.threadId));
+      }
+      for (const issue of issues) {
+        const detectedId = detectedIdByIssue.get(issue.id);
+        const threadId = detectedId != null ? threadIdByDetected.get(detectedId) : null;
+        if (threadId != null) threadIdByIssue.set(issue.id, threadId);
+      }
     }
-    const threadIds = Array.from(new Set(threadIdByDetected.values()));
+
+    const reservationIds = Array.from(new Set(reservationIdByIssue.values()));
+    const conversationsByReservation = reservationIds.length
+      ? await appDatabase
+        .getRepository(InboxConversationEntity)
+        .find({
+          where: { reservationId: In(reservationIds) },
+          order: { lastMessageAt: "DESC" as any, updatedAt: "DESC" as any },
+        })
+        .catch(() => [] as InboxConversationEntity[])
+      : [];
+
+    const threadIdByReservation = new Map<number, number>();
+    for (const conversation of conversationsByReservation) {
+      const reservationId = Number(conversation.reservationId);
+      const threadId = Number(conversation.threadId);
+      if (
+        Number.isFinite(reservationId) &&
+        Number.isFinite(threadId) &&
+        !threadIdByReservation.has(reservationId)
+      ) {
+        threadIdByReservation.set(reservationId, threadId);
+      }
+    }
+
+    for (const issue of issues) {
+      const reservationId = reservationIdByIssue.get(issue.id);
+      const fallbackThreadId = reservationId != null ? threadIdByReservation.get(reservationId) : null;
+      const threadId = threadIdByIssue.get(issue.id) ?? fallbackThreadId;
+      if (threadId != null) {
+        (issue as any).inboxThreadId = threadId;
+      }
+    }
+
+    const threadIds = Array.from(new Set(Array.from(threadIdByIssue.values())));
     if (!threadIds.length) return;
 
     const conversations = await appDatabase
@@ -1550,9 +1595,7 @@ export class IssuesService {
     }
 
     for (const issue of issues) {
-      const detectedId = detectedIdByIssue.get(issue.id);
-      if (detectedId == null) continue;
-      const threadId = threadIdByDetected.get(detectedId);
+      const threadId = threadIdByIssue.get(issue.id);
       if (threadId == null) continue;
       const currentResId = reservationIdByThread.get(threadId);
       if (currentResId != null) {
