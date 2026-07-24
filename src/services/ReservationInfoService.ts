@@ -1701,14 +1701,39 @@ export class ReservationInfoService {
     return value.replace(/[|<>]/g, " ").replace(/\s+/g, " ").trim();
   }
 
-  private formatDisputeRiskReservationLine(reservation: ReservationInfoEntity) {
+  private formatDisputeRiskGuestLabel(reservation: ReservationInfoEntity) {
     const guestName = this.escapeSlackLinkText(String(reservation.guestName || "Guest").trim()) || "Guest";
     const hostifyUrl = this.getHostifyReservationUrl(reservation);
-    const guestLabel = hostifyUrl ? `<${hostifyUrl}|${guestName}>` : guestName;
+    return hostifyUrl ? `<${hostifyUrl}|${guestName}>` : guestName;
+  }
+
+  private formatDisputeRiskReservationLine(reservation: ReservationInfoEntity) {
+    const guestLabel = this.formatDisputeRiskGuestLabel(reservation);
     const checkIn = reservation.arrivalDate ? format(new Date(reservation.arrivalDate), "MMM d, yyyy") : "Unknown check-in";
     const checkOut = reservation.departureDate ? format(new Date(reservation.departureDate), "MMM d, yyyy") : "Unknown check-out";
     const confirmationCode = String(reservation.confirmation_code || reservation.channelReservationId || "").trim();
     return `• ${guestLabel} — ${checkIn} → ${checkOut}${confirmationCode ? ` (${confirmationCode})` : ""}`;
+  }
+
+  private toDisputeRiskMoneyValue(value: unknown): number | null {
+    if (value === null || value === undefined || value === "") return null;
+    const amount = Number(value);
+    return Number.isFinite(amount) ? amount : null;
+  }
+
+  private getDisputeRiskTotalPaid(reservation: ReservationInfoEntity): number | null {
+    return this.toDisputeRiskMoneyValue(reservation.airbnbTotalPaidAmount)
+      ?? this.toDisputeRiskMoneyValue(reservation.totalPrice);
+  }
+
+  private getDisputeRiskOwnerRevenue(reservation: ReservationInfoEntity): number | null {
+    return this.toDisputeRiskMoneyValue(reservation.owner_revenue);
+  }
+
+  private formatDisputeRiskCurrency(value: number | null) {
+    return value === null
+      ? "unknown total paid"
+      : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
   }
 
   private async getUpcomingReservationsForDisputeRisk(reservation: ReservationInfoEntity) {
@@ -1736,15 +1761,26 @@ export class ReservationInfoService {
     if (!reservation) return;
 
     const upcomingReservations = await this.getUpcomingReservationsForDisputeRisk(reservation);
-    const propertyName = String(reservation.listingName || "this property").trim();
-    const upcomingText = upcomingReservations.length
-      ? `Upcoming reservations for ${propertyName}:\n${upcomingReservations.map((item) => this.formatDisputeRiskReservationLine(item)).join("\n")}`
-      : `There are no upcoming reservations for ${propertyName}.`;
+    const disputeRiskTotalPaid = this.getDisputeRiskTotalPaid(reservation);
+    const coveringReservations = disputeRiskTotalPaid === null
+      ? []
+      : upcomingReservations.filter((item) => {
+        const ownerRevenue = this.getDisputeRiskOwnerRevenue(item);
+        return ownerRevenue !== null && ownerRevenue >= disputeRiskTotalPaid;
+      });
+    const propertyName = String(reservation.listingName || "the property").trim();
+    const reservationSubject = `${propertyName} - ${this.formatDisputeRiskGuestLabel(reservation)}`;
+    const totalPaidText = this.formatDisputeRiskCurrency(disputeRiskTotalPaid);
+    const upcomingText = disputeRiskTotalPaid === null
+      ? `I could not determine the total paid for ${reservationSubject}, so I could not compare it against upcoming owner revenue for ${propertyName}.`
+      : coveringReservations.length
+        ? `${coveringReservations.length} upcoming reservation${coveringReservations.length === 1 ? "" : "s"} for ${propertyName} have owner revenue that can cover the total paid for ${reservationSubject} (${totalPaidText}):\n${coveringReservations.map((item) => this.formatDisputeRiskReservationLine(item)).join("\n")}`
+        : `No upcoming reservations for ${propertyName} have owner revenue that can cover the total paid for ${reservationSubject} (${totalPaidText}).`;
 
     await new ResolutionsTeamSlackService().postActivityToThread(reviewCheckout.id, {
       type: "dispute_risk",
       actor: changedBy,
-      details: `<@${FERDY_SLACK_USER_ID}> This reservation is a dispute risk.\n${upcomingText}`,
+      details: `<@${FERDY_SLACK_USER_ID}> ${reservationSubject} is a dispute risk.\n${upcomingText}`,
     });
   }
 
