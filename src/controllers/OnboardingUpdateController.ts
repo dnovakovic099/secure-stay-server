@@ -18,4 +18,11 @@ export class OnboardingUpdateController {
       return response.status(201).json(result);
     } catch (error) { next(error); }
   }
+
+  async ensureSlackThread(request: CustomRequest, response: Response, next: NextFunction) {
+    try {
+      const result = await new OnboardingUpdateService().ensureSlackThreadForProperty(request.params.propertyId, request.user.id);
+      return response.status(200).json(result);
+    } catch (error) { next(error); }
+  }
 }

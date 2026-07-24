@@ -65,9 +65,30 @@ export class OnboardingUpdateService {
     return saved;
   }
 
-  private async ensureSlackThread(property: ClientPropertyEntity, userId?: string) {
+  private buildSlackThreadUrl(thread: SlackMessageEntity) {
+    const workspaceUrl = String(process.env.SLACK_WORKSPACE_URL || "").trim().replace(/\/?$/, "/");
+    const threadTs = thread.threadTs || thread.messageTs;
+    if (!workspaceUrl || !thread.channel || !threadTs) return null;
+    return `${workspaceUrl}archives/${thread.channel}/p${String(threadTs).replace(".", "")}`;
+  }
+
+  async ensureSlackThreadForProperty(propertyId: string, userId?: string) {
+    const property = await this.propertyRepo.findOne({
+      where: { id: propertyId, deletedAt: IsNull() },
+      relations: ["client", "propertyInfo"],
+    });
+    if (!property) throw CustomErrorHandler.notFound("Property not found");
+    const thread = await this.ensureSlackThread(property, userId);
+    const slackThreadUrl = thread ? this.buildSlackThreadUrl(thread) : null;
+    if (!slackThreadUrl) {
+      throw CustomErrorHandler.validationError("Slack thread was created, but SLACK_WORKSPACE_URL is not configured");
+    }
+    return { slackThreadUrl };
+  }
+
+  private async ensureSlackThread(property: ClientPropertyEntity, userId?: string): Promise<SlackMessageEntity | null> {
     const client = property.client as any;
-    if (!client?.id) return;
+    if (!client?.id) return null;
     const existing = await this.slackRepo.findOne({
       where: {
         entityType: "client_onboarding",
@@ -75,7 +96,7 @@ export class OnboardingUpdateService {
       },
       order: { createdAt: "DESC" },
     });
-    if (existing?.threadTs) return;
+    if (existing?.threadTs) return existing;
     const user = userId ? await this.userRepo.findOne({ where: { uid: userId } }) : null;
     const author = user ? `${user.firstName || ""} ${user.lastName || ""}`.trim() : "SecureStay";
     const propertyName = (property as any).propertyInfo?.internalListingName || property.address || `Property #${property.id}`;
@@ -84,7 +105,7 @@ export class OnboardingUpdateService {
       text: `📥 *Onboarding form received*\n*Client:* ${client.firstName || ""} ${client.lastName || ""}\n*Property:* ${propertyName}\n_Received by ${author}_`,
     });
     if (response?.ok) {
-      await this.slackRepo.save(this.slackRepo.create({
+      return await this.slackRepo.save(this.slackRepo.create({
         channel: response.channel,
         messageTs: response.ts,
         threadTs: response.ts,
@@ -97,6 +118,7 @@ export class OnboardingUpdateService {
         `Failed to create onboarding Slack thread for property ${property.id}: ${response?.error || "No Slack response"}`
       );
     }
+    return null;
   }
 
   private async postToSlack(property: ClientPropertyEntity, message: string, userId?: string, system = false) {

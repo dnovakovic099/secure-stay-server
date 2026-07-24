@@ -43,6 +43,7 @@ interface ClientFilter {
   serviceType?: string[];
   status?: string[];
   source?: string;
+  onboardingOnly?: boolean;
 }
 
 // types/propertyOnboarding.ts
@@ -1397,6 +1398,10 @@ export class ClientService {
       baseQuery.andWhere("client.source = :source", { source: filter.source });
     }
 
+    if (filter.onboardingOnly) {
+      baseQuery.andWhere("property.status = :onboardingStatus", { onboardingStatus: "onboarding" });
+    }
+
     // Get total count and paginated IDs
     // We remove .select() because using a custom select with skip/take and orderBy
     // triggers a known TypeORM bug with distinctAlias in the count subquery.
@@ -1571,16 +1576,38 @@ export class ClientService {
   }
 
 
-  async deleteClient(clientId: string, userId: string) {
+  async deleteClient(clientId: string, userId: string, deleteAllProperties = false) {
     const client = await this.clientRepo.findOne({ where: { id: clientId } });
     if (!client) {
       throw CustomErrorHandler.notFound("Client not found");
     }
 
-    // Soft delete by setting deletedAt and deletedBy
-    client.deletedAt = new Date();
-    client.deletedBy = userId;
-    await this.clientRepo.save(client);
+    const properties = await this.propertyRepo.find({
+      where: { client: { id: clientId }, deletedAt: IsNull() },
+    });
+
+    if (properties.length > 0 && !deleteAllProperties) {
+      throw CustomErrorHandler.validationError(
+        `This client has ${properties.length} active ${properties.length === 1 ? "property" : "properties"}. Confirm deletion of all properties to delete the client profile.`
+      );
+    }
+
+    const deletedAt = new Date();
+    await appDatabase.transaction(async (manager) => {
+      if (deleteAllProperties && properties.length > 0) {
+        properties.forEach((property) => {
+          property.deletedAt = deletedAt;
+          property.deletedBy = userId;
+        });
+        await manager.save(properties);
+      }
+
+      client.deletedAt = deletedAt;
+      client.deletedBy = userId;
+      await manager.save(client);
+    });
+
+    return { deletedProperties: deleteAllProperties ? properties.length : 0 };
   }
 
   async deleteProperty(propertyId: string, userId: string) {

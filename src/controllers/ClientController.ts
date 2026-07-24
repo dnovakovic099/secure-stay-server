@@ -40,8 +40,12 @@ export class ClientController {
   async deleteClient(request: CustomRequest, response: Response, next: NextFunction) {
     try {
       const clientService = new ClientService();
-      await clientService.deleteClient(request.params.id, request.user.id);
-      return response.status(200).json({ message: "Client deleted successfully." });
+      const deleteAllProperties = String(request.query.deleteAllProperties || "").toLowerCase() === "true";
+      const result = await clientService.deleteClient(request.params.id, request.user.id, deleteAllProperties);
+      return response.status(200).json({
+        message: "Client deleted successfully.",
+        ...result,
+      });
     } catch (error) {
       next(error);
     }
@@ -68,6 +72,7 @@ export class ClientController {
         serviceType: request.query.serviceType ? (Array.isArray(request.query.serviceType) ? request.query.serviceType : [request.query.serviceType]) as string[] : undefined,
         status: request.query.status ? (Array.isArray(request.query.status) ? request.query.status : [request.query.status]) as string[] : undefined,
         source: request.query.source as string | undefined,
+        onboardingOnly: String(request.query.onboardingOnly || "").toLowerCase() === "true",
       };
 
       // Run both queries in parallel for better performance

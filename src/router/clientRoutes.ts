@@ -21,6 +21,7 @@ router.route('/listing/:listingId/property-access').put(verifySession, clientCon
 router.route('/properties/names').get(verifySession, clientController.getClientPropertyNames.bind(clientController));
 router.route('/onboarding-updates').get(verifySession, onboardingUpdateController.list.bind(onboardingUpdateController));
 router.route('/property/:propertyId/onboarding-updates').post(verifySession, onboardingUpdateController.create.bind(onboardingUpdateController));
+router.route('/property/:propertyId/onboarding-slack-thread').post(verifySession, onboardingUpdateController.ensureSlackThread.bind(onboardingUpdateController));
 router.route('/:id').delete(verifySession, clientController.deleteClient.bind(clientController));
 router.route('/property/:propertyId').delete(verifySession, clientController.deleteProperty.bind(clientController));
 
