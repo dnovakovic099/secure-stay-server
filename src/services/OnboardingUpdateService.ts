@@ -9,6 +9,14 @@ import sendSlackMessage from "../utils/sendSlackMsg";
 import logger from "../utils/logger.utils";
 
 const SLACK_VISIBLE_SYSTEM_EVENTS = new Set(["phase_changed", "hostify_exported", "email_sent", "sms_sent"]);
+const SNAPSHOT_METADATA_KEY = "trackedState";
+const IGNORED_SNAPSHOT_KEYS = new Set([
+  "id", "createdAt", "createdBy", "updatedAt", "updatedBy", "deletedAt", "deletedBy",
+  "client", "property", "clientProperty", "propertyInfo",
+]);
+const SENSITIVE_SNAPSHOT_KEY = /(password|access.?code|door.?code|lock.?code|api.?key|secret|token)/i;
+
+type TrackedChange = { field: string; from: unknown; to: unknown };
 
 export class OnboardingUpdateService {
   private updateRepo = appDatabase.getRepository(OnboardingUpdate);
@@ -22,12 +30,16 @@ export class OnboardingUpdateService {
 
     const updates = await this.updateRepo.find({
       where: { propertyId: In(ids) },
-      order: { createdAt: "DESC" },
+      order: { createdAt: "ASC" },
     });
     const userIds = Array.from(new Set(updates.map((item) => item.createdBy).filter(Boolean))) as string[];
     const users = userIds.length ? await this.userRepo.find({ where: { uid: In(userIds), deletedAt: IsNull() } }) : [];
     const userMap = new Map(users.map((user) => [user.uid, `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email]));
-    return updates.map((item) => ({ ...item, createdByName: item.createdBy ? userMap.get(item.createdBy) || "SecureStay User" : "SecureStay" }));
+    return updates.map((item) => ({
+      ...item,
+      metadata: this.publicMetadata(item.metadata),
+      createdByName: item.createdBy ? userMap.get(item.createdBy) || "SecureStay User" : "SecureStay",
+    }));
   }
 
   async addUserUpdate(propertyId: string, message: string, userId: string) {
@@ -49,20 +61,122 @@ export class OnboardingUpdateService {
   }
 
   async addSystemUpdate(propertyId: string, message: string, eventType: string, userId?: string, metadata?: Record<string, unknown>) {
-    const property = await this.propertyRepo.findOne({ where: { id: propertyId, deletedAt: IsNull() }, relations: ["client", "propertyInfo"] });
+    const property = await this.propertyRepo.findOne({
+      where: { id: propertyId, deletedAt: IsNull() },
+      relations: [
+        "client",
+        "onboarding",
+        "serviceInfo",
+        "propertyInfo",
+        "propertyInfo.propertyBedTypes",
+        "propertyInfo.propertyBathroomLocation",
+        "propertyInfo.propertyParkingInfo",
+        "propertyInfo.propertyUpsells",
+        "propertyInfo.vendorManagementInfo",
+        "propertyInfo.vendorManagementInfo.vendorInfo",
+        "propertyInfo.vendorManagementInfo.suppliesToRestock",
+      ],
+    });
     if (!property) return null;
+    const trackedState = this.buildTrackedState(property);
+    const previousUpdate = await this.updateRepo.findOne({
+      where: { propertyId, type: "system" },
+      order: { createdAt: "DESC" },
+    });
+    const previousState = previousUpdate?.metadata?.[SNAPSHOT_METADATA_KEY];
+    const changes = this.diffTrackedState(
+      previousState && typeof previousState === "object" ? previousState as Record<string, unknown> : null,
+      trackedState
+    );
+    const suppliedChanges = this.changesFromMetadata(metadata);
     const saved = await this.updateRepo.save(this.updateRepo.create({
       propertyId,
       property,
       message,
       type: "system",
       eventType,
-      metadata: metadata || null,
+      metadata: {
+        ...(metadata || {}),
+        ...(changes.length || suppliedChanges.length ? { changes: changes.length ? changes : suppliedChanges } : {}),
+        [SNAPSHOT_METADATA_KEY]: trackedState,
+      },
       createdBy: userId || null,
     }));
     if (eventType === "onboarding_form_received") await this.ensureSlackThread(property, userId);
     if (SLACK_VISIBLE_SYSTEM_EVENTS.has(eventType)) await this.postToSlack(property, message, userId, true);
     return saved;
+  }
+
+  private publicMetadata(metadata: Record<string, unknown> | null) {
+    if (!metadata) return null;
+    const { [SNAPSHOT_METADATA_KEY]: _trackedState, ...publicMetadata } = metadata;
+    return Object.keys(publicMetadata).length ? publicMetadata : null;
+  }
+
+  private buildTrackedState(property: ClientPropertyEntity) {
+    const source = {
+      client: property.client,
+      property: {
+        address: property.address,
+        streetAddress: property.streetAddress,
+        unitNumber: property.unitNumber,
+        city: property.city,
+        state: property.state,
+        country: property.country,
+        zipCode: property.zipCode,
+        status: property.status,
+        onboardingStage: property.onboardingStage,
+      },
+      onboarding: property.onboarding,
+      serviceInfo: property.serviceInfo,
+      listingInfo: property.propertyInfo,
+    };
+    const flattened: Record<string, unknown> = {};
+    this.flattenTrackedValue(source, "", flattened);
+    return flattened;
+  }
+
+  private flattenTrackedValue(value: unknown, path: string, output: Record<string, unknown>) {
+    if (value === undefined || typeof value === "function") return;
+    if (value === null || typeof value !== "object") {
+      if (path) output[path] = value ?? null;
+      return;
+    }
+    if (value instanceof Date) return;
+    if (Array.isArray(value)) {
+      if (path) output[path] = value.map((item) => this.compactArrayValue(item));
+      return;
+    }
+    Object.entries(value as Record<string, unknown>).forEach(([key, child]) => {
+      if ((path && IGNORED_SNAPSHOT_KEYS.has(key)) || SENSITIVE_SNAPSHOT_KEY.test(key)) return;
+      this.flattenTrackedValue(child, path ? `${path}.${key}` : key, output);
+    });
+  }
+
+  private compactArrayValue(value: unknown): unknown {
+    if (value === null || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map((item) => this.compactArrayValue(item));
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !IGNORED_SNAPSHOT_KEYS.has(key) && !SENSITIVE_SNAPSHOT_KEY.test(key))
+        .map(([key, child]) => [key, this.compactArrayValue(child)])
+    );
+  }
+
+  private diffTrackedState(previous: Record<string, unknown> | null, current: Record<string, unknown>): TrackedChange[] {
+    if (!previous) return [];
+    const keys = Array.from(new Set([...Object.keys(previous), ...Object.keys(current)])).sort();
+    return keys
+      .filter((key) => JSON.stringify(previous[key] ?? null) !== JSON.stringify(current[key] ?? null))
+      .map((key) => ({ field: key, from: previous[key] ?? null, to: current[key] ?? null }));
+  }
+
+  private changesFromMetadata(metadata?: Record<string, unknown>): TrackedChange[] {
+    if (!metadata) return [];
+    if (metadata.previousStage !== undefined || metadata.stage !== undefined) {
+      return [{ field: "property.onboardingStage", from: metadata.previousStage ?? null, to: metadata.stage ?? null }];
+    }
+    return [];
   }
 
   private buildSlackThreadUrl(thread: SlackMessageEntity) {
