@@ -93,7 +93,13 @@ async function main() {
             const vendorName = String(person.name || "").trim();
             const phone = sanitizePhone(person.phone);
             const normalizedName = normalizeName(vendorName);
-            if (!vendorName || !phone || !normalizedName) {
+            if (
+                !vendorName ||
+                !phone ||
+                !normalizedName ||
+                /^(null|undefined|n\/a|none|unknown)$/i.test(vendorName) ||
+                /^(null|undefined|n a|none|unknown)$/i.test(normalizedName)
+            ) {
                 skipped += 1;
                 continue;
             }
@@ -165,6 +171,18 @@ async function main() {
         upserts += chunk.length;
         console.log(`Upserted ${Math.min(i + chunkSize, rows.length)}/${rows.length}`);
     }
+
+    const [purgeBad]: any = await conn.query(
+        `DELETE FROM ir_vendor_memory
+         WHERE vendorName IS NULL
+            OR TRIM(vendorName) = ''
+            OR LOWER(TRIM(vendorName)) IN ('null', 'undefined', 'n/a', 'none', 'unknown', '(null)')
+            OR normalizedName IN ('null', 'undefined', 'n a', 'none', 'unknown')
+            OR ((phone IS NULL OR TRIM(phone) = '')
+                AND (email IS NULL OR TRIM(email) = '')
+                AND COALESCE(source, '') NOT IN ('teach', 'feedback', 'seed'))`
+    );
+    console.log(`Post-scrape junk purge affected=${purgeBad?.affectedRows ?? 0}`);
 
     await conn.end();
     console.log(`Done. upserts=${upserts} skipped=${skipped}`);

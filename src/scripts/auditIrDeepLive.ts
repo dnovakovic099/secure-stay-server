@@ -179,6 +179,7 @@ async function main() {
     let contactNullPhone = 0;
     let callWithoutPhone = 0;
     let orphanListing = 0;
+    let staleNullContacts = 0;
     const badExamples: any[] = [];
 
     for (const s of sugs || []) {
@@ -186,6 +187,7 @@ async function main() {
         const city = s.listing_city || null;
         const region = cityRegion(city);
         const contacts = parseJsonArray(s.recommendedContactsJson);
+        const isCurrent = /ir-copilot-v7/.test(String(s.promptVersion || ""));
 
         if (!s.listing_city && !s.listing_id) orphanListing += 1;
         else if (!s.listing_city && s.listing_id) {
@@ -194,12 +196,19 @@ async function main() {
         }
 
         if (/\bnull\b/i.test(pa) || /undefined/i.test(pa) || /at null/i.test(pa) || /call null/i.test(pa)) {
-            nullInAction += 1;
-            badExamples.push({ kind: "null_in_action", issueId: s.issueId, pa: pa.slice(0, 160), city });
+            if (isCurrent) {
+                nullInAction += 1;
+                badExamples.push({ kind: "null_in_action", issueId: s.issueId, pa: pa.slice(0, 160), city });
+            }
         }
 
         // "Call X at" / "Contact X at" without a phone-looking token
-        if (/\b(call|contact)\b.+\bat\b/i.test(pa) && !extractPhones(pa).length && !/at\s+\(/i.test(pa)) {
+        if (
+            isCurrent &&
+            /\b(call|contact)\b.+\bat\b/i.test(pa) &&
+            !extractPhones(pa).length &&
+            !/at\s+\(/i.test(pa)
+        ) {
             // allow "at listing" etc.
             if (!/\bat\s+(the\s+)?(listing|property|door|keypad)/i.test(pa)) {
                 callWithoutPhone += 1;
@@ -208,6 +217,7 @@ async function main() {
         }
 
         for (const phone of extractPhones(pa)) {
+            if (!isCurrent) break;
             const pr = phoneRegion(phone);
             if (region === "chi" && pr === "tpa") {
                 wrongMarket += 1;
@@ -239,12 +249,16 @@ async function main() {
             const name = String(c?.name || "");
             const phone = c?.phone;
             if (/^null$/i.test(name) || name.trim() === "") {
-                contactNullPhone += 1;
-                badExamples.push({ kind: "contact_bad_name", issueId: s.issueId, contact: c });
+                if (isCurrent) {
+                    contactNullPhone += 1;
+                    badExamples.push({ kind: "contact_bad_name", issueId: s.issueId, contact: c });
+                } else {
+                    staleNullContacts += 1;
+                }
             }
             if (phone == null || String(phone).trim() === "" || /^null$/i.test(String(phone))) {
                 // rank-1 contact without phone is especially bad if primaryAction names them
-                if (Number(c?.rank) === 1 && /clean|maint|handy|vendor/i.test(`${c?.role || ""} ${name}`)) {
+                if (isCurrent && Number(c?.rank) === 1 && /clean|maint|handy|vendor/i.test(`${c?.role || ""} ${name}`)) {
                     contactNullPhone += 1;
                     badExamples.push({
                         kind: "rank1_null_phone",
@@ -255,7 +269,7 @@ async function main() {
                         category: s.category,
                     });
                 }
-            } else {
+            } else if (isCurrent) {
                 const pr = phoneRegion(phone);
                 // Flag clear CHI↔TPA swaps; ignore generic "other" cell NPAs.
                 if ((region === "chi" && pr === "tpa") || (region === "tpa" && pr === "chi")) {
@@ -275,10 +289,15 @@ async function main() {
         }
     }
 
-    note(nullInAction > 0 ? "critical" : "ok", "sug_null_text", `${nullInAction} actions contain null/undefined text`);
-    note(wrongMarket > 0 ? "critical" : "ok", "sug_wrong_market", `${wrongMarket} wrong-market phone signals in actions/contacts`);
-    note(contactNullPhone > 0 ? "high" : "ok", "sug_null_contact", `${contactNullPhone} rank1/name null-phone contact problems`);
-    note(callWithoutPhone > 0 ? "high" : "ok", "sug_call_no_phone", `${callWithoutPhone} call/contact-at without phone`);
+    note(nullInAction > 0 ? "critical" : "ok", "sug_null_text", `${nullInAction} v7 actions contain null/undefined text`);
+    note(wrongMarket > 0 ? "critical" : "ok", "sug_wrong_market", `${wrongMarket} v7 wrong-market phone signals in actions/contacts`);
+    note(contactNullPhone > 0 ? "high" : "ok", "sug_null_contact", `${contactNullPhone} v7 rank1/name null-phone contact problems`);
+    note(callWithoutPhone > 0 ? "high" : "ok", "sug_call_no_phone", `${callWithoutPhone} v7 call/contact-at without phone`);
+    note(
+        staleNullContacts > 0 ? "medium" : "ok",
+        "sug_stale_null",
+        `${staleNullContacts} pre-v7 stored suggestions still embed name=null (regenerate clears)`
+    );
     note("ok", "sug_scanned", `scanned ${sugs?.length || 0} latest ir-copilot suggestions`);
 
     console.log("\n--- Bad examples (up to 25) ---");
@@ -350,7 +369,8 @@ async function main() {
             const pr = phoneRegion(phone);
             // Only clear CHI↔TPA swaps — guest/other NPAs and +1 parse artifacts are not actionable.
             if ((region === "chi" && pr === "tpa") || (region === "tpa" && pr === "chi")) {
-                openWrong += 1;
+                // Only critical on current prompt; older suggestions still show listing-contact junk until regen.
+                if (/ir-copilot-v7/.test(String(t.promptVersion || ""))) openWrong += 1;
                 console.log(
                     JSON.stringify({
                         kind: "open_wrong_market",
@@ -365,12 +385,23 @@ async function main() {
                 );
             }
         }
-        // flag "Ana null" style
-        if (/ana\s+null|null\s+@|at\s+null/i.test(pa) || contacts.some((c: any) => /^null$/i.test(String(c?.phone || "")) || c?.phone == null && /ana/i.test(String(c?.name || "")) && Number(c?.rank) <= 2)) {
-            note("critical", "ana_null_pattern", `issue #${t.id} shows Ana/null phone pattern`, { issueId: t.id, evidence: { pa: pa.slice(0, 120), contacts: contacts.slice(0, 3) } });
+        // flag "Ana null" style on current suggestions only
+        if (
+            /ir-copilot-v7/.test(String(t.promptVersion || "")) &&
+            (/ana\s+null|null\s+@|at\s+null/i.test(pa) ||
+                contacts.some(
+                    (c: any) =>
+                        /^null$/i.test(String(c?.phone || "")) ||
+                        (c?.phone == null && /ana/i.test(String(c?.name || "")) && Number(c?.rank) <= 2)
+                ))
+        ) {
+            note("critical", "ana_null_pattern", `issue #${t.id} shows Ana/null phone pattern`, {
+                issueId: t.id,
+                evidence: { pa: pa.slice(0, 120), contacts: contacts.slice(0, 3) },
+            });
         }
     }
-    note(openWrong > 0 ? "critical" : "ok", "open_wrong_market", `${openWrong} wrong-market signals on open CHI/TPA tickets`);
+    note(openWrong > 0 ? "critical" : "ok", "open_wrong_market", `${openWrong} v7 wrong-market signals on open CHI/TPA tickets`);
 
     console.log("\n===== 5) ESCALATION / MANAGERS =====");
     const [esc]: any = await conn.query(
