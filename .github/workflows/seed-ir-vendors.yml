@@ -23,7 +23,7 @@ jobs:
             git reset --hard origin/dev-new
             npm install --no-audit --no-fund
             echo ">>> Portfolio defaults..."
-            env NODE_ENV=development npx ts-node src/scripts/seedIrPortfolioDefaults.ts
+            npx ts-node src/scripts/seedIrPortfolioDefaults.ts
             echo ">>> Scraped vendors..."
-            env NODE_ENV=development npx ts-node src/scripts/seedIrVendorScrape.ts
+            npx ts-node src/scripts/seedIrVendorScrape.ts
             echo ">>> Done"

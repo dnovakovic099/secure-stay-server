@@ -87,11 +87,10 @@ jobs:
             echo ">>> Running database migrations..."
             npm run migrate || { echo "❌ Migration failed"; exit 1; }
 
-            echo ">>> Seeding IR portfolio defaults + scraped vendor memory (best-effort, 3m cap)..."
-            # NODE_ENV=development so TypeORM loads src/entity/*.ts under ts-node
-            # (production glob points at dist/, which mismatches the TS entity class).
-            timeout 90 env NODE_ENV=development npx ts-node src/scripts/seedIrPortfolioDefaults.ts || echo "⚠️ IR portfolio defaults seed failed/timed out (non-fatal)"
-            timeout 180 env NODE_ENV=development npx ts-node src/scripts/seedIrVendorScrape.ts || echo "⚠️ IR vendor scrape seed failed/timed out (non-fatal)"
+            echo ">>> Seeding IR portfolio defaults + scraped vendor memory (best-effort)..."
+            # mysql2-only scripts (no TypeORM/subscribers/Redis) so deploy cannot hang.
+            timeout 60 npx ts-node src/scripts/seedIrPortfolioDefaults.ts || echo "⚠️ IR portfolio defaults seed failed/timed out (non-fatal)"
+            timeout 120 npx ts-node src/scripts/seedIrVendorScrape.ts || echo "⚠️ IR vendor scrape seed failed/timed out (non-fatal)"
 
             echo ">>> Pruning dev dependencies to reclaim disk..."
             npm prune --omit=dev || { echo "❌ npm prune failed"; exit 1; }
