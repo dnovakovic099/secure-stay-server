@@ -173,6 +173,13 @@ export const AppRoutes = () => {
       rawJson: false,
     },
     {
+      path: "/upsell/catalog-with-listings",
+      method: "get",
+      action: upSellController.getUpSellCatalogWithListings,
+      file: false,
+      rawJson: false,
+    },
+    {
       path: "/upsell/delete-multiple",
       method: "post",
       action: upSellController.deleteMultipleUpSell,

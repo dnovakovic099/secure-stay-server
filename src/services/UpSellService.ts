@@ -1100,6 +1100,152 @@ export class UpSellServices {
     }
   }
 
+  async getUpSellCatalogWithListings(request: Request, response: Response) {
+    try {
+      const page: any = request.query.page || 1;
+      const limit: any = request.query.limit || 200;
+      const title =
+        request.query.title !== undefined ? request.query.title : "";
+      const offset: any = (page - 1) * limit;
+
+      const [upSells, totalCount, totalActive] = await Promise.all([
+        this.upSellRepository.find({
+          where: { title: Like(`%${title}%`), isActive: true },
+          take: limit,
+          skip: offset,
+          order: { upSellId: "DESC" },
+        }),
+        this.upSellRepository.count({
+          where: { title: Like(`%${title}%`), isActive: true },
+        }),
+        this.upSellRepository.count({
+          where: { title: Like(`%${title}%`), isActive: true, status: true },
+        }),
+      ]);
+
+      const upSellIds = upSells
+        .map((row: any) => Number(row.upSellId))
+        .filter((id) => Number.isFinite(id) && id > 0);
+
+      const [allListingRows, allPropertyConfigs] = await Promise.all([
+        upSellIds.length
+          ? this.upSellListings.find({
+              where: { upSellId: In(upSellIds), status: 1 },
+            })
+          : Promise.resolve([]),
+        upSellIds.length
+          ? this.upSellPropertyConfigRepository.find({
+              where: { upSellId: In(upSellIds) },
+            })
+          : Promise.resolve([]),
+      ]);
+
+      const uniqueListingIds = Array.from(
+        new Set(
+          allListingRows
+            .map((row: any) => Number(row.listingId))
+            .filter((id) => Number.isFinite(id) && id > 0)
+        )
+      );
+
+      const [listingRecords, taxEntries] = await Promise.all([
+        uniqueListingIds.length
+          ? this.listingInfoRepository.find({
+              where: { id: In(uniqueListingIds) },
+            })
+          : Promise.resolve([]),
+        Promise.all(
+          uniqueListingIds.map(async (listingId) => {
+            try {
+              const taxRate = await this.quoteService.getTaxRate(listingId);
+              return [listingId, Number((taxRate * 100).toFixed(2))] as const;
+            } catch {
+              return [listingId, 0] as const;
+            }
+          })
+        ),
+      ]);
+
+      const listingsById = new Map<number, any>();
+      listingRecords.forEach((listing: any) => {
+        listingsById.set(Number(listing.id), listing);
+      });
+
+      const taxByListingId = new Map<number, number>(taxEntries);
+
+      const listingsByUpSell = new Map<number, any[]>();
+      allListingRows.forEach((row: any) => {
+        const upSellId = Number(row.upSellId);
+        if (!listingsByUpSell.has(upSellId)) listingsByUpSell.set(upSellId, []);
+        listingsByUpSell.get(upSellId)!.push(row);
+      });
+
+      const propertyConfigKey = (upSellId: number, listingId: number) =>
+        `${upSellId}:${listingId}`;
+      const propertyConfigByKey = new Map<string, any>();
+      allPropertyConfigs.forEach((config: any) => {
+        propertyConfigByKey.set(
+          propertyConfigKey(Number(config.upSellId), Number(config.listingId)),
+          config
+        );
+      });
+
+      const data = upSells.map((upSell: any) => {
+        const upSellId = Number(upSell.upSellId);
+        const listingRows = listingsByUpSell.get(upSellId) || [];
+        const attachedProperties: any[] = [];
+
+        listingRows.forEach((row: any) => {
+          const listingId = Number(row.listingId);
+          const listingInfo = listingsById.get(listingId);
+          if (!listingInfo) return;
+          const propertyConfig = propertyConfigByKey.get(
+            propertyConfigKey(upSellId, listingId)
+          );
+          const listingTax = taxByListingId.get(listingId) ?? 0;
+
+          attachedProperties.push({
+            ...listingInfo,
+            status: 1,
+            serviceType: propertyConfig?.serviceType ?? null,
+            pmFee: propertyConfig?.pmFee ?? null,
+            actualFee: propertyConfig?.actualFee ?? null,
+            processingFee: propertyConfig?.processingFee ?? null,
+            chargeType: propertyConfig?.chargeType ?? null,
+            rateConfiguration: propertyConfig?.rateConfiguration ?? null,
+            pricingRules: propertyConfig?.pricingRules ?? null,
+            upsellFee: propertyConfig?.upsellFee ?? null,
+            tax: listingTax,
+            taxRate: listingTax,
+            taxable: propertyConfig?.taxable ?? false,
+            pairSyncStatus: propertyConfig?.pairSyncStatus ?? null,
+            source: propertyConfig?.source ?? null,
+            sdto: propertyConfig?.sdto ?? null,
+            internalNotes: propertyConfig?.internalNotes ?? null,
+            description: propertyConfig?.description ?? null,
+            image: propertyConfig?.image ?? null,
+            createdAt: propertyConfig?.createdAt ?? null,
+            updatedAt: propertyConfig?.updatedAt ?? null,
+          });
+        });
+
+        return {
+          ...upSell,
+          attachedProperties,
+        };
+      });
+
+      return {
+        status: true,
+        data,
+        length: totalCount,
+        totalActive,
+      };
+    } catch (error) {
+      throw new Error(error);
+    }
+  }
+
   async getPropertyConfigHistory(request: Request, response: Response) {
     try {
       const upSellId = Number(request.query.upSellId);

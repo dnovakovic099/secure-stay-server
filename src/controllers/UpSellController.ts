@@ -65,4 +65,10 @@ export class UpSellController {
     const data = await getUpSellHistory.getPropertyConfigHistory(request, response);
     return response.send(data);
   }
+
+  async getUpSellCatalogWithListings(request: Request, response: Response) {
+    const service = new UpSellServices();
+    const data = await service.getUpSellCatalogWithListings(request, response);
+    return response.send(data);
+  }
 }
