@@ -47,7 +47,7 @@ export class IrVendorMemoryEntity {
     @Column({ type: "datetime", nullable: true })
     lastUsedAt: Date | null;
 
-    /** issue | contact | feedback | teach */
+    /** issue | contact | feedback | teach | seed */
     @Column({ length: 32, default: "issue" })
     source: string;
 

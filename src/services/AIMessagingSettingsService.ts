@@ -115,6 +115,7 @@ export interface AIMessagingSettingsPatch {
     lateCheckoutHandling?: EarlyLateCheckHandling | string;
     paymentAlertEmails?: string | null;
     opsAlertEmails?: string | null;
+    grRefundManagerEmails?: string | null;
     itemDetectionEnabled?: boolean;
     actionItemRules?: string | null;
     actionItemCategories?: ActionItemCategoryEntry[] | null;
@@ -178,7 +179,7 @@ export class AIMessagingSettingsService {
             const cols: any[] = await appDatabase.query(
                 `SELECT COLUMN_NAME AS name FROM information_schema.COLUMNS
                  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ai_messaging_settings'
-                   AND COLUMN_NAME IN ('earlyCheckinHandling','lateCheckoutHandling')`
+                   AND COLUMN_NAME IN ('earlyCheckinHandling','lateCheckoutHandling','grRefundManagerEmails')`
             );
             const have = new Set((cols || []).map((c) => String(c.name)));
             if (!have.has("earlyCheckinHandling")) {
@@ -191,6 +192,12 @@ export class AIMessagingSettingsService {
                 await appDatabase.query(
                     `ALTER TABLE ai_messaging_settings
                      ADD COLUMN lateCheckoutHandling VARCHAR(32) NOT NULL DEFAULT 'defer_to_team'`
+                );
+            }
+            if (!have.has("grRefundManagerEmails")) {
+                await appDatabase.query(
+                    `ALTER TABLE ai_messaging_settings
+                     ADD COLUMN grRefundManagerEmails TEXT NULL`
                 );
             }
             AIMessagingSettingsService.columnsEnsured = true;
@@ -285,6 +292,9 @@ export class AIMessagingSettingsService {
         }
         if (patch.paymentAlertEmails !== undefined) row.paymentAlertEmails = patch.paymentAlertEmails ?? null;
         if (patch.opsAlertEmails !== undefined) row.opsAlertEmails = patch.opsAlertEmails ?? null;
+        if (patch.grRefundManagerEmails !== undefined) {
+            row.grRefundManagerEmails = patch.grRefundManagerEmails ?? null;
+        }
         if (patch.itemDetectionEnabled !== undefined) row.itemDetectionEnabled = patch.itemDetectionEnabled ? 1 : 0;
         if (patch.actionItemRules !== undefined) row.actionItemRules = patch.actionItemRules ?? null;
         if (patch.actionItemCategories !== undefined) {

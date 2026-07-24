@@ -39,6 +39,9 @@ const INSTRUCTION_FIELDS = [
     "quoUnlinkedThreadRules",
 ] as const;
 
+/** Ops/manager routing — also admin-only. */
+const ADMIN_SETTINGS_FIELDS = ["grRefundManagerEmails"] as const;
+
 const isAdminUser = async (user: any): Promise<boolean> => {
     const uid = user?.id;
     if (!uid) return false;
@@ -291,6 +294,18 @@ export class AICopilotController {
                     });
                 }
             }
+            const adminSettingKeys = ADMIN_SETTINGS_FIELDS.filter((k) => b[k] !== undefined);
+            if (adminSettingKeys.length > 0) {
+                const admin = await isAdminUser(request.user);
+                if (!admin) {
+                    return response.status(403).json({
+                        status: false,
+                        code: "ADMIN_REQUIRED",
+                        message: "Only SecureStay admins can edit GR refund manager routing.",
+                        fields: adminSettingKeys,
+                    });
+                }
+            }
 
             const saved = await new AIMessagingSettingsService().update({
                 tone: b.tone,
@@ -328,6 +343,7 @@ export class AICopilotController {
                 earlyCheckinHandling: b.earlyCheckinHandling,
                 lateCheckoutHandling: b.lateCheckoutHandling,
                 opsAlertEmails: b.opsAlertEmails,
+                grRefundManagerEmails: b.grRefundManagerEmails,
                 paymentAlertEmails: b.paymentAlertEmails,
                 itemDetectionEnabled: typeof b.itemDetectionEnabled === "boolean" ? b.itemDetectionEnabled : undefined,
                 actionItemRules: b.actionItemRules,

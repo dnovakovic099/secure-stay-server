@@ -157,6 +157,15 @@ export class AIMessagingSettingsEntity {
     @Column({ type: "text", nullable: true })
     opsAlertEmails: string | null;
 
+    /**
+     * Admin-configurable GR refund/cancellation managers (emails).
+     * On REFUNDS / cancel tickets: create Assigned Task + directed notification
+     * for each resolved user, and surface on Mitigation when possible.
+     * Empty → default Anj (+ Jade by first name lookup).
+     */
+    @Column({ type: "text", nullable: true })
+    grRefundManagerEmails: string | null;
+
     // ---- AI detection of our own Action Items + Guest Issues (dormant) ----
     @Column({ type: "tinyint", default: 0 })
     itemDetectionEnabled: number;

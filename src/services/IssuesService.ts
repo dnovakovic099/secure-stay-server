@@ -1399,6 +1399,19 @@ export class IssuesService {
       logger.warn(`[IssuesService] IR onIssueCreated failed for #${savedIssue.id}: ${err?.message}`);
     }
 
+    // GR refund/cancellation → tasks + notifications for configured managers (Anj/Jade by default).
+    void (async () => {
+      try {
+        const { GrRefundEscalationService } = require("./GrRefundEscalationService");
+        await new GrRefundEscalationService().escalateIssue(savedIssue, {
+          uid: userId || null,
+          name: "SecureStay",
+        });
+      } catch (err: any) {
+        logger.warn(`[IssuesService] GR refund escalate failed for #${savedIssue.id}: ${err?.message}`);
+      }
+    })();
+
     // Pre-generate IR Copilot suggestion so the panel has a recommendation ready
     // when the ticket is opened (fire-and-forget — do not block create).
     void (async () => {

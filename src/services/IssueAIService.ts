@@ -14,8 +14,149 @@ import { IssueAISuggestionEntity } from "../entity/IssueAISuggestion";
 import { IssueAIFeedbackEntity } from "../entity/IssueAIFeedback";
 import { IrVendorMemoryEntity } from "../entity/IrVendorMemory";
 
-const PROMPT_VERSION = "ir-copilot-v2";
+const PROMPT_VERSION = "ir-copilot-v6";
 const MODEL = "gpt-4o-mini";
+
+/** NANP NPAs that show up as junk in ticket text (never store as vendor phones). */
+const BOGUS_PHONE_NPAS = new Set([
+    "000",
+    "111",
+    "222",
+    "333",
+    "444",
+    "555",
+    "666",
+    "777",
+    "778",
+    "779",
+    "888",
+    "999",
+]);
+
+/** Guest Relations categories — quote/policy/guest comms, not vendor dispatch. */
+const GR_CATEGORIES = new Set([
+    "RESERVATION CHANGES",
+    "PROPERTY ACCESS",
+    "PAYMENTS",
+    "REFUNDS",
+    "SAFETY",
+    "COMMUNICATION AND ESCALATION",
+    "LISTING",
+    "LOST AND FOUND",
+]);
+
+/** Issue Resolution categories — vendor/cleaner dispatch lane. */
+const IR_CATEGORIES = new Set([
+    "MAINTENANCE",
+    "HVAC",
+    "CLEANLINESS",
+    "SUPPLIES",
+    "POOL AND SPA",
+    "PEST CONTROL",
+    "LANDSCAPING",
+]);
+
+type CityRegion = {
+    id: string;
+    cities: string[];
+    defaults: Array<{
+        vendorName: string;
+        phone: string;
+        category: string;
+        role: string;
+        notes: string;
+    }>;
+};
+
+/** Portfolio defaults for OWN/Airbnb markets (seeded into ir_vendor_memory). */
+const CITY_REGIONS: CityRegion[] = [
+    {
+        id: "chicago",
+        cities: ["Chicago", "Elmwood Park", "Lombard"],
+        defaults: [
+            {
+                vendorName: "Ana",
+                phone: "(773) 592-5234",
+                category: "CLEANLINESS",
+                role: "Cleaner",
+                notes: "Chicago-area portfolio cleaner (OWN/Airbnb)",
+            },
+            {
+                vendorName: "Miguel",
+                phone: "(773) 243-9091",
+                category: "MAINTENANCE",
+                role: "Maintenance",
+                notes: "Chicago-area portfolio handyman/maintenance (OWN/Airbnb)",
+            },
+        ],
+    },
+    {
+        id: "tampa",
+        cities: [
+            "Tampa",
+            "Bradenton",
+            "St. Petersburg",
+            "St Petersburg",
+            "Largo",
+            "Clearwater",
+            "Madeira Beach",
+        ],
+        defaults: [
+            {
+                vendorName: "Diana",
+                phone: "(813) 830-3287",
+                category: "CLEANLINESS",
+                role: "Cleaner",
+                notes: "Tampa-area portfolio cleaner (Diana's market)",
+            },
+            {
+                vendorName: "Rodolfo",
+                phone: "(813) 947-4704",
+                category: "MAINTENANCE",
+                role: "Maintenance",
+                notes: "Tampa-area portfolio handyman/maintenance",
+            },
+        ],
+    },
+];
+
+type IrUpsellGuidance = {
+    title: string;
+    guestFee: number | null;
+    sdto: string;
+    autoRespond: string;
+    sameDayTurnoverRelevant: boolean;
+    isEarlyCheckin: boolean;
+    isLateCheckout: boolean;
+    breakdown: string[];
+    internalNotes: string | null;
+};
+
+type IrSpecialRulesGuidance = {
+    earlyCheckinHandling: string;
+    lateCheckoutHandling: string;
+    opsOverrides: Array<{ field: string; value: string | null; status: string; note: string | null }>;
+    listingKnowledge: string[];
+    summaryLines: string[];
+    /** From listing_info.tags — e.g. "10%,Launch,pm". */
+    listingTags: string | null;
+    /** Launch / 10% launch clients: verify early/late with owner, not cleaner. */
+    isLaunchClient: boolean;
+    /** Who to contact for turnover verification after special rules + Upsells. */
+    turnoverContactRole: "owner" | "cleaner";
+};
+
+type IrTicketLane = {
+    lane: "GR" | "IR" | "unknown";
+    isReservationChange: boolean;
+    isEarlyCheckinAsk: boolean;
+    isLateCheckoutAsk: boolean;
+    isRefundOrCancel: boolean;
+    isSupplies: boolean;
+    isAccessIssue: boolean;
+    /** True for trade/vendor IR tickets — false for GR, supplies→cleaner, refunds. */
+    needsVendorDispatch: boolean;
+};
 
 export type IrPlaybookStep = {
     step: string;
@@ -131,25 +272,96 @@ export class IssueAIService {
         }
 
         const context = await this.buildContextPack(issue);
-        // Best-effort: keep portfolio memory warm from recent completed tickets in this city.
-        void this.hydrateVendorMemoryForCity(context.listing?.city || null, issue.category || null).catch(() => undefined);
+        const city = (context.listing as any)?.city || null;
+        const ticketLane = this.classifyTicketLane(issue);
+        if (!city) {
+            logger.info(`[IssueAIService] issue #${issueId} city unresolved (listing_id=${issue.listing_id})`);
+        }
+
+        // Best-effort: seed city defaults + warm memory from completed tickets/contacts.
+        await this.ensurePortfolioCityDefaults(city).catch(() => undefined);
+        void this.hydrateVendorMemoryForCity(
+            city,
+            ticketLane.needsVendorDispatch ? issue.category || null : null
+        ).catch(() => undefined);
 
         const portfolioVendors = await this.loadPortfolioVendors({
-            city: (context.listing as any)?.city || null,
+            city,
             category: issue.category || null,
+            ticketLane,
         });
+        const upsellGuidance = await this.loadUpsellGuidance(issue, context);
+        const specialRules = await this.loadSpecialRulesGuidance(issue, context, ticketLane);
         const heuristicContacts = this.mergePortfolioVendorsIntoContacts(
-            this.rankContacts(issue, context),
+            this.rankContacts(issue, context, ticketLane),
             portfolioVendors
         );
         const recentFeedback = await this.loadRecentFeedback(Number(issue.listing_id) || null);
-        const clarifyingQuestions = this.buildClarifyingQuestions(issue, heuristicContacts, portfolioVendors);
+        const clarifyingQuestions = this.buildClarifyingQuestions(
+            issue,
+            heuristicContacts,
+            portfolioVendors,
+            ticketLane,
+            upsellGuidance,
+            specialRules
+        );
 
         let modelOut: any = null;
         let rawResponse: string | null = null;
 
         if (this.openai) {
             try {
+                const systemParts = [
+                    "You are the SecureStay Issue Resolution Copilot for guest property tickets.",
+                    "Return ONLY valid JSON with keys:",
+                    "summary (string), severity (critical|high|medium|low), primaryAction (string),",
+                    "playbook (array of {step, ownerLane, detail}),",
+                    "contactHints (array of {role, nameHint, reason} — names must match provided contacts/portfolioVendors when possible),",
+                    "clarifyingQuestions (string[] — ask the human when facts are missing; empty if not needed),",
+                    "draftGuestMessage, draftInternalNote, draftVendorMessage, warnings (string[]), confidence (0-100).",
+                    "ownerLane must be one of: IR, GR, vendor, owner, guest, ops.",
+                    "IR = Issue Resolution / maintenance lane; GR = Guest Relations lane.",
+                    "Never invent access codes, refund amounts, vendor ETAs, phones, or vendor names not in context.",
+                    "Keep drafts short, professional, and actionable. No auto-send — human will review.",
+                    "If guest is in-house, prioritize safety/access/comfort and fast contact.",
+                    "Treat recentTeamFeedback correctedResponse as preferred playbook/draft wording for this listing.",
+                ];
+                if (ticketLane.isRefundOrCancel) {
+                    systemParts.push(
+                        "This is a REFUND/CANCELLATION Guest Relations ticket.",
+                        "Do NOT hunt vendors. Escalate to GR managers (Anj/Jade) — task + notification already route there.",
+                        "primaryAction should say escalate to GR managers / Mitigation; drafts should be holding language only."
+                    );
+                } else if (ticketLane.isAccessIssue) {
+                    systemParts.push(
+                        "This is a PROPERTY ACCESS / door-code ticket.",
+                        "HARD ORDER: 1) listing KB/SOP for door codes (Schlage last-4-of-phone patterns etc.), 2) guide guest through entry steps, 3) only then escalate to lock vendor/cleaner if still locked out.",
+                        "Never invent access codes. Use only codes/procedures present in specialRules/listingKnowledge or prior team messages."
+                    );
+                } else if (ticketLane.isSupplies) {
+                    systemParts.push(
+                        "This is a SUPPLIES ticket — contact the CLEANER (or supplies orderer if known), NOT a 'supplies vendor'.",
+                        "primaryAction should name the cleaner + phone when available."
+                    );
+                } else if (ticketLane.lane === "GR" || ticketLane.isReservationChange) {
+                    systemParts.push(
+                        "This is primarily a Guest Relations ticket, NOT a vendor-dispatch ticket.",
+                        "Do NOT ask for a 'RESERVATION CHANGES vendor' or invent a category-named vendor.",
+                        "HARD ORDER for early check-in / late checkout / reservation changes:",
+                        "1) specialRules (listing KB/SOP, ops overrides, early/late handling) — follow any property-specific instructions first.",
+                        "2) upsellGuidance (fee, SDTO, autoRespond, internalNotes) — SDTO wins over Settings when present.",
+                        "3) Verify turnover: Launch/10% launch clients (specialRules.isLaunchClient) → contact OWNER; otherwise contact CLEANER. Skip only if Upsells already AUTO-DECLINE.",
+                        "4) Contact/reply to the guest LAST with quote, decline, or 'team will confirm'.",
+                        "Fee presence does NOT mean approved. Never promise a clock time unless TEAM already confirmed.",
+                        "primaryAction MUST follow that 1→2→3→4 order in one sentence."
+                    );
+                } else {
+                    systemParts.push(
+                        "If portfolioVendors or contacts include a matching vendor, primaryAction MUST name them and their phone when available.",
+                        "If no vendor/phone is available for an IR dispatch ticket, primaryAction should say we need the vendor identity/number, and clarifyingQuestions must ask for it.",
+                        "Prefer calling vendors/cleaners before promising guest outcomes."
+                    );
+                }
                 const response = await this.openai.chat.completions.create({
                     model: MODEL,
                     temperature: 0.2,
@@ -157,32 +369,24 @@ export class IssueAIService {
                     messages: [
                         {
                             role: "system",
-                            content: [
-                                "You are the SecureStay Issue Resolution Copilot for guest property tickets.",
-                                "Return ONLY valid JSON with keys:",
-                                "summary (string), severity (critical|high|medium|low), primaryAction (string),",
-                                "playbook (array of {step, ownerLane, detail}),",
-                                "contactHints (array of {role, nameHint, reason} — names must match provided contacts/portfolioVendors when possible),",
-                                "clarifyingQuestions (string[] — ask the human when vendor/phone/facts are missing; empty if not needed),",
-                                "draftGuestMessage, draftInternalNote, draftVendorMessage, warnings (string[]), confidence (0-100).",
-                                "ownerLane must be one of: IR, GR, vendor, owner, guest, ops.",
-                                "IR = Issue Resolution / maintenance lane; GR = Guest Relations lane.",
-                                "Never invent access codes, refund amounts, vendor ETAs, phones, or vendor names not in context.",
-                                "If portfolioVendors or contacts include a matching vendor, primaryAction MUST name them and their phone when available.",
-                                "If no vendor/phone is available, primaryAction should say we need the vendor identity/number, and clarifyingQuestions must ask for it.",
-                                "Prefer calling vendors/cleaners before promising guest outcomes.",
-                                "Keep drafts short, professional, and actionable. No auto-send — human will review.",
-                                "If guest is in-house, prioritize safety/access/comfort and fast contact.",
-                                "Treat recentTeamFeedback correctedResponse as preferred playbook/draft wording for this listing.",
-                            ].join(" "),
+                            content: systemParts.join(" "),
                         },
                         {
                             role: "user",
                             content: JSON.stringify({
+                                ticketLane,
+                                decisionOrder: [
+                                    "specialRules",
+                                    "upsellGuidance",
+                                    "contactCleanerOwnerVendorIfNeeded",
+                                    "contactGuestLast",
+                                ],
                                 issue: context.issue,
                                 updates: context.updates,
                                 reservation: context.reservation,
                                 listing: context.listing,
+                                specialRules,
+                                upsellGuidance,
                                 contacts: heuristicContacts,
                                 portfolioVendors,
                                 clarifyingQuestionsSeed: clarifyingQuestions,
@@ -201,25 +405,81 @@ export class IssueAIService {
             }
         }
 
-        const playbook = this.normalizePlaybook(modelOut?.playbook, issue);
+        const playbook = this.normalizePlaybook(
+            modelOut?.playbook,
+            issue,
+            ticketLane,
+            upsellGuidance,
+            specialRules
+        );
         let recommendedContacts = this.mergeContactHints(heuristicContacts, modelOut?.contactHints);
         recommendedContacts = this.mergePortfolioVendorsIntoContacts(recommendedContacts, portfolioVendors);
         const warnings = this.normalizeStringArray(modelOut?.warnings);
         if (!context.reservation) warnings.push("No linked reservation — guest stay context may be incomplete.");
-        if (!recommendedContacts.some((c) => (c.source === "contact" || c.source === "poc" || c.source === "memory") && (c.phone || c.email))) {
+        if (
+            ticketLane.needsVendorDispatch &&
+            !recommendedContacts.some(
+                (c) =>
+                    (c.source === "contact" || c.source === "poc" || c.source === "memory") &&
+                    (c.phone || c.email)
+            )
+        ) {
             warnings.push("No usable vendor phone/email — ask the team who we use and teach IR Copilot.");
         }
+        for (const tip of this.buildUpsellWarnings(upsellGuidance, ticketLane)) {
+            if (!warnings.includes(tip)) warnings.push(tip);
+        }
 
+        const topCleaner = recommendedContacts.find(
+            (c) =>
+                (c.source === "memory" || c.source === "poc" || c.source === "contact") &&
+                c.phone &&
+                /clean/i.test(`${c.role} ${c.name} ${c.reason}`)
+        );
+        const topOwner = recommendedContacts.find((c) => c.source === "owner" && (c.phone || c.email || c.name));
         const topVendor = recommendedContacts.find(
             (c) => (c.source === "memory" || c.source === "poc" || c.source === "contact") && (c.phone || c.name)
         );
         let primaryAction = String(modelOut?.primaryAction || "").trim();
-        if (topVendor?.name && topVendor.phone && !/^\d/.test(primaryAction) && !primaryAction.toLowerCase().includes(topVendor.name.toLowerCase().slice(0, 8))) {
+        const earlyUpsell = upsellGuidance.find((u) => u.isEarlyCheckin);
+        const lateUpsell = upsellGuidance.find((u) => u.isLateCheckout);
+        if (ticketLane.isRefundOrCancel) {
+            primaryAction =
+                "Escalate refund/cancellation to GR managers (Anj/Jade) — task + notification + Mitigation; do not dispatch vendors.";
+        } else if (ticketLane.isAccessIssue) {
+            primaryAction =
+                (specialRules.listingKnowledge || []).length > 0
+                    ? "Follow listing door-code SOP / KB with the guest; never invent codes; escalate to lock vendor only if still locked out."
+                    : topVendor?.phone
+                      ? `Walk guest through entry steps from KB/messages; if still locked out call ${topVendor.name} at ${topVendor.phone}.`
+                      : "Walk guest through entry steps from listing KB/messages; confirm door-code procedure; escalate to lock vendor/cleaner only if still locked out.";
+        } else if (ticketLane.isSupplies) {
+            primaryAction = topCleaner?.phone
+                ? `Contact cleaner ${topCleaner.name} at ${topCleaner.phone} about missing supplies (not a supplies vendor).`
+                : "Contact the listing cleaner about missing supplies (not a supplies vendor).";
+        } else if (ticketLane.isEarlyCheckinAsk || ticketLane.isLateCheckoutAsk || ticketLane.isReservationChange) {
+            // Enforce decision order even if the model reorders steps.
+            primaryAction = this.buildReservationChangePrimaryAction({
+                ticketLane,
+                specialRules,
+                earlyUpsell,
+                lateUpsell,
+                topCleaner,
+                topOwner,
+            });
+        } else if (
+            ticketLane.needsVendorDispatch &&
+            topVendor?.name &&
+            topVendor.phone &&
+            !/^\d/.test(primaryAction) &&
+            !primaryAction.toLowerCase().includes(topVendor.name.toLowerCase().slice(0, 8))
+        ) {
             primaryAction = `Call ${topVendor.name} at ${topVendor.phone} about this ${issue.category || "issue"}.`;
         } else if (!primaryAction) {
-            primaryAction = clarifyingQuestions[0]?.question
-                || playbook[0]?.step
-                || "Review ticket and contact the top recommended person.";
+            primaryAction =
+                clarifyingQuestions[0]?.question ||
+                playbook[0]?.step ||
+                "Review ticket and contact the top recommended person.";
         }
 
         // Mark prior open suggestions regenerated.
@@ -300,14 +560,15 @@ export class IssueAIService {
             );
             if (issue && taught?.name) {
                 const listing = Number(issue.listing_id)
-                    ? await this.listingRepo.findOne({ where: { id: Number(issue.listing_id) } })
+                    ? await this.listingRepo.findOne({ where: { id: Number(issue.listing_id) }, withDeleted: true })
                     : null;
+                const city = await this.resolveListingCity(listing, issue);
                 await this.upsertVendorMemory({
                     vendorName: taught.name,
                     phone: taught.phone,
                     email: taught.email,
                     category: issue.category || null,
-                    city: listing?.city || null,
+                    city,
                     role: issue.category || "Vendor",
                     source: "feedback",
                     sourceIssueId: issue.id,
@@ -335,15 +596,16 @@ export class IssueAIService {
         if (!name) throw CustomErrorHandler.validationError("Vendor name is required");
 
         const listing = Number(issue.listing_id)
-            ? await this.listingRepo.findOne({ where: { id: Number(issue.listing_id) } })
+            ? await this.listingRepo.findOne({ where: { id: Number(issue.listing_id) }, withDeleted: true })
             : null;
+        const city = await this.resolveListingCity(listing, issue);
 
         await this.upsertVendorMemory({
             vendorName: name,
             phone: input.phone ? String(input.phone).trim() : null,
             email: input.email ? String(input.email).trim() : null,
             category: issue.category || null,
-            city: listing?.city || null,
+            city,
             role: issue.category || "Vendor",
             source: "teach",
             sourceIssueId: issue.id,
@@ -385,7 +647,7 @@ export class IssueAIService {
             .getMany();
 
         const listingId = Number(issue.listing_id);
-        const listing = Number.isFinite(listingId)
+        let listing = Number.isFinite(listingId) && listingId > 0
             ? await this.listingRepo.findOne({ where: { id: listingId }, withDeleted: true })
             : null;
 
@@ -393,6 +655,16 @@ export class IssueAIService {
         const reservation = Number.isFinite(reservationId) && reservationId > 0
             ? await this.reservationRepo.findOne({ where: { id: reservationId } })
             : null;
+
+        // Fallback: resolve listing via reservation.listingMapId when issue.listing_id is empty/wrong.
+        if (!listing && reservation) {
+            const resListingId = Number((reservation as any).listingMapId);
+            if (Number.isFinite(resListingId) && resListingId > 0) {
+                listing = await this.listingRepo.findOne({ where: { id: resListingId }, withDeleted: true });
+            }
+        }
+
+        const resolvedCity = await this.resolveListingCity(listing, issue);
 
         const contacts = Number.isFinite(listingId)
             ? await this.contactRepo.find({
@@ -478,12 +750,16 @@ export class IssueAIService {
                 ? {
                       id: listing.id,
                       name: listing.internalListingName || listing.name,
-                      city: listing.city || null,
+                      city: resolvedCity,
+                      cityRaw: listing.city || null,
+                      address: listing.address || null,
+                      state: listing.state || null,
+                      tags: listing.tags || null,
                       ownerName: listing.ownerName,
                       ownerPhone: listing.ownerPhone,
                       ownerEmail: listing.ownerEmail,
                   }
-                : { id: listingId || null, name: issue.listing_name, city: null },
+                : { id: listingId || null, name: issue.listing_name, city: resolvedCity, tags: null },
             contacts,
             recentMessages,
             similarHints,
@@ -510,23 +786,26 @@ export class IssueAIService {
 
             let cityPeers: Issue[] = [];
             const listing = Number.isFinite(listingId)
-                ? await this.listingRepo.findOne({ where: { id: listingId } })
+                ? await this.listingRepo.findOne({ where: { id: listingId }, withDeleted: true })
                 : null;
-            const city = String(listing?.city || "").trim();
+            const city = await this.resolveListingCity(listing, issue);
             if (city) {
                 const rows: any[] = await appDatabase.query(
                     `SELECT i.id, i.ai_short_title AS ai_short_title, i.issue_description AS issue_description,
                             i.resolution, i.final_contractor_name AS final_contractor_name, i.category
                      FROM issues i
-                     INNER JOIN listing_info l ON l.id = CAST(i.listing_id AS UNSIGNED)
+                     INNER JOIN listing_info l ON l.id = CAST(NULLIF(TRIM(i.listing_id), '') AS UNSIGNED)
                      WHERE i.deleted_at IS NULL
                        AND i.status = 'Completed'
                        AND i.category = ?
-                       AND LOWER(TRIM(l.city)) = LOWER(?)
+                       AND (
+                         LOWER(TRIM(l.city)) = LOWER(?)
+                         OR LOWER(l.address) LIKE LOWER(CONCAT('%, ', ?, ', %'))
+                       )
                        AND i.id <> ?
                      ORDER BY i.id DESC
                      LIMIT 8`,
-                    [issue.category, city, issue.id]
+                    [issue.category, city, city, issue.id]
                 );
                 cityPeers = (rows || []).map((r) => r as Issue);
             }
@@ -553,11 +832,519 @@ export class IssueAIService {
         }
     }
 
-    private rankContacts(issue: Issue, context: Awaited<ReturnType<IssueAIService["buildContextPack"]>>): IrRecommendedContact[] {
+    private classifyTicketLane(issue: Issue): IrTicketLane {
+        const category = String(issue.category || "")
+            .trim()
+            .toUpperCase()
+            .replace(/\s+/g, " ");
+        const text = `${issue.ai_short_title || ""} ${issue.issue_description || ""} ${issue.owner_notes || ""}`.toLowerCase();
+        const isEarlyCheckinAsk =
+            /early\s*check[\s-]*in|check[\s-]*in\s*early|arrive\s*early|earlier\s*arrival|eci\b/.test(text);
+        const isLateCheckoutAsk =
+            /late\s*check[\s-]*out|check[\s-]*out\s*late|depart\s*late|later\s*departure|lco\b/.test(text);
+        const isReservationChange = category === "RESERVATION CHANGES" || isEarlyCheckinAsk || isLateCheckoutAsk;
+        const isRefundOrCancel =
+            category === "REFUNDS" ||
+            (category === "RESERVATION CHANGES" &&
+                /cancel|cancellation|refund|reimburse|compensation|goodwill/.test(text)) ||
+            /cancel(?:lation)?\s+(?:request|the\s+)?(?:reservation|booking)|full\s+refund|request(?:ed|ing)?\s+a?\s*refund/.test(
+                text
+            );
+        const isSupplies =
+            category === "SUPPLIES" ||
+            /\b(toilet\s*paper|paper\s*towels|toiletries|missing\s+towels|extra\s+towels|supplies|shampoo|conditioner|trash\s*bags)\b/.test(
+                text
+            );
+        const isAccessIssue =
+            category === "PROPERTY ACCESS" ||
+            /lock|lockout|access code|can't get in|cant get in|door code|keypad|entry code|schlage/.test(text);
+        const lane: IrTicketLane["lane"] = GR_CATEGORIES.has(category)
+            ? "GR"
+            : IR_CATEGORIES.has(category)
+              ? "IR"
+              : "unknown";
+        // Supplies → cleaner (not trade vendor). Refunds/access/GR → no vendor hunt.
+        const needsVendorDispatch =
+            !isRefundOrCancel &&
+            !isAccessIssue &&
+            !isSupplies &&
+            (lane === "IR" ||
+                (lane === "unknown" &&
+                    !isReservationChange &&
+                    /maint|hvac|plumb|clean|pest|pool|leak|broken|repair/.test(text)));
+        return {
+            lane,
+            isReservationChange,
+            isEarlyCheckinAsk,
+            isLateCheckoutAsk,
+            isRefundOrCancel,
+            isSupplies,
+            isAccessIssue,
+            needsVendorDispatch,
+        };
+    }
+
+    private async loadUpsellGuidance(
+        issue: Issue,
+        context: Awaited<ReturnType<IssueAIService["buildContextPack"]>>
+    ): Promise<IrUpsellGuidance[]> {
+        const listingId = Number(issue.listing_id);
+        if (!Number.isFinite(listingId) || listingId <= 0) return [];
+        const lane = this.classifyTicketLane(issue);
+        if (!lane.isReservationChange && !lane.isEarlyCheckinAsk && !lane.isLateCheckoutAsk) {
+            return [];
+        }
+        try {
+            const { UpsellQuoteService } = require("./UpsellQuoteService");
+            const quotes = await new UpsellQuoteService().listQuotesForListing({
+                listingId,
+                checkin: context.reservation?.arrivalDate
+                    ? String(context.reservation.arrivalDate)
+                    : null,
+                checkout: context.reservation?.departureDate
+                    ? String(context.reservation.departureDate)
+                    : null,
+                reservationId: context.reservation?.id ?? null,
+            });
+            return (quotes || [])
+                .filter((q: any) => q.isEarlyCheckin || q.isLateCheckout)
+                .map(
+                    (q: any): IrUpsellGuidance => ({
+                        title: String(q.title || ""),
+                        guestFee: q.guestFee != null ? Number(q.guestFee) : null,
+                        sdto: String(q.sdto || "unknown"),
+                        autoRespond: String(q.autoRespond || "quote"),
+                        sameDayTurnoverRelevant: Boolean(q.sameDayTurnoverRelevant),
+                        isEarlyCheckin: Boolean(q.isEarlyCheckin),
+                        isLateCheckout: Boolean(q.isLateCheckout),
+                        breakdown: Array.isArray(q.breakdown) ? q.breakdown.map(String).slice(0, 6) : [],
+                        internalNotes: q.internalNotes ? String(q.internalNotes).slice(0, 500) : null,
+                    })
+                );
+        } catch (err: any) {
+            logger.warn(`[IssueAIService] loadUpsellGuidance skipped: ${err?.message}`);
+            return [];
+        }
+    }
+
+    private async loadSpecialRulesGuidance(
+        issue: Issue,
+        context: Awaited<ReturnType<IssueAIService["buildContextPack"]>>,
+        ticketLane: IrTicketLane
+    ): Promise<IrSpecialRulesGuidance> {
+        const listingTags = String((context.listing as any)?.tags || "").trim() || null;
+        const tagTokens = (listingTags || "")
+            .split(/[,;|]/)
+            .map((t) => t.trim().toLowerCase())
+            .filter(Boolean);
+        const isLaunchClient =
+            tagTokens.includes("launch") ||
+            tagTokens.some((t) => t === "10%" || t === "10" || /^10\s*%$/.test(t));
+        const turnoverContactRole: "owner" | "cleaner" = isLaunchClient ? "owner" : "cleaner";
+
+        const empty: IrSpecialRulesGuidance = {
+            earlyCheckinHandling: "defer_to_team",
+            lateCheckoutHandling: "defer_to_team",
+            opsOverrides: [],
+            listingKnowledge: [],
+            summaryLines: [],
+            listingTags,
+            isLaunchClient,
+            turnoverContactRole,
+        };
+        const wantsEarlyLate =
+            ticketLane.isReservationChange || ticketLane.isEarlyCheckinAsk || ticketLane.isLateCheckoutAsk;
+        const wantsAccessKb = ticketLane.isAccessIssue;
+        if (!wantsEarlyLate && !wantsAccessKb) {
+            return empty;
+        }
+
+        let earlyCheckinHandling = "defer_to_team";
+        let lateCheckoutHandling = "defer_to_team";
+        if (wantsEarlyLate) {
+            try {
+                const { AIMessagingSettingsService } = require("./AIMessagingSettingsService");
+                const settings = await new AIMessagingSettingsService().getGlobalCached();
+                earlyCheckinHandling = String(settings?.earlyCheckinHandling || "defer_to_team");
+                lateCheckoutHandling = String(settings?.lateCheckoutHandling || "defer_to_team");
+            } catch (err: any) {
+                logger.warn(`[IssueAIService] specialRules settings skipped: ${err?.message}`);
+            }
+        }
+
+        const opsOverrides: IrSpecialRulesGuidance["opsOverrides"] = [];
+        const listingId = Number(issue.listing_id);
+        if (wantsEarlyLate && Number.isFinite(listingId) && listingId > 0) {
+            try {
+                const { ListingOpsOverrideService } = require("./ListingOpsOverrideService");
+                const rows = await new ListingOpsOverrideService().getForListings([listingId]);
+                for (const o of rows || []) {
+                    if (!/early_checkin|late_checkout|checkin_time|checkout_time/i.test(String(o.field || ""))) {
+                        continue;
+                    }
+                    opsOverrides.push({
+                        field: String(o.field),
+                        value: o.value != null ? String(o.value) : null,
+                        status: String(o.status || "active"),
+                        note: o.note ? String(o.note).slice(0, 240) : null,
+                    });
+                }
+            } catch (err: any) {
+                logger.warn(`[IssueAIService] specialRules opsOverrides skipped: ${err?.message}`);
+            }
+        }
+
+        const listingKnowledge: string[] = [];
+        if (Number.isFinite(listingId) && listingId > 0) {
+            try {
+                // Staff-facing IR Copilot may use INTERNAL KB (owner preferences / SOPs).
+                const accessClause = wantsAccessKb
+                    ? `OR LOWER(CONCAT(COALESCE(category,''),' ',COALESCE(title,''),' ',COALESCE(content,'')))
+                           LIKE '%door%code%'
+                       OR LOWER(CONCAT(COALESCE(category,''),' ',COALESCE(title,''),' ',COALESCE(content,'')))
+                           LIKE '%access%code%'
+                       OR LOWER(CONCAT(COALESCE(category,''),' ',COALESCE(title,''),' ',COALESCE(content,'')))
+                           LIKE '%schlage%'
+                       OR LOWER(CONCAT(COALESCE(category,''),' ',COALESCE(title,''),' ',COALESCE(content,'')))
+                           LIKE '%lockout%'
+                       OR LOWER(CONCAT(COALESCE(category,''),' ',COALESCE(title,''),' ',COALESCE(content,'')))
+                           LIKE '%entry%code%'
+                       OR LOWER(COALESCE(category,'')) LIKE '%access%'`
+                    : "";
+                const earlyLateClause = wantsEarlyLate
+                    ? `LOWER(CONCAT(COALESCE(category,''),' ',COALESCE(title,''),' ',COALESCE(content,'')))
+                           LIKE '%early%check%'
+                         OR LOWER(CONCAT(COALESCE(category,''),' ',COALESCE(title,''),' ',COALESCE(content,'')))
+                           LIKE '%late%check%'
+                         OR LOWER(CONCAT(COALESCE(category,''),' ',COALESCE(title,''),' ',COALESCE(content,'')))
+                           LIKE '%turnover%'
+                         OR LOWER(COALESCE(category,'')) LIKE '%must%know%'
+                         OR LOWER(COALESCE(category,'')) LIKE '%sop%'
+                         OR LOWER(COALESCE(title,'')) LIKE '%special%'`
+                    : "0=1";
+                const rows: any[] = await appDatabase.query(
+                    `SELECT visibility, category, title, content
+                     FROM listing_knowledge_entries
+                     WHERE listingId = ? AND isArchived = 0
+                       AND (
+                         ${earlyLateClause}
+                         ${accessClause}
+                       )
+                     ORDER BY (visibility = 'internal') DESC, id DESC
+                     LIMIT 8`,
+                    [listingId]
+                );
+                for (const r of rows || []) {
+                    const head = [r.visibility, r.category, r.title].filter(Boolean).join(" · ");
+                    const body = String(r.content || "")
+                        .replace(/\s+/g, " ")
+                        .trim()
+                        .slice(0, 280);
+                    if (!body) continue;
+                    listingKnowledge.push(`[${head}] ${body}`);
+                }
+            } catch (err: any) {
+                logger.warn(`[IssueAIService] specialRules listingKnowledge skipped: ${err?.message}`);
+            }
+        }
+
+        const summaryLines: string[] = [];
+        if (opsOverrides.length) {
+            for (const o of opsOverrides) {
+                summaryLines.push(
+                    `Ops override ${o.field}: ${o.status}${o.value != null ? ` = ${o.value}` : ""}${
+                        o.note ? ` (${o.note})` : ""
+                    }`
+                );
+            }
+        }
+        if (wantsEarlyLate) {
+            if (ticketLane.isEarlyCheckinAsk || (!ticketLane.isLateCheckoutAsk && ticketLane.isReservationChange)) {
+                summaryLines.push(`Global earlyCheckinHandling: ${earlyCheckinHandling}`);
+            }
+            if (ticketLane.isLateCheckoutAsk || ticketLane.isReservationChange) {
+                summaryLines.push(`Global lateCheckoutHandling: ${lateCheckoutHandling}`);
+            }
+            if (isLaunchClient) {
+                summaryLines.push(
+                    `Launch/10% client (tags: ${listingTags}) — verify early/late with OWNER, not cleaner.`
+                );
+            } else {
+                summaryLines.push("Non-Launch client — verify early/late turnover with CLEANER.");
+            }
+        }
+        if (wantsAccessKb) {
+            summaryLines.push(
+                listingKnowledge.length
+                    ? `${listingKnowledge.length} door-code / access KB note(s) loaded — use these; never invent codes.`
+                    : "No door-code SOP in listing KB — confirm Schlage/last-4 or lock vendor procedure with team before promising a code."
+            );
+        }
+        if (listingKnowledge.length && wantsEarlyLate) {
+            summaryLines.push(`${listingKnowledge.length} listing special-rule KB note(s) loaded`);
+        }
+        if (!summaryLines.length) {
+            summaryLines.push("No listing-specific special rules found — fall through to Upsells + Settings handling.");
+        }
+
+        return {
+            earlyCheckinHandling,
+            lateCheckoutHandling,
+            opsOverrides,
+            listingKnowledge,
+            summaryLines,
+            listingTags,
+            isLaunchClient,
+            turnoverContactRole,
+        };
+    }
+
+    private buildReservationChangePrimaryAction(opts: {
+        ticketLane: IrTicketLane;
+        specialRules: IrSpecialRulesGuidance;
+        earlyUpsell?: IrUpsellGuidance;
+        lateUpsell?: IrUpsellGuidance;
+        topCleaner?: IrRecommendedContact | undefined;
+        topOwner?: IrRecommendedContact | undefined;
+    }): string {
+        const { ticketLane, specialRules, earlyUpsell, lateUpsell, topCleaner, topOwner } = opts;
+        const relevant =
+            ticketLane.isLateCheckoutAsk && !ticketLane.isEarlyCheckinAsk
+                ? lateUpsell
+                : earlyUpsell || lateUpsell;
+        const handling = ticketLane.isLateCheckoutAsk && !ticketLane.isEarlyCheckinAsk
+            ? specialRules.lateCheckoutHandling
+            : specialRules.earlyCheckinHandling;
+
+        const override = specialRules.opsOverrides.find((o) =>
+            ticketLane.isLateCheckoutAsk && !ticketLane.isEarlyCheckinAsk
+                ? /late_checkout/i.test(o.field)
+                : /early_checkin/i.test(o.field)
+        );
+        const step1 =
+            override?.status === "quarantined"
+                ? `1) Special rules: ${override.field} quarantined — do not quote PMS/Upsells fee; escalate`
+                : override?.status === "active" && override.value != null
+                  ? `1) Special rules: use ops override ${override.field}=${override.value}`
+                  : specialRules.listingKnowledge.length
+                    ? `1) Special rules: apply listing KB/SOP (${specialRules.listingKnowledge.length} note(s)); handling=${handling}`
+                    : `1) Special rules: handling=${handling}${
+                          specialRules.isLaunchClient ? "; Launch client → owner for turnover" : ""
+                      }`;
+
+        const step2 =
+            relevant?.autoRespond === "deny"
+                ? `2) Upsells: AUTO-DECLINE ${relevant.title} (SDTO not allowed + same-day turnover)`
+                : relevant?.guestFee != null
+                  ? `2) Upsells: ${relevant.title} $${Number(relevant.guestFee).toFixed(2)} (SDTO ${relevant.sdto}, ${relevant.autoRespond})`
+                  : relevant
+                    ? `2) Upsells: ${relevant.title} fee TBD (SDTO ${relevant.sdto}, ${relevant.autoRespond})`
+                    : "2) Upsells: no early/late config — confirm fee/policy before quoting";
+
+        // Always verify turnover unless Upsells already auto-declines.
+        const needsContact = relevant?.autoRespond !== "deny";
+        let step3: string;
+        if (!needsContact) {
+            step3 = "3) No turnover call needed — Upsells already auto-declines";
+        } else if (specialRules.turnoverContactRole === "owner") {
+            step3 = topOwner?.phone
+                ? `3) Launch client: confirm with owner ${topOwner.name} at ${topOwner.phone}`
+                : topOwner?.name
+                  ? `3) Launch client: confirm with owner ${topOwner.name} (get phone if missing)`
+                  : "3) Launch client: confirm with property owner (phone missing on listing)";
+        } else {
+            step3 = topCleaner
+                ? `3) Confirm turnover with cleaner ${topCleaner.name} at ${topCleaner.phone}`
+                : "3) Confirm turnover with listing cleaner";
+        }
+
+        const step4 =
+            relevant?.autoRespond === "deny"
+                ? "4) Reply to guest: decline early/late for this stay"
+                : "4) Reply to guest last: quote / decline / team will confirm (no clock-time promise)";
+
+        return `${step1}. ${step2}. ${step3}. ${step4}.`;
+    }
+
+    private buildUpsellWarnings(upsells: IrUpsellGuidance[], lane: IrTicketLane): string[] {
+        if (!lane.isReservationChange && !lane.isEarlyCheckinAsk && !lane.isLateCheckoutAsk) return [];
+        const out: string[] = [];
+        const relevant = upsells.filter((u) =>
+            lane.isEarlyCheckinAsk
+                ? u.isEarlyCheckin
+                : lane.isLateCheckoutAsk
+                  ? u.isLateCheckout
+                  : u.isEarlyCheckin || u.isLateCheckout
+        );
+        if (!relevant.length) {
+            out.push("No Early Check-In / Late Check-Out upsell configured on Upsells for this listing.");
+            return out;
+        }
+        for (const u of relevant) {
+            if (u.guestFee != null) {
+                out.push(`${u.title}: guest fee $${Number(u.guestFee).toFixed(2)} (from Upsells).`);
+            }
+            if (u.sdto === "needs_confirmation" || u.autoRespond === "escalate") {
+                out.push(`${u.title}: SDTO needs confirmation — check cleaner/turnover before promising.`);
+            } else if (u.sdto === "not_allowed" && u.sameDayTurnoverRelevant) {
+                out.push(`${u.title}: SDTO Not Allowed with same-day turnover — likely decline.`);
+            } else if (u.sdto === "unknown" || !u.sdto) {
+                out.push(`${u.title}: SDTO blank — treat as quote path; still confirm turnover with cleaner.`);
+            }
+        }
+        return out;
+    }
+
+    private isUsableCity(city: string | null | undefined): boolean {
+        const c = String(city || "").trim();
+        if (!c) return false;
+        if (/^\(?\s*not\s*specified\s*\)?$/i.test(c)) return false;
+        if (/^n\/?a$/i.test(c)) return false;
+        if (/^unknown/i.test(c)) return false;
+        if (c.length < 2) return false;
+        return true;
+    }
+
+    private extractCityFromAddress(address: string | null | undefined): string | null {
+        const a = String(address || "").replace(/\s+/g, " ").trim();
+        if (!a) return null;
+        // "123 Main St, Chicago, IL 60601" / "…, Tampa, FL"
+        const m = a.match(/,\s*([A-Za-z][A-Za-z .'-]{1,40})\s*,\s*[A-Z]{2}\b/);
+        if (m && this.isUsableCity(m[1])) return m[1].trim();
+        const m2 = a.match(/^([A-Za-z][A-Za-z .'-]{1,40})\s*,\s*[A-Z]{2}\b/);
+        if (m2 && this.isUsableCity(m2[1])) return m2[1].trim();
+        return null;
+    }
+
+    /**
+     * Resolve city from listing_info.city, else parse Hostify/SS address fields.
+     * Empty/"(NOT SPECIFIED)" city columns are common — address usually still has the city.
+     */
+    private async resolveListingCity(
+        listing: Listing | null | undefined,
+        issue?: Issue | null
+    ): Promise<string | null> {
+        if (listing) {
+            if (this.isUsableCity(listing.city)) return String(listing.city).trim();
+            const fromAddr =
+                this.extractCityFromAddress(listing.address) ||
+                this.extractCityFromAddress(
+                    [listing.street, listing.city, listing.state, listing.zipcode]
+                        .filter(Boolean)
+                        .join(", ")
+                );
+            if (fromAddr) return fromAddr;
+        }
+
+        // Last resort: SQL coalesce from listing_info joined by issue.listing_id.
+        const listingId = Number(issue?.listing_id || listing?.id);
+        if (Number.isFinite(listingId) && listingId > 0) {
+            try {
+                const rows: any[] = await appDatabase.query(
+                    `SELECT city, address, street, state, zipcode
+                     FROM listing_info
+                     WHERE id = ?
+                     LIMIT 1`,
+                    [listingId]
+                );
+                const row = rows?.[0];
+                if (row) {
+                    if (this.isUsableCity(row.city)) return String(row.city).trim();
+                    const parsed =
+                        this.extractCityFromAddress(row.address) ||
+                        this.extractCityFromAddress(
+                            [row.street, row.city, row.state, row.zipcode].filter(Boolean).join(", ")
+                        );
+                    if (parsed) return parsed;
+                }
+            } catch {
+                /* ignore */
+            }
+        }
+        return null;
+    }
+
+    private phoneDigits(phone: string | null | undefined): string | null {
+        let d = String(phone || "").replace(/\D/g, "");
+        if (d.length === 11 && d.startsWith("1")) d = d.slice(1);
+        return d.length === 10 ? d : null;
+    }
+
+    private isBogusPhone(phone: string | null | undefined): boolean {
+        const d = this.phoneDigits(phone);
+        if (!d) return true;
+        if (BOGUS_PHONE_NPAS.has(d.slice(0, 3))) return true;
+        if (/^(\d)\1{9}$/.test(d)) return true;
+        return false;
+    }
+
+    private sanitizePhone(phone: string | null | undefined): string | null {
+        if (!phone || this.isBogusPhone(phone)) return null;
+        const d = this.phoneDigits(phone);
+        if (!d) return null;
+        return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+    }
+
+    private resolveCityRegion(city: string | null | undefined): CityRegion | null {
+        const key = String(city || "")
+            .trim()
+            .toLowerCase();
+        if (!key) return null;
+        return (
+            CITY_REGIONS.find((r) => r.cities.some((c) => c.toLowerCase() === key)) ||
+            null
+        );
+    }
+
+    private regionCitiesFor(city: string | null | undefined): string[] {
+        const region = this.resolveCityRegion(city);
+        if (region) return region.cities;
+        const single = String(city || "").trim();
+        return single ? [single] : [];
+    }
+
+    async ensurePortfolioCityDefaults(city: string | null | undefined): Promise<number> {
+        const region = this.resolveCityRegion(city);
+        if (!region) return 0;
+        let seeded = 0;
+        for (const cityName of region.cities) {
+            for (const d of region.defaults) {
+                try {
+                    const existing = await this.vendorMemoryRepo
+                        .createQueryBuilder("v")
+                        .where("v.normalizedName = :n", { n: this.normalizeVendorKey(d.vendorName) })
+                        .andWhere("LOWER(TRIM(v.city)) = LOWER(:city)", { city: cityName })
+                        .andWhere("LOWER(TRIM(v.category)) = LOWER(:category)", { category: d.category })
+                        .getOne();
+                    if (existing?.phone) continue;
+                    await this.upsertVendorMemory({
+                        vendorName: d.vendorName,
+                        phone: d.phone,
+                        category: d.category,
+                        city: cityName,
+                        role: d.role,
+                        source: "seed",
+                        notes: d.notes,
+                    });
+                    seeded += 1;
+                } catch (err: any) {
+                    logger.warn(`[IssueAIService] seed default ${d.vendorName}/${cityName}: ${err?.message}`);
+                }
+            }
+        }
+        return seeded;
+    }
+
+    private rankContacts(
+        issue: Issue,
+        context: Awaited<ReturnType<IssueAIService["buildContextPack"]>>,
+        ticketLane?: IrTicketLane
+    ): IrRecommendedContact[] {
         const out: IrRecommendedContact[] = [];
         const category = String(issue.category || "").toLowerCase();
         const desc = `${issue.issue_description || ""} ${issue.ai_short_title || ""}`.toLowerCase();
         const stayStage = context.issue.stayStage;
+        const lane = ticketLane || this.classifyTicketLane(issue);
 
         const push = (c: Omit<IrRecommendedContact, "rank" | "deepLinks">) => {
             const phone = c.phone ? String(c.phone).trim() : null;
@@ -617,9 +1404,32 @@ export class IssueAIService {
             let score = 1;
             const reasons: string[] = [];
 
-            if (role.includes("clean") || name.toLowerCase().includes("clean")) {
-                score += category.includes("clean") || desc.includes("clean") || desc.includes("mess") ? 8 : 3;
-                reasons.push("Cleaner role matches property ops");
+            if (role.includes("clean") || name.toLowerCase().includes("clean") || /^ana$|^diana$/i.test(name.trim())) {
+                if (
+                    lane.isEarlyCheckinAsk ||
+                    lane.isLateCheckoutAsk ||
+                    lane.isReservationChange ||
+                    category.includes("clean") ||
+                    desc.includes("clean") ||
+                    desc.includes("mess")
+                ) {
+                    score += lane.isReservationChange || lane.isEarlyCheckinAsk || lane.isLateCheckoutAsk ? 14 : 8;
+                    reasons.push(
+                        lane.isEarlyCheckinAsk || lane.isLateCheckoutAsk
+                            ? "Cleaner — confirm turnover for early/late request"
+                            : "Cleaner role matches property ops"
+                    );
+                } else {
+                    score += 3;
+                    reasons.push("Cleaner role matches property ops");
+                }
+            }
+            if (
+                (lane.needsVendorDispatch || /maint|handy|repair|broken|hvac/.test(desc + category)) &&
+                (role.includes("maint") || role.includes("handy") || /miguel|rodolfo/i.test(name))
+            ) {
+                score += 8;
+                reasons.push("Portfolio maintenance/handyman contact");
             }
             if (role.includes("plumb") || category.includes("plumb") || desc.includes("leak") || desc.includes("toilet") || desc.includes("sink")) {
                 if (role.includes("plumb") || /plumb|pipe|drain/i.test(name)) {
@@ -697,10 +1507,16 @@ export class IssueAIService {
             });
         }
 
-        // Re-rank: in-house lockout → vendor/lock before guest; otherwise guest high but after critical vendor
+        // Re-rank: early-CI → cleaner first; in-house lockout → vendor/lock before guest
         const lockout = /lock|code|key|entry|can't get in|cant get in/i.test(desc);
         out.forEach((c) => {
             let boost = 0;
+            if (
+                (lane.isEarlyCheckinAsk || lane.isLateCheckoutAsk || lane.isReservationChange) &&
+                /clean/i.test(`${c.role} ${c.name}`)
+            ) {
+                boost += 25;
+            }
             if (stayStage === "in_house" && lockout && (c.source === "contact" || c.source === "poc") && /lock|access|vendor|contractor/i.test(c.role + c.name)) {
                 boost += 20;
             }
@@ -739,7 +1555,113 @@ export class IssueAIService {
         return boosted.map((c, i) => ({ ...c, rank: i + 1 }));
     }
 
-    private normalizePlaybook(raw: any, issue: Issue): IrPlaybookStep[] {
+    private normalizePlaybook(
+        raw: any,
+        issue: Issue,
+        ticketLane?: IrTicketLane,
+        upsellGuidance?: IrUpsellGuidance[],
+        specialRules?: IrSpecialRulesGuidance
+    ): IrPlaybookStep[] {
+        const lane = ticketLane || this.classifyTicketLane(issue);
+        if (lane.isRefundOrCancel) {
+            return [
+                {
+                    step: "1. Escalate to GR refund managers (Anj/Jade)",
+                    ownerLane: "GR",
+                    detail: "Assigned task + notification created; open Mitigation when checkout exists",
+                },
+                {
+                    step: "2. Do not dispatch vendors or quote refund amounts",
+                    ownerLane: "GR",
+                    detail: "Managers own policy / Airbnb mediation / goodwill decisions",
+                },
+                {
+                    step: "3. Send holding reply only if guest is waiting",
+                    ownerLane: "guest",
+                    detail: "Team is reviewing — no dollar promises",
+                },
+            ];
+        }
+        if (lane.isAccessIssue) {
+            return [
+                {
+                    step: "1. Check listing KB / door-code SOP (Schlage last-4, etc.)",
+                    ownerLane: "GR",
+                    detail: (specialRules?.listingKnowledge || []).slice(0, 2).join(" · ") || "Never invent codes",
+                },
+                {
+                    step: "2. Guide guest through entry steps from known procedure",
+                    ownerLane: "guest",
+                    detail: "Confirm keypad wake / code entry / lock battery symptoms",
+                },
+                {
+                    step: "3. If still locked out — contact lock vendor or cleaner",
+                    ownerLane: "ops",
+                    detail: "Use portfolio/contacts phone; log ETA on ticket",
+                },
+            ];
+        }
+        if (lane.isSupplies) {
+            return [
+                {
+                    step: "1. Contact listing cleaner about missing supplies",
+                    ownerLane: "ops",
+                    detail: "Not a 'supplies vendor' hunt — cleaner usually restocks",
+                },
+                {
+                    step: "2. Confirm what is missing and delivery timing",
+                    ownerLane: "IR",
+                    detail: undefined,
+                },
+                {
+                    step: "3. Update guest once restock is arranged",
+                    ownerLane: "guest",
+                    detail: undefined,
+                },
+            ];
+        }
+        // Canonical GR reservation-change order — do not trust model reordering.
+        if (lane.isReservationChange || lane.isEarlyCheckinAsk || lane.isLateCheckoutAsk) {
+            const relevant =
+                (upsellGuidance || []).find((u) =>
+                    lane.isLateCheckoutAsk && !lane.isEarlyCheckinAsk ? u.isLateCheckout : u.isEarlyCheckin
+                ) || (upsellGuidance || [])[0];
+            const handling =
+                lane.isLateCheckoutAsk && !lane.isEarlyCheckinAsk
+                    ? specialRules?.lateCheckoutHandling || "defer_to_team"
+                    : specialRules?.earlyCheckinHandling || "defer_to_team";
+            const feeDetail =
+                relevant?.guestFee != null
+                    ? `Upsells fee $${Number(relevant.guestFee).toFixed(2)}; SDTO ${relevant.sdto}; autoRespond ${relevant.autoRespond}`
+                    : "Pull fee/SDTO from Upsells for this listing";
+            const specialDetail = (specialRules?.summaryLines || []).slice(0, 3).join(" · ") || `handling=${handling}`;
+            return [
+                {
+                    step: "1. Check special rules (listing KB / ops overrides / early-late handling)",
+                    ownerLane: "GR",
+                    detail: specialDetail,
+                },
+                {
+                    step: "2. Check Upsells early/late fee and SDTO",
+                    ownerLane: "GR",
+                    detail: feeDetail,
+                },
+                {
+                    step: specialRules?.isLaunchClient
+                        ? "3. Launch client — confirm early/late with OWNER"
+                        : "3. Confirm turnover with CLEANER (skip only if Upsells auto-declines)",
+                    ownerLane: specialRules?.isLaunchClient ? "owner" : "ops",
+                    detail: specialRules?.isLaunchClient
+                        ? `Tags: ${specialRules.listingTags || "Launch"} — do not default to cleaner`
+                        : "Never hunt a RESERVATION CHANGES vendor",
+                },
+                {
+                    step: "4. Contact guest last — quote, decline, or team will confirm",
+                    ownerLane: "GR",
+                    detail: "No clock-time promise unless TEAM already confirmed",
+                },
+            ];
+        }
         if (Array.isArray(raw) && raw.length) {
             return raw
                 .map((item) => ({
@@ -754,7 +1676,7 @@ export class IssueAIService {
         if (checklist.length) {
             return checklist.slice(0, 6).map((step) => ({
                 step,
-                ownerLane: "IR" as const,
+                ownerLane: (lane.lane === "GR" ? "GR" : "IR") as IrPlaybookStep["ownerLane"],
                 detail: undefined,
             }));
         }
@@ -860,19 +1782,41 @@ export class IssueAIService {
 
         let city: string | null = null;
         if (issueRow?.listing_id) {
-            const listing = await this.listingRepo.findOne({ where: { id: Number(issueRow.listing_id) } });
-            city = listing?.city || null;
+            const listing = await this.listingRepo.findOne({
+                where: { id: Number(issueRow.listing_id) },
+                withDeleted: true,
+            });
+            city = await this.resolveListingCity(listing, issueRow);
+        }
+        const ticketLane = issueRow ? this.classifyTicketLane(issueRow) : null;
+        if (city) {
+            await this.ensurePortfolioCityDefaults(city).catch(() => undefined);
         }
         const portfolioVendors = await this.loadPortfolioVendors({
             city,
             category: issueRow?.category || null,
+            ticketLane,
         });
         const recommendedContacts = this.mergePortfolioVendorsIntoContacts(
             complex.recommendedContacts,
             portfolioVendors
         );
+        let upsellGuidance: IrUpsellGuidance[] = [];
+        let specialRules: IrSpecialRulesGuidance | undefined;
+        if (issueRow && ticketLane && (ticketLane.isReservationChange || ticketLane.lane === "GR")) {
+            const context = await this.buildContextPack(issueRow);
+            upsellGuidance = await this.loadUpsellGuidance(issueRow, context);
+            specialRules = await this.loadSpecialRulesGuidance(issueRow, context, ticketLane);
+        }
         const clarifyingQuestions = issueRow
-            ? this.buildClarifyingQuestions(issueRow, recommendedContacts, portfolioVendors)
+            ? this.buildClarifyingQuestions(
+                  issueRow,
+                  recommendedContacts,
+                  portfolioVendors,
+                  ticketLane || undefined,
+                  upsellGuidance,
+                  specialRules
+              )
             : [];
 
         return {
@@ -916,45 +1860,89 @@ export class IssueAIService {
     private async loadPortfolioVendors(opts: {
         city?: string | null;
         category?: string | null;
+        ticketLane?: IrTicketLane | null;
     }): Promise<IrPortfolioVendor[]> {
         const city = String(opts.city || "").trim();
         const category = String(opts.category || "").trim();
-        if (!city && !category) return [];
+        const cities = this.regionCitiesFor(city);
+        if (!cities.length && !category) return [];
+        const lane = opts.ticketLane;
+        const roleNeedles: string[] = [];
+        const categoryNeedles: string[] = [];
+
+        if (lane?.isSupplies) {
+            roleNeedles.push("clean");
+            categoryNeedles.push("CLEANLINESS", "SUPPLIES");
+        } else if (lane?.isAccessIssue) {
+            roleNeedles.push("lock", "maint", "handy", "clean");
+            categoryNeedles.push("PROPERTY ACCESS", "MAINTENANCE");
+        } else if (
+            lane?.isReservationChange ||
+            lane?.isEarlyCheckinAsk ||
+            lane?.isLateCheckoutAsk ||
+            (lane?.lane === "GR" && !lane?.isRefundOrCancel)
+        ) {
+            // GR / early-late: prefer cleaners (+ maintenance for turnover), never "RESERVATION CHANGES" vendors.
+            roleNeedles.push("clean", "maint", "handy");
+            categoryNeedles.push("CLEANLINESS", "MAINTENANCE");
+        } else if (category && !lane?.isRefundOrCancel) {
+            categoryNeedles.push(category);
+            if (/clean/i.test(category)) roleNeedles.push("clean");
+            if (/maint|hvac/i.test(category)) roleNeedles.push("maint", "handy");
+            if (/pest/i.test(category)) roleNeedles.push("pest");
+            if (/pool/i.test(category)) roleNeedles.push("pool");
+        }
+
         try {
             const qb = this.vendorMemoryRepo
                 .createQueryBuilder("v")
+                .andWhere("LOWER(TRIM(v.vendorName)) NOT IN (:...badNames)", { badNames: ["null", "undefined", ""] })
                 .orderBy("v.useCount", "DESC")
                 .addOrderBy("v.lastUsedAt", "DESC")
-                .take(8);
-            if (city) qb.andWhere("LOWER(TRIM(v.city)) = LOWER(:city)", { city });
-            if (category) {
+                .take(12);
+            if (cities.length) {
                 qb.andWhere(
-                    "(LOWER(TRIM(v.category)) = LOWER(:category) OR LOWER(COALESCE(v.role,'')) LIKE :roleLike OR LOWER(v.vendorName) LIKE :nameLike)",
-                    {
-                        category,
-                        roleLike: `%${category.toLowerCase()}%`,
-                        nameLike: `%${category.toLowerCase()}%`,
-                    }
+                    "LOWER(TRIM(v.city)) IN (:...cities)",
+                    { cities: cities.map((c) => c.toLowerCase()) }
                 );
             }
+            if (categoryNeedles.length || roleNeedles.length) {
+                const parts: string[] = [];
+                const params: Record<string, any> = {};
+                categoryNeedles.forEach((c, i) => {
+                    parts.push(`LOWER(TRIM(v.category)) = LOWER(:cat${i})`);
+                    params[`cat${i}`] = c;
+                });
+                roleNeedles.forEach((r, i) => {
+                    parts.push(`LOWER(COALESCE(v.role,'')) LIKE :role${i}`);
+                    parts.push(`LOWER(v.vendorName) LIKE :rname${i}`);
+                    params[`role${i}`] = `%${r}%`;
+                    params[`rname${i}`] = `%${r}%`;
+                });
+                qb.andWhere(`(${parts.join(" OR ")})`, params);
+            }
             const rows = await qb.getMany();
-            return rows.map((r) => ({
-                id: r.id,
-                name: r.vendorName,
-                phone: r.phone,
-                email: r.email,
-                category: r.category,
-                city: r.city,
-                role: r.role,
-                useCount: r.useCount,
-                reason: [
-                    r.city ? `${r.city}` : null,
-                    r.category || r.role || null,
-                    r.useCount > 1 ? `used ${r.useCount}×` : "from portfolio memory",
-                ]
-                    .filter(Boolean)
-                    .join(" · "),
-            }));
+            return rows
+                .filter((r) => r.vendorName && !/^null$/i.test(r.vendorName))
+                .filter((r) => !r.phone || !this.isBogusPhone(r.phone))
+                .map((r) => ({
+                    id: r.id,
+                    name: r.vendorName,
+                    phone: this.sanitizePhone(r.phone) || r.phone,
+                    email: r.email,
+                    category: r.category,
+                    city: r.city,
+                    role: r.role,
+                    useCount: r.useCount,
+                    reason: [
+                        r.city ? `${r.city}` : null,
+                        r.category || r.role || null,
+                        r.source === "seed" ? "portfolio default" : null,
+                        r.useCount > 1 ? `used ${r.useCount}×` : "from portfolio memory",
+                    ]
+                        .filter(Boolean)
+                        .join(" · "),
+                }));
         } catch (err: any) {
             // Table may not exist yet before migration runs.
             logger.warn(`[IssueAIService] loadPortfolioVendors skipped: ${err?.message}`);
@@ -1006,14 +1994,102 @@ export class IssueAIService {
     private buildClarifyingQuestions(
         issue: Issue,
         contacts: IrRecommendedContact[],
-        portfolioVendors: IrPortfolioVendor[]
+        portfolioVendors: IrPortfolioVendor[],
+        ticketLane?: IrTicketLane,
+        upsellGuidance?: IrUpsellGuidance[],
+        specialRules?: IrSpecialRulesGuidance
     ): IrClarifyingQuestion[] {
         const qs: IrClarifyingQuestion[] = [];
+        const lane = ticketLane || this.classifyTicketLane(issue);
         const vendorLike = contacts.filter(
             (c) => c.source === "contact" || c.source === "poc" || c.source === "memory"
         );
         const withPhone = vendorLike.filter((c) => !!c.phone);
+        const cleaners = withPhone.filter((c) => /clean/i.test(`${c.role} ${c.name} ${c.reason}`));
         const category = String(issue.category || "vendor").trim() || "vendor";
+
+        if (lane.isRefundOrCancel) {
+            qs.push({
+                id: "refund_manager_escalation",
+                kind: "general",
+                question:
+                    "Refund/cancellation routed to GR managers (Anj/Jade) via task + notification. Confirm any goodwill/Airbnb mediation decision with them — do not dispatch vendors.",
+            });
+            return this.dedupeQuestions(qs);
+        }
+
+        if (lane.isAccessIssue) {
+            if (!(specialRules?.listingKnowledge || []).length) {
+                qs.push({
+                    id: "access_sop_missing",
+                    kind: "general",
+                    question:
+                        "No door-code SOP found in listing KB. Confirm the property procedure (e.g. Schlage last 4 of guest phone) before sending a code.",
+                });
+            }
+            return this.dedupeQuestions(qs);
+        }
+
+        if (lane.isSupplies) {
+            qs.push({
+                id: "supplies_cleaner",
+                kind: cleaners.length ? "vendor_confirm" : "vendor_missing",
+                question: cleaners.length
+                    ? `Supplies restock: contact cleaner ${cleaners[0].name}${cleaners[0].phone ? ` (${cleaners[0].phone})` : ""}?`
+                    : "Who is the cleaner (or supplies orderer) for this listing to restock?",
+            });
+            return this.dedupeQuestions(qs);
+        }
+
+        // Early-CI / reservation changes: never ask for a category-named vendor.
+        if (lane.isReservationChange || lane.isEarlyCheckinAsk || lane.isLateCheckoutAsk) {
+            const relevant = (upsellGuidance || []).find((u) =>
+                lane.isLateCheckoutAsk && !lane.isEarlyCheckinAsk ? u.isLateCheckout : u.isEarlyCheckin || u.isLateCheckout
+            );
+            const quarantined = (specialRules?.opsOverrides || []).some(
+                (o) => o.status === "quarantined" && /early_checkin|late_checkout/i.test(o.field)
+            );
+            if (quarantined) {
+                qs.push({
+                    id: "special_rule_quarantine",
+                    kind: "general",
+                    question:
+                        "Special rules quarantine an early/late fee for this listing. Confirm the correct fee/policy with ops before contacting the guest.",
+                });
+            } else if (!relevant) {
+                qs.push({
+                    id: "upsell_missing",
+                    kind: "general",
+                    question:
+                        "No early/late upsell fee found after special rules. Confirm the fee in Upsells (or owner policy) before quoting the guest.",
+                });
+            } else if (relevant?.autoRespond === "deny") {
+                // Auto-decline — no turnover contact needed.
+            } else if (specialRules?.isLaunchClient) {
+                const owner = contacts.find((c) => c.source === "owner");
+                qs.push({
+                    id: "launch_owner_confirm",
+                    kind: "general",
+                    question: owner?.phone
+                        ? `Launch/10% client: confirm early/late with owner ${owner.name} at ${owner.phone} before promising the guest.`
+                        : "Launch/10% client: confirm early/late with the property owner (owner phone missing on listing).",
+                });
+            } else {
+                qs.push({
+                    id: "turnover_confirm",
+                    kind: "general",
+                    question: cleaners.length
+                        ? `After special rules + Upsells: confirm turnover with cleaner ${cleaners[0].name}${cleaners[0].phone ? ` (${cleaners[0].phone})` : ""} before promising ${relevant?.title || "early/late"}.`
+                        : `After special rules + Upsells: who is the cleaner to confirm turnover for this early/late request?`,
+                });
+            }
+            return this.dedupeQuestions(qs);
+        }
+
+        // Other GR (comms, payments, etc.) — no vendor hunt.
+        if (lane.lane === "GR" || !lane.needsVendorDispatch) {
+            return this.dedupeQuestions(qs);
+        }
 
         if (!withPhone.length && !portfolioVendors.length) {
             qs.push({
@@ -1038,7 +2114,7 @@ export class IssueAIService {
                 question: `Using portfolio memory for ${withPhone[0].name}. Is this the right ${category} vendor/number for this ticket?`,
             });
         }
-        return qs;
+        return this.dedupeQuestions(qs);
     }
 
     private dedupeQuestions(items: IrClarifyingQuestion[]): IrClarifyingQuestion[] {
@@ -1093,6 +2169,12 @@ export class IssueAIService {
         if (!normalizedName) return null;
         const city = String(input.city || "").trim() || null;
         const category = String(input.category || "").trim() || null;
+        const phone = this.sanitizePhone(input.phone);
+        if (input.phone && !phone) {
+            logger.info(
+                `[IssueAIService] ignoring bogus phone for ${vendorName}: ${String(input.phone).slice(0, 32)}`
+            );
+        }
 
         let row = await this.vendorMemoryRepo.findOne({
             where: {
@@ -1115,7 +2197,7 @@ export class IssueAIService {
             row = this.vendorMemoryRepo.create({
                 vendorName,
                 normalizedName,
-                phone: input.phone || null,
+                phone,
                 email: input.email || null,
                 category,
                 city,
@@ -1128,7 +2210,9 @@ export class IssueAIService {
             });
         } else {
             row.vendorName = vendorName;
-            if (input.phone) row.phone = input.phone;
+            if (phone) row.phone = phone;
+            // Clear previously stored junk NPAs if we re-touch the row without a good phone.
+            if (row.phone && this.isBogusPhone(row.phone)) row.phone = phone;
             if (input.email) row.email = input.email;
             if (input.role) row.role = input.role;
             if (input.notes) row.notes = input.notes;
@@ -1156,16 +2240,19 @@ export class IssueAIService {
             const issueRows: any[] = await appDatabase.query(
                 `SELECT i.id, i.final_contractor_name AS name, i.category
                  FROM issues i
-                 INNER JOIN listing_info l ON l.id = CAST(i.listing_id AS UNSIGNED)
+                 INNER JOIN listing_info l ON l.id = CAST(NULLIF(TRIM(i.listing_id), '') AS UNSIGNED)
                  WHERE i.deleted_at IS NULL
                    AND i.status = 'Completed'
                    AND i.final_contractor_name IS NOT NULL
                    AND TRIM(i.final_contractor_name) <> ''
-                   AND LOWER(TRIM(l.city)) = LOWER(?)
+                   AND (
+                     LOWER(TRIM(l.city)) = LOWER(?)
+                     OR LOWER(l.address) LIKE LOWER(CONCAT('%, ', ?, ', %'))
+                   )
                    ${category ? "AND i.category = ?" : ""}
                  ORDER BY i.id DESC
                  LIMIT 80`,
-                category ? [cityKey, category] : [cityKey]
+                category ? [cityKey, cityKey, category] : [cityKey, cityKey]
             );
             for (const r of issueRows || []) {
                 await this.upsertVendorMemory({

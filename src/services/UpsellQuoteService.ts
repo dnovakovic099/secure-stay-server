@@ -42,6 +42,8 @@ export interface UpsellQuote {
     breakdown: string[];
     autoRespond: UpsellAutoRespond;
     description: string | null;
+    /** Staff-only notes from Upsells config — never guest-facing. */
+    internalNotes: string | null;
     isEarlyCheckin: boolean;
     isLateCheckout: boolean;
     /**
@@ -607,6 +609,9 @@ export class UpsellQuoteService {
                 breakdown: calc.breakdown,
                 autoRespond,
                 description: r.description ? String(r.description).replace(/\s+/g, " ").trim() : null,
+                internalNotes: r.internalNotes
+                    ? String(r.internalNotes).replace(/\s+/g, " ").trim().slice(0, 500)
+                    : null,
                 isEarlyCheckin,
                 isLateCheckout,
                 sameDayTurnoverRelevant: sdtRelevant,
