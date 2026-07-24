@@ -1072,7 +1072,10 @@ export class ExpenseService {
                         r.id,
                         r.listingMapId,
                         r.reservationId,
+                        r.id AS hostifyReservationId,
                         r.guestName,
+                        r.channelName,
+                        r.source,
                         r.reservationDate,
                         r.arrivalDate,
                         r.departureDate,
@@ -1099,6 +1102,8 @@ export class ExpenseService {
                         concept,
                         amount,
                         categories,
+                        createdAt,
+                        createdBy,
                         contractorName,
                         status,
                         reservationId,
@@ -1113,6 +1118,37 @@ export class ExpenseService {
                 `,
                 expenseParams
             );
+
+            const categories = await new CategoryService().getAllCategories();
+            const categoryNameById = new Map(
+                categories.map((category) => [Number(category.id), category.categoryName])
+            );
+            const createdByIds = Array.from(new Set(
+                expenseDetails.map((row: any) => String(row.createdBy || "").trim()).filter(Boolean)
+            ));
+            const creators = createdByIds.length
+                ? await this.usersRepository.find({ where: { uid: In(createdByIds) } })
+                : [];
+            const creatorNameById = new Map(
+                creators.map((user) => [user.uid, `${user.firstName || ""} ${user.lastName || ""}`.trim()])
+            );
+
+            expenseDetails = expenseDetails.map((row: any) => {
+                const categoryNames = String(row.categories || "")
+                    .split(",")
+                    .map((id) => id.replace(/[\[\]"]/g, "").trim())
+                    .filter(Boolean)
+                    .map((id) => categoryNameById.get(Number(id)) || "Unknown Category")
+                    .join(", ");
+                return {
+                    ...row,
+                    dateAdded: row.expenseDate,
+                    description: row.concept,
+                    categories: categoryNames,
+                    createdAt: this.formatAccountingTimestamp(row.createdAt),
+                    createdBy: creatorNameById.get(row.createdBy) || row.createdBy || "",
+                };
+            });
         }
 
         const listingIds = Array.from(new Set([
@@ -2235,4 +2271,3 @@ export class ExpenseService {
         return { created, skipped };
     }
 }
-
