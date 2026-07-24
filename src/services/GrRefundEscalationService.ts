@@ -35,13 +35,21 @@ export class GrRefundEscalationService {
             .toUpperCase()
             .replace(/\s+/g, " ");
         const text = `${issue.ai_short_title || ""} ${issue.issue_description || ""} ${issue.owner_notes || ""}`.toLowerCase();
+
+        // Never hijack early/late CI turnover tickets that casually mention a fee refund.
+        if (
+            /early\s*check[\s-]*in|late\s*check[\s-]*out|check[\s-]*in\s*early|check[\s-]*out\s*late/.test(text) &&
+            !/cancel|cancellation/.test(text)
+        ) {
+            return false;
+        }
+
+        // Strict category gate — do NOT escalate MAINTENANCE/etc. that mention "refund".
         if (category === "REFUNDS") return true;
         if (category === "RESERVATION CHANGES") {
             return /cancel|cancellation|refund|reimburse|compensation|goodwill/.test(text);
         }
-        return /cancel(?:lation)?\s+(?:request|the\s+)?(?:reservation|booking)|full\s+refund|request(?:ed|ing)?\s+a?\s*refund/.test(
-            text
-        );
+        return false;
     }
 
     async escalateIssue(issue: Issue, actor?: { uid?: string | null; name?: string | null }): Promise<GrRefundEscalateResult> {

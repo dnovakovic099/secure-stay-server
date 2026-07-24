@@ -843,13 +843,15 @@ export class IssueAIService {
         const isLateCheckoutAsk =
             /late\s*check[\s-]*out|check[\s-]*out\s*late|depart\s*late|later\s*departure|lco\b/.test(text);
         const isReservationChange = category === "RESERVATION CHANGES" || isEarlyCheckinAsk || isLateCheckoutAsk;
+        // Keep aligned with GrRefundEscalationService — category-gated, skip pure early/late.
+        const looksLikeEarlyLate =
+            /early\s*check[\s-]*in|late\s*check[\s-]*out|check[\s-]*in\s*early|check[\s-]*out\s*late/.test(text) &&
+            !/cancel|cancellation/.test(text);
         const isRefundOrCancel =
-            category === "REFUNDS" ||
-            (category === "RESERVATION CHANGES" &&
-                /cancel|cancellation|refund|reimburse|compensation|goodwill/.test(text)) ||
-            /cancel(?:lation)?\s+(?:request|the\s+)?(?:reservation|booking)|full\s+refund|request(?:ed|ing)?\s+a?\s*refund/.test(
-                text
-            );
+            !looksLikeEarlyLate &&
+            (category === "REFUNDS" ||
+                (category === "RESERVATION CHANGES" &&
+                    /cancel|cancellation|refund|reimburse|compensation|goodwill/.test(text)));
         const isSupplies =
             category === "SUPPLIES" ||
             /\b(toilet\s*paper|paper\s*towels|toiletries|missing\s+towels|extra\s+towels|supplies|shampoo|conditioner|trash\s*bags)\b/.test(

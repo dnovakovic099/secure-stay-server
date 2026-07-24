@@ -1,0 +1,44 @@
+name: Audit IR Live Deploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  audit:
+    name: Audit + live-test IR on EC2
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run live IR audit and functional tests on EC2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT }}
+          command_timeout: 25m
+          script: |
+            set -e
+            cd /home/ec2-user/secure_stay/secure-stay-server
+            git fetch origin dev-new
+            git reset --hard origin/dev-new
+            echo "===== DB AUDIT ====="
+            AUDIT_RC=0
+            npx ts-node src/scripts/auditIrLiveDeploy.ts || AUDIT_RC=$?
+
+            echo "===== BUILD (for compiled live tests) ====="
+            npm run build
+
+            echo "===== FUNCTIONAL LIVE TESTS ====="
+            TEST_RC=0
+            if [ -f dist/out-tsc/scripts/liveTestIrFixes.js ]; then
+              NODE_ENV=production timeout 600 node dist/out-tsc/scripts/liveTestIrFixes.js || TEST_RC=$?
+            else
+              NODE_ENV=production timeout 600 node dist/out-tsc/src/scripts/liveTestIrFixes.js || TEST_RC=$?
+            fi
+            echo "AUDIT_RC=${AUDIT_RC} TEST_RC=${TEST_RC}"
+            if [ "${AUDIT_RC}" = "2" ] || [ "${TEST_RC}" = "2" ] || [ "${TEST_RC}" = "124" ]; then
+              exit 2
+            fi
+            if [ "${AUDIT_RC}" != "0" ] || [ "${TEST_RC}" != "0" ]; then
+              exit 1
+            fi
