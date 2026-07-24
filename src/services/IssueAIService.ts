@@ -14,7 +14,7 @@ import { IssueAISuggestionEntity } from "../entity/IssueAISuggestion";
 import { IssueAIFeedbackEntity } from "../entity/IssueAIFeedback";
 import { IrVendorMemoryEntity } from "../entity/IrVendorMemory";
 
-const PROMPT_VERSION = "ir-copilot-v6";
+const PROMPT_VERSION = "ir-copilot-v7";
 const MODEL = "gpt-4o-mini";
 
 /** NANP NPAs that show up as junk in ticket text (never store as vendor phones). */
@@ -32,6 +32,10 @@ const BOGUS_PHONE_NPAS = new Set([
     "888",
     "999",
 ]);
+
+/** Market NPAs used to catch clear CHI↔TPA cross-market recommendations. */
+const CHI_MARKET_NPAS = new Set(["312", "773", "872", "708", "847", "630", "815", "464"]);
+const TPA_MARKET_NPAS = new Set(["813", "727", "941", "352", "863", "239"]);
 
 /** Guest Relations categories — quote/policy/guest comms, not vendor dispatch. */
 const GR_CATEGORIES = new Set([
@@ -292,12 +296,17 @@ export class IssueAIService {
         });
         const upsellGuidance = await this.loadUpsellGuidance(issue, context);
         const specialRules = await this.loadSpecialRulesGuidance(issue, context, ticketLane);
-        const heuristicContacts = this.mergePortfolioVendorsIntoContacts(
-            this.rankContacts(issue, context, ticketLane),
-            portfolioVendors
+        const heuristicContacts = this.finalizeRecommendedContacts(
+            this.mergePortfolioVendorsIntoContacts(
+                this.rankContacts(issue, context, ticketLane),
+                portfolioVendors
+            ),
+            city,
+            ticketLane
         );
-        const recentFeedback = await this.loadRecentFeedback(Number(issue.listing_id) || null);
-        const clarifyingQuestions = this.buildClarifyingQuestions(
+        const listingIdForFeedback = this.parsePositiveInt(issue.listing_id) || this.parsePositiveInt((context.listing as any)?.id);
+        const recentFeedback = await this.loadRecentFeedback(listingIdForFeedback);
+        const clarifyingQuestionsSeed = this.buildClarifyingQuestions(
             issue,
             heuristicContacts,
             portfolioVendors,
@@ -389,7 +398,7 @@ export class IssueAIService {
                                 upsellGuidance,
                                 contacts: heuristicContacts,
                                 portfolioVendors,
-                                clarifyingQuestionsSeed: clarifyingQuestions,
+                                clarifyingQuestionsSeed,
                                 recentMessages: context.recentMessages,
                                 similarHints: context.similarHints,
                                 similarIssues: context.similarIssues,
@@ -414,6 +423,15 @@ export class IssueAIService {
         );
         let recommendedContacts = this.mergeContactHints(heuristicContacts, modelOut?.contactHints);
         recommendedContacts = this.mergePortfolioVendorsIntoContacts(recommendedContacts, portfolioVendors);
+        recommendedContacts = this.finalizeRecommendedContacts(recommendedContacts, city, ticketLane);
+        const clarifyingQuestions = this.buildClarifyingQuestions(
+            issue,
+            recommendedContacts,
+            portfolioVendors,
+            ticketLane,
+            upsellGuidance,
+            specialRules
+        );
         const warnings = this.normalizeStringArray(modelOut?.warnings);
         if (!context.reservation) warnings.push("No linked reservation — guest stay context may be incomplete.");
         if (
@@ -510,8 +528,8 @@ export class IssueAIService {
 
         const row = this.suggestionRepo.create({
             issueId,
-            listingId: Number(issue.listing_id) || null,
-            reservationId: Number(issue.reservation_id) || null,
+            listingId: this.parsePositiveInt(issue.listing_id) || this.parsePositiveInt((context.listing as any)?.id),
+            reservationId: this.parsePositiveInt(issue.reservation_id),
             summary: String(modelOut?.summary || issue.ai_short_title || issue.issue_description || "").trim().slice(0, 2000) || null,
             severity: this.normalizeSeverity(modelOut?.severity, issue),
             primaryAction: primaryAction.slice(0, 1000),
@@ -577,8 +595,9 @@ export class IssueAIService {
                 `${input.correctedResponse || ""}\n${input.feedbackText || ""}`
             );
             if (issue && taught?.name) {
-                const listing = Number(issue.listing_id)
-                    ? await this.listingRepo.findOne({ where: { id: Number(issue.listing_id) }, withDeleted: true })
+                const lid = this.parsePositiveInt(issue.listing_id);
+                const listing = lid
+                    ? await this.listingRepo.findOne({ where: { id: lid }, withDeleted: true })
                     : null;
                 const city = await this.resolveListingCity(listing, issue);
                 await this.upsertVendorMemory({
@@ -613,8 +632,9 @@ export class IssueAIService {
         const name = String(input.name || "").trim();
         if (!name) throw CustomErrorHandler.validationError("Vendor name is required");
 
-        const listing = Number(issue.listing_id)
-            ? await this.listingRepo.findOne({ where: { id: Number(issue.listing_id) }, withDeleted: true })
+        const lid = this.parsePositiveInt(issue.listing_id);
+        const listing = lid
+            ? await this.listingRepo.findOne({ where: { id: lid }, withDeleted: true })
             : null;
         const city = await this.resolveListingCity(listing, issue);
 
@@ -664,20 +684,20 @@ export class IssueAIService {
             .take(25)
             .getMany();
 
-        const listingId = Number(issue.listing_id);
-        let listing = Number.isFinite(listingId) && listingId > 0
+        const listingId = this.parsePositiveInt(issue.listing_id);
+        let listing = listingId
             ? await this.listingRepo.findOne({ where: { id: listingId }, withDeleted: true })
             : null;
 
-        const reservationId = Number(issue.reservation_id);
-        const reservation = Number.isFinite(reservationId) && reservationId > 0
+        const reservationId = this.parsePositiveInt(issue.reservation_id);
+        const reservation = reservationId
             ? await this.reservationRepo.findOne({ where: { id: reservationId } })
             : null;
 
         // Fallback: resolve listing via reservation.listingMapId when issue.listing_id is empty/wrong.
         if (!listing && reservation) {
-            const resListingId = Number((reservation as any).listingMapId);
-            if (Number.isFinite(resListingId) && resListingId > 0) {
+            const resListingId = this.parsePositiveInt((reservation as any).listingMapId);
+            if (resListingId) {
                 listing = await this.listingRepo.findOne({ where: { id: resListingId }, withDeleted: true });
             }
         }
@@ -698,15 +718,17 @@ export class IssueAIService {
 
         const resolvedCity = await this.resolveListingCity(listing, issue);
 
-        const contacts = Number.isFinite(listingId)
+        // Prefer resolved listing id so orphan issue.listing_id strings don't load wrong/empty contacts.
+        const contactListingId = this.parsePositiveInt(listing?.id) || listingId;
+        const contacts = contactListingId
             ? await this.contactRepo.find({
-                  where: { listingId: String(listingId) },
+                  where: { listingId: String(contactListingId) },
                   take: 80,
               })
             : [];
 
         let recentMessages: Array<{ at: string; direction: string; body: string }> = [];
-        if (Number.isFinite(reservationId) && reservationId > 0) {
+        if (reservationId) {
             try {
                 const conv = await this.conversationRepo.findOne({
                     where: { reservationId },
@@ -928,8 +950,9 @@ export class IssueAIService {
         issue: Issue,
         context: Awaited<ReturnType<IssueAIService["buildContextPack"]>>
     ): Promise<IrUpsellGuidance[]> {
-        const listingId = Number(issue.listing_id);
-        if (!Number.isFinite(listingId) || listingId <= 0) return [];
+        const listingId =
+            this.parsePositiveInt(issue.listing_id) || this.parsePositiveInt((context.listing as any)?.id);
+        if (!listingId) return [];
         const lane = this.classifyTicketLane(issue);
         if (!lane.isReservationChange && !lane.isEarlyCheckinAsk && !lane.isLateCheckoutAsk) {
             return [];
@@ -1013,8 +1036,9 @@ export class IssueAIService {
         }
 
         const opsOverrides: IrSpecialRulesGuidance["opsOverrides"] = [];
-        const listingId = Number(issue.listing_id);
-        if (wantsEarlyLate && Number.isFinite(listingId) && listingId > 0) {
+        const listingId =
+            this.parsePositiveInt(issue.listing_id) || this.parsePositiveInt((context.listing as any)?.id);
+        if (wantsEarlyLate && listingId) {
             try {
                 const { ListingOpsOverrideService } = require("./ListingOpsOverrideService");
                 const rows = await new ListingOpsOverrideService().getForListings([listingId]);
@@ -1304,9 +1328,24 @@ export class IssueAIService {
         return null;
     }
 
+    private parsePositiveInt(raw: unknown): number | null {
+        if (raw == null || raw === "") return null;
+        const n = typeof raw === "number" ? raw : Number(String(raw).trim());
+        return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+    }
+
+    private isUsablePersonName(name: string | null | undefined): boolean {
+        const n = String(name || "").trim();
+        if (!n) return false;
+        if (/^(null|undefined|n\/a|none|unknown|\(null\))$/i.test(n)) return false;
+        return true;
+    }
+
     private phoneDigits(phone: string | null | undefined): string | null {
         let d = String(phone || "").replace(/\D/g, "");
-        if (d.length === 11 && d.startsWith("1")) d = d.slice(1);
+        // Prefer stripping leading country code from 11+ digit NANP numbers (+1XXXXXXXXXX).
+        if (d.length >= 11 && d.startsWith("1")) d = d.slice(-10);
+        else if (d.length > 10) d = d.slice(-10);
         return d.length === 10 ? d : null;
     }
 
@@ -1323,6 +1362,68 @@ export class IssueAIService {
         const d = this.phoneDigits(phone);
         if (!d) return null;
         return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+    }
+
+    /** True when phone NPA clearly belongs to the other OWN market (CHI↔TPA). */
+    private isCrossMarketPhone(phone: string | null | undefined, city: string | null | undefined): boolean {
+        const region = this.resolveCityRegion(city);
+        const d = this.phoneDigits(phone);
+        if (!region || !d) return false;
+        const a = d.slice(0, 3);
+        if (region.id === "chicago" && TPA_MARKET_NPAS.has(a)) return true;
+        if (region.id === "tampa" && CHI_MARKET_NPAS.has(a)) return true;
+        return false;
+    }
+
+    /**
+     * Final safety pass: drop null names, strip bogus/cross-market vendor phones,
+     * and keep guests from ranking #1 on vendor-dispatch tickets.
+     */
+    private finalizeRecommendedContacts(
+        contacts: IrRecommendedContact[],
+        city: string | null | undefined,
+        ticketLane: IrTicketLane
+    ): IrRecommendedContact[] {
+        const scored = contacts
+            .filter((c) => this.isUsablePersonName(c.name) || c.source === "assignee")
+            .map((c) => {
+                let phone = c.phone ? this.sanitizePhone(c.phone) : null;
+                let reason = c.reason;
+                const vendorLike = c.source === "contact" || c.source === "poc" || c.source === "memory";
+                if (phone && vendorLike && this.isCrossMarketPhone(phone, city)) {
+                    reason = `${reason || "Listing contact"} · out-of-market NPA — verify before calling`;
+                    phone = null;
+                }
+                const deepPhone = phone ? phone.replace(/[^\d+]/g, "") : null;
+                return {
+                    contact: {
+                        ...c,
+                        phone,
+                        reason,
+                        deepLinks: {
+                            call: deepPhone ? `tel:${deepPhone}` : null,
+                            sms: deepPhone ? `sms:${deepPhone}` : null,
+                            mailto: c.email ? `mailto:${c.email}` : null,
+                        },
+                    },
+                    sort: (() => {
+                        let s = 0;
+                        if (vendorLike && phone) s += 40;
+                        if (c.source === "memory" && phone) s += 20;
+                        if (c.source === "poc" && phone) s += 15;
+                        if (c.source === "owner" && (phone || c.email)) s += 8;
+                        if (c.source === "guest") {
+                            // Guest last on vendor dispatch; earlier on pure GR/comms.
+                            s += ticketLane.needsVendorDispatch ? -20 : 5;
+                        }
+                        if (!phone && vendorLike) s -= 10;
+                        return s;
+                    })(),
+                };
+            });
+
+        scored.sort((a, b) => b.sort - a.sort);
+        return scored.map(({ contact }, i) => ({ ...contact, rank: i + 1 }));
     }
 
     private resolveCityRegion(city: string | null | undefined): CityRegion | null {
@@ -1387,8 +1488,17 @@ export class IssueAIService {
         const lane = ticketLane || this.classifyTicketLane(issue);
 
         const push = (c: Omit<IrRecommendedContact, "rank" | "deepLinks">) => {
-            const phone = c.phone ? String(c.phone).trim() : null;
+            if (!this.isUsablePersonName(c.name) && c.source !== "assignee") return;
+            const phone = c.phone ? this.sanitizePhone(c.phone) : null;
             const email = c.email ? String(c.email).trim() : null;
+            // Vendor-like rows without any usable reachability are noise.
+            if (
+                (c.source === "contact" || c.source === "poc" || c.source === "memory") &&
+                !phone &&
+                !email
+            ) {
+                return;
+            }
             out.push({
                 ...c,
                 phone,
@@ -1405,7 +1515,7 @@ export class IssueAIService {
         const guestPhone = context.reservation?.phone || issue.guest_contact_number || null;
         const guestEmail = context.reservation?.email || null;
         const guestName = context.reservation?.guestName || issue.guest_name || "Guest";
-        if (guestPhone || guestEmail || guestName) {
+        if ((guestPhone || guestEmail || guestName) && this.isUsablePersonName(guestName)) {
             push({
                 role: "Guest",
                 name: String(guestName),
@@ -1821,12 +1931,15 @@ export class IssueAIService {
         };
 
         let city: string | null = null;
-        if (issueRow?.listing_id) {
+        const payloadListingId = this.parsePositiveInt(issueRow?.listing_id);
+        if (payloadListingId) {
             const listing = await this.listingRepo.findOne({
-                where: { id: Number(issueRow.listing_id) },
+                where: { id: payloadListingId },
                 withDeleted: true,
             });
             city = await this.resolveListingCity(listing, issueRow);
+        } else if (issueRow) {
+            city = await this.resolveListingCity(null, issueRow);
         }
         const ticketLane = issueRow ? this.classifyTicketLane(issueRow) : null;
         if (city) {
@@ -1837,9 +1950,19 @@ export class IssueAIService {
             category: issueRow?.category || null,
             ticketLane,
         });
-        const recommendedContacts = this.mergePortfolioVendorsIntoContacts(
-            complex.recommendedContacts,
-            portfolioVendors
+        const recommendedContacts = this.finalizeRecommendedContacts(
+            this.mergePortfolioVendorsIntoContacts(complex.recommendedContacts, portfolioVendors),
+            city,
+            ticketLane || {
+                lane: "IR",
+                needsVendorDispatch: true,
+                isReservationChange: false,
+                isEarlyCheckinAsk: false,
+                isLateCheckoutAsk: false,
+                isAccessIssue: false,
+                isSupplies: false,
+                isRefundOrCancel: false,
+            }
         );
         let upsellGuidance: IrUpsellGuidance[] = [];
         let specialRules: IrSpecialRulesGuidance | undefined;
@@ -2208,7 +2331,10 @@ export class IssueAIService {
     }) {
         const vendorName = String(input.vendorName || "").trim();
         const normalizedName = this.normalizeVendorKey(vendorName);
-        if (!normalizedName) return null;
+        if (!normalizedName || !this.isUsablePersonName(vendorName)) {
+            logger.info(`[IssueAIService] ignoring unusable vendor name: ${String(input.vendorName).slice(0, 40)}`);
+            return null;
+        }
         const city = String(input.city || "").trim() || null;
         const category = String(input.category || "").trim() || null;
         const phone = this.sanitizePhone(input.phone);
@@ -2216,6 +2342,11 @@ export class IssueAIService {
             logger.info(
                 `[IssueAIService] ignoring bogus phone for ${vendorName}: ${String(input.phone).slice(0, 32)}`
             );
+        }
+        const source = input.source || "issue";
+        // Never create empty shells from scrapes/issues — they become null-phone rank noise.
+        if (!phone && !input.email && !["teach", "feedback", "seed"].includes(source)) {
+            return null;
         }
 
         let row = await this.vendorMemoryRepo.findOne({
@@ -2246,7 +2377,7 @@ export class IssueAIService {
                 role: input.role || null,
                 useCount: 1,
                 lastUsedAt: new Date(),
-                source: input.source || "issue",
+                source,
                 sourceIssueId: input.sourceIssueId ?? null,
                 notes: input.notes || null,
             });
@@ -2260,7 +2391,7 @@ export class IssueAIService {
             if (input.notes) row.notes = input.notes;
             row.useCount = Number(row.useCount || 0) + 1;
             row.lastUsedAt = new Date();
-            row.source = input.source || row.source;
+            row.source = source || row.source;
             if (input.sourceIssueId) row.sourceIssueId = input.sourceIssueId;
         }
         try {
@@ -2582,15 +2713,15 @@ export class IssueAIService {
     async maybeAutoAck(issue: Issue, userId?: string) {
         const settings = await this.loadIrSettings();
         if (Number(settings?.irAutoAckEnabled || 0) === 0) return null;
-        const listingId = Number(issue.listing_id) || null;
+        const listingId = this.parsePositiveInt(issue.listing_id);
         if (!this.listingAllowedForAutoAck(settings, listingId)) return null;
         if (!this.isNarrowAutoAckPlaybook(issue)) return null;
 
         const stayStage = this.computeStayStage(issue);
         if (stayStage !== "in_house" && stayStage !== "unknown") return null;
 
-        const reservationId = Number(issue.reservation_id);
-        if (!Number.isFinite(reservationId) || reservationId <= 0) return null;
+        const reservationId = this.parsePositiveInt(issue.reservation_id);
+        if (!reservationId) return null;
         const conv = await this.conversationRepo.findOne({
             where: { reservationId },
             order: { lastMessageAt: "DESC" },

@@ -32,7 +32,9 @@ const TPA_CITIES = new Set(
 
 function digits(phone: string | null | undefined): string | null {
     let d = String(phone || "").replace(/\D/g, "");
-    if (d.length === 11 && d.startsWith("1")) d = d.slice(1);
+    // +17274523880 must become 7274523880, not a fake NPA "172".
+    if (d.length >= 11 && d.startsWith("1")) d = d.slice(-10);
+    else if (d.length > 10) d = d.slice(-10);
     return d.length === 10 ? d : null;
 }
 
@@ -61,10 +63,27 @@ function phoneRegion(phone: string | null | undefined): "chi" | "tpa" | "other" 
 
 function extractPhones(text: string): string[] {
     const out: string[] = [];
-    const re = /\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(text))) out.push(m[0]);
+    const seen = new Set<string>();
+    // Prefer +1 / 1-prefixed NANP first so "+17274523880" does not yield NPA 172.
+    const patterns = [
+        /\+?1[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b/g,
+        /\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b/g,
+    ];
+    for (const re of patterns) {
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(text))) {
+            const d = digits(m[0]);
+            if (!d || seen.has(d)) continue;
+            seen.add(d);
+            out.push(m[0]);
+        }
+    }
     return out;
+}
+
+function isVendorLikeContact(c: any): boolean {
+    const src = String(c?.source || "").toLowerCase();
+    return src === "contact" || src === "poc" || src === "memory";
 }
 
 function parseJsonArray(raw: any): any[] {
@@ -140,7 +159,7 @@ async function main() {
         for (const r of knownNull) console.log(`   #${r.id} ${r.vendorName} @ ${r.city} [${r.category}] src=${r.source}`);
     } else note("ok", "known_null_phone", "core portfolio phones all populated");
 
-    console.log("\n===== 2) LATEST v6 SUGGESTIONS — STATIC SCAN =====");
+    console.log("\n===== 2) LATEST v6/v7 SUGGESTIONS — STATIC SCAN =====");
     const [sugs]: any = await conn.query(
         `SELECT s.id AS sid, s.issueId, s.primaryAction, s.recommendedContactsJson, s.promptVersion,
                 s.generatedAt, s.warningsJson, s.confidence,
@@ -149,7 +168,7 @@ async function main() {
          FROM issue_ai_suggestions s
          INNER JOIN issues i ON i.id = s.issueId
          LEFT JOIN listing_info l ON l.id = CAST(NULLIF(TRIM(i.listing_id), '') AS UNSIGNED)
-         WHERE s.promptVersion LIKE '%v6%'
+         WHERE s.promptVersion LIKE 'ir-copilot-v%'
            AND s.id IN (SELECT MAX(id) FROM issue_ai_suggestions GROUP BY issueId)
          ORDER BY s.generatedAt DESC
          LIMIT 80`
@@ -190,30 +209,6 @@ async function main() {
 
         for (const phone of extractPhones(pa)) {
             const pr = phoneRegion(phone);
-            if (region === "chi" && pr === "other") {
-                wrongMarket += 1;
-                badExamples.push({
-                    kind: "wrong_market_action",
-                    issueId: s.issueId,
-                    city,
-                    phone,
-                    npa: npa(phone),
-                    pa: pa.slice(0, 160),
-                    category: s.category,
-                });
-            }
-            if (region === "tpa" && pr === "other") {
-                wrongMarket += 1;
-                badExamples.push({
-                    kind: "wrong_market_action",
-                    issueId: s.issueId,
-                    city,
-                    phone,
-                    npa: npa(phone),
-                    pa: pa.slice(0, 160),
-                    category: s.category,
-                });
-            }
             if (region === "chi" && pr === "tpa") {
                 wrongMarket += 1;
                 badExamples.push({
@@ -239,6 +234,8 @@ async function main() {
         }
 
         for (const c of contacts.slice(0, 5)) {
+            // Guest/owner cell phones are often out-of-market — only audit vendor-like rows.
+            if (!isVendorLikeContact(c)) continue;
             const name = String(c?.name || "");
             const phone = c?.phone;
             if (/^null$/i.test(name) || name.trim() === "") {
@@ -260,31 +257,29 @@ async function main() {
                 }
             } else {
                 const pr = phoneRegion(phone);
-                if (region === "chi" && (pr === "tpa" || (pr === "other" && !CHI_NPAS.has(npa(phone) || "")))) {
-                    // only flag other if clearly far (not unknown)
-                    if (pr === "tpa" || pr === "other") {
-                        wrongMarket += 1;
-                        badExamples.push({
-                            kind: "wrong_market_contact",
-                            issueId: s.issueId,
-                            city,
-                            name,
-                            phone,
-                            npa: npa(phone),
-                            source: c?.source,
-                            category: s.category,
-                        });
-                    }
+                // Flag clear CHI↔TPA swaps; ignore generic "other" cell NPAs.
+                if ((region === "chi" && pr === "tpa") || (region === "tpa" && pr === "chi")) {
+                    wrongMarket += 1;
+                    badExamples.push({
+                        kind: "wrong_market_contact",
+                        issueId: s.issueId,
+                        city,
+                        name,
+                        phone,
+                        npa: npa(phone),
+                        source: c?.source,
+                        category: s.category,
+                    });
                 }
             }
         }
     }
 
-    note(nullInAction > 0 ? "critical" : "ok", "sug_null_text", `${nullInAction} v6 actions contain null/undefined text`);
-    note(wrongMarket > 0 ? "critical" : "ok", "sug_wrong_market", `${wrongMarket} wrong-market phone signals in v6 actions/contacts`);
+    note(nullInAction > 0 ? "critical" : "ok", "sug_null_text", `${nullInAction} actions contain null/undefined text`);
+    note(wrongMarket > 0 ? "critical" : "ok", "sug_wrong_market", `${wrongMarket} wrong-market phone signals in actions/contacts`);
     note(contactNullPhone > 0 ? "high" : "ok", "sug_null_contact", `${contactNullPhone} rank1/name null-phone contact problems`);
     note(callWithoutPhone > 0 ? "high" : "ok", "sug_call_no_phone", `${callWithoutPhone} call/contact-at without phone`);
-    note("ok", "sug_scanned", `scanned ${sugs?.length || 0} latest v6 suggestions`);
+    note("ok", "sug_scanned", `scanned ${sugs?.length || 0} latest ir-copilot suggestions`);
 
     console.log("\n--- Bad examples (up to 25) ---");
     for (const ex of badExamples.slice(0, 25)) {
@@ -350,24 +345,11 @@ async function main() {
         const region = cityRegion(t.city);
         const contacts = parseJsonArray(t.recommendedContactsJson);
         const pa = String(t.primaryAction || "");
-        for (const phone of [...extractPhones(pa), ...contacts.map((c: any) => c?.phone).filter(Boolean)]) {
+        const vendorPhones = contacts.filter(isVendorLikeContact).map((c: any) => c?.phone).filter(Boolean);
+        for (const phone of [...extractPhones(pa), ...vendorPhones]) {
             const pr = phoneRegion(phone);
-            if (region === "chi" && (pr === "tpa" || pr === "other")) {
-                openWrong += 1;
-                console.log(
-                    JSON.stringify({
-                        kind: "open_wrong_market",
-                        issueId: t.id,
-                        category: t.category,
-                        city: t.city,
-                        phone,
-                        npa: npa(phone),
-                        promptVersion: t.promptVersion,
-                        pa: pa.slice(0, 140),
-                    })
-                );
-            }
-            if (region === "tpa" && (pr === "chi" || pr === "other")) {
+            // Only clear CHI↔TPA swaps — guest/other NPAs and +1 parse artifacts are not actionable.
+            if ((region === "chi" && pr === "tpa") || (region === "tpa" && pr === "chi")) {
                 openWrong += 1;
                 console.log(
                     JSON.stringify({
@@ -432,7 +414,7 @@ async function main() {
         if (!appDatabase.isInitialized) await appDatabase.initialize();
         const ai = new IssueAIService();
 
-        const samples: any[] = await conn.query(
+        const [samples]: any = await conn.query(
             `SELECT i.id, i.category, l.city, i.listing_name, i.listing_id
              FROM issues i
              LEFT JOIN listing_info l ON l.id = CAST(NULLIF(TRIM(i.listing_id), '') AS UNSIGNED)
@@ -445,7 +427,8 @@ async function main() {
         let fsWrong = 0;
         let fsNull = 0;
         let fsOk = 0;
-        for (const sample of samples) {
+        for (const sample of samples || []) {
+            if (!sample?.id) continue;
             try {
                 const sug = await ai.suggest(Number(sample.id), { force: true });
                 const pa = String(sug.primaryAction || "");
@@ -454,20 +437,25 @@ async function main() {
                 const region = cityRegion(city);
                 const phones = [
                     ...extractPhones(pa),
-                    ...contacts.filter((c: any) => c.phone).map((c: any) => c.phone),
+                    ...contacts.filter(isVendorLikeContact).filter((c: any) => c.phone).map((c: any) => c.phone),
                 ];
                 const issuesForRow: string[] = [];
                 if (/\bnull\b|undefined/i.test(pa)) issuesForRow.push("null_in_action");
                 for (const c of contacts.slice(0, 3)) {
-                    if (!c.phone && Number(c.rank) === 1 && /clean|maint|vendor/i.test(`${c.role} ${c.name}`)) {
+                    if (
+                        isVendorLikeContact(c) &&
+                        !c.phone &&
+                        Number(c.rank) === 1 &&
+                        /clean|maint|vendor/i.test(`${c.role} ${c.name}`)
+                    ) {
                         issuesForRow.push("rank1_null_phone");
                     }
                     if (/^null$/i.test(String(c.name || ""))) issuesForRow.push("name_null");
                 }
                 for (const phone of phones) {
                     const pr = phoneRegion(phone);
-                    if (region === "chi" && (pr === "tpa" || pr === "other")) issuesForRow.push(`wrong_phone_${npa(phone)}`);
-                    if (region === "tpa" && (pr === "chi" || pr === "other")) issuesForRow.push(`wrong_phone_${npa(phone)}`);
+                    if (region === "chi" && pr === "tpa") issuesForRow.push(`wrong_phone_${npa(phone)}`);
+                    if (region === "tpa" && pr === "chi") issuesForRow.push(`wrong_phone_${npa(phone)}`);
                 }
                 // Chicago must not recommend Ana without phone
                 if (region === "chi" && /ana/i.test(pa) && !/\(773\)/.test(pa) && !extractPhones(pa).length) {

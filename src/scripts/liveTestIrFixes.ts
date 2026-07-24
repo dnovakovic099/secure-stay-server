@@ -66,7 +66,10 @@ async function main() {
                     portfolioTop: (suggestion.portfolioVendors || []).slice(0, 2).map((v) => `${v.name} ${v.phone} @ ${v.city}`),
                     okAction,
                     badVendorHunt,
-                    ok: okAction && !badVendorHunt && String(suggestion.promptVersion || "").includes("v6"),
+                    ok:
+                        okAction &&
+                        !badVendorHunt &&
+                        /ir-copilot-v[67]/.test(String(suggestion.promptVersion || "")),
                 });
             } catch (err: any) {
                 results.push({ sample: sample.label, issueId: id, ok: false, error: err?.message || String(err) });

@@ -92,6 +92,24 @@ async function main() {
         );
     }
 
+    // Purge junk rows that pollute ranking (literal "null" names, empty phones with no email).
+    const [purgeBad]: any = await conn.query(
+        `DELETE FROM ir_vendor_memory
+         WHERE vendorName IS NULL
+            OR TRIM(vendorName) = ''
+            OR LOWER(TRIM(vendorName)) IN ('null', 'undefined', 'n/a', 'none', 'unknown', '(null)')
+            OR normalizedName IN ('null', 'undefined', 'n a', 'none', 'unknown')`
+    );
+    const [purgeEmpty]: any = await conn.query(
+        `DELETE FROM ir_vendor_memory
+         WHERE (phone IS NULL OR TRIM(phone) = '')
+           AND (email IS NULL OR TRIM(email) = '')
+           AND COALESCE(source, '') NOT IN ('teach', 'feedback', 'seed')`
+    );
+    console.log(
+        `Cleanup: bad_name_deleted=${purgeBad?.affectedRows ?? 0} empty_shell_deleted=${purgeEmpty?.affectedRows ?? 0}`
+    );
+
     await conn.end();
     console.log(`Done. Total upserts: ${total}`);
     process.exit(0);
