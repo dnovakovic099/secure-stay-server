@@ -228,7 +228,8 @@ export const validateGetClients = (request: Request, response: Response, next: N
         listingId: Joi.array().items(Joi.string()).optional(),
         serviceType: Joi.array().items(Joi.string()).optional(),
         status: Joi.array().items(Joi.string().valid(...Object.values(PropertyStatus))).optional(),
-        source: Joi.string().optional()
+        source: Joi.string().optional(),
+        onboardingOnly: Joi.boolean().optional()
     });
 
     const { error } = schema.validate(request.query);
