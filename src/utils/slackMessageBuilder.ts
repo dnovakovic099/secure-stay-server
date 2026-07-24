@@ -1773,7 +1773,8 @@ export const buildExpenseSlackMessageDelete = (
 export const buildExpenseStatusUpdateMessage = (
     expense: ExpenseEntity,
     updatedBy: string,
-    changeRows?: string[]
+    changeRows?: string[],
+    options?: { paidCreatorMention?: string }
 ) => {
     const typeLabel = expense.amount > 0 ? "Extra" : "Expense";
     const statusChangeRow = changeRows?.find(row => row.startsWith("*Status:*"));
@@ -1781,6 +1782,7 @@ export const buildExpenseStatusUpdateMessage = (
     const statusText = statusMatch
         ? `~${statusMatch[1]}~ → ${expenseStatusEmoji(expense.status)}${statusMatch[2]}`
         : `${expenseStatusEmoji(expense.status)}${capitalizeFirstLetter(expense.status)}`;
+    const shouldTagCreator = expense.status === ExpenseStatus.PAID && Boolean(options?.paidCreatorMention);
     const slackMessage = {
         channel: EXPENSE_CHANNEL,
         text: `${typeLabel} Status Updated`,
@@ -1797,7 +1799,8 @@ export const buildExpenseStatusUpdateMessage = (
                 fields: [
                     { type: "mrkdwn", text: `*Status:* ${statusText}` },
                     { type: "mrkdwn", text: `*Updated By:* ${updatedBy}` },
-                    { type: "mrkdwn", text: `*LL Cover:* ${expense.llCover ? 'Yes' : 'No'}` }
+                    { type: "mrkdwn", text: `*LL Cover:* ${expense.llCover ? 'Yes' : 'No'}` },
+                    ...(shouldTagCreator ? [{ type: "mrkdwn", text: `*Created By:* ${options?.paidCreatorMention}` }] : [])
                 ]
             }
         ]

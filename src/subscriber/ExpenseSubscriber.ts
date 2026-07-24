@@ -14,13 +14,14 @@ import { SlackMessageService } from '../services/SlackMessageService';
 import { appDatabase } from '../utils/database.util';
 import { UsersEntity } from '../entity/Users';
 import { Listing } from '../entity/Listing';
-import { ExpenseEntity } from '../entity/Expense';
+import { ExpenseEntity, ExpenseStatus } from '../entity/Expense';
 import { SlackMessageEntity } from '../entity/SlackMessageInfo';
 import { CategoryEntity } from '../entity/Category';
 import updateSlackMessage from '../utils/updateSlackMsg';
 import { updateResolutionFromExpense } from '../queue/expenseQueue';
 import { getSlackUsers } from '../utils/getSlackUsers';
 import { getCachedUserMap } from '../utils/usersCache.util';
+import { Employee } from '../entity/Employee';
 
 @EventSubscriber()
 export class ExpenseSubscriber
@@ -34,6 +35,7 @@ export class ExpenseSubscriber
     private listingRepo = appDatabase.getRepository(Listing);
     private slackMessageInfo = appDatabase.getRepository(SlackMessageEntity);
     private categoryRepo = appDatabase.getRepository(CategoryEntity);
+    private employeeRepo = appDatabase.getRepository(Employee);
 
     private expenseChangeLabels: Record<string, string> = {
         listingMapId: "Property",
@@ -199,6 +201,30 @@ export class ExpenseSubscriber
         return rows;
     }
 
+    private async getExpenseCreatorSlackMention(expense: ExpenseEntity, userMap: Map<string, string>) {
+        const creatorUid = String(expense.createdBy || "").trim();
+        if (!creatorUid) return "";
+
+        const creator = await this.usersRepo.findOne({ where: { uid: creatorUid } });
+        if (!creator) return userMap.get(creatorUid) || creatorUid;
+
+        const employee = await this.employeeRepo.findOne({
+            where: { userId: creator.id },
+            select: ["userId", "preferredName", "slackUserId", "slackId"],
+        });
+        const slackMemberId = String(employee?.slackUserId || employee?.slackId || "").trim();
+        if (slackMemberId) return `<@${slackMemberId}>`;
+
+        const displayName = [
+            employee?.preferredName || "",
+            [creator.firstName, creator.lastName].filter(Boolean).join(" ").trim(),
+            creator.email,
+            creatorUid,
+        ].find((value) => String(value || "").trim());
+
+        return String(displayName || "");
+    }
+
     private async updateSlackMessage(expense: any, userId: string, eventType: string, diff: Record<string, { old: any; new: any; }> = {}) {
         try {
             const userMap = await getCachedUserMap();
@@ -221,7 +247,12 @@ export class ExpenseSubscriber
                 slackMessage = buildExpenseSlackMessageDelete(expenseForSlack as ExpenseEntity, userMap.get(userId), listingInfo?.internalListingName, categoryNames);
                 await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
             } else if (eventType == "statusUpdate") {
-                slackMessage = buildExpenseStatusUpdateMessage(expenseForSlack as ExpenseEntity, userMap.get(userId) || userId, changeRows);
+                const creatorMention = expenseForSlack.status === ExpenseStatus.PAID
+                    ? await this.getExpenseCreatorSlackMention(expenseForSlack as ExpenseEntity, userMap)
+                    : "";
+                slackMessage = buildExpenseStatusUpdateMessage(expenseForSlack as ExpenseEntity, userMap.get(userId) || userId, changeRows, {
+                    paidCreatorMention: creatorMention,
+                });
                 await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
             } else {
                 await sendSlackMessage(slackMessage, slackMessageInfo.messageTs);
