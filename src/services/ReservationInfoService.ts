@@ -1707,12 +1707,29 @@ export class ReservationInfoService {
     return hostifyUrl ? `<${hostifyUrl}|${guestName}>` : guestName;
   }
 
+  private getHostifyGuestUrl(reservation: ReservationInfoEntity) {
+    const hostifyGuestId = String(reservation.guestExternalAccountId || "").trim();
+    return hostifyGuestId
+      ? `https://us.hostify.com/guests/view/${hostifyGuestId}`
+      : "";
+  }
+
+  private formatDisputeRiskUpcomingGuestLabel(reservation: ReservationInfoEntity) {
+    const guestName = this.escapeSlackLinkText(String(reservation.guestName || "Guest").trim()) || "Guest";
+    const hostifyGuestUrl = this.getHostifyGuestUrl(reservation);
+    const hostifyReservationUrl = this.getHostifyReservationUrl(reservation);
+    const url = hostifyGuestUrl || hostifyReservationUrl;
+    return url ? `<${url}|${guestName}>` : guestName;
+  }
+
   private formatDisputeRiskReservationLine(reservation: ReservationInfoEntity) {
-    const guestLabel = this.formatDisputeRiskGuestLabel(reservation);
-    const checkIn = reservation.arrivalDate ? format(new Date(reservation.arrivalDate), "MMM d, yyyy") : "Unknown check-in";
-    const checkOut = reservation.departureDate ? format(new Date(reservation.departureDate), "MMM d, yyyy") : "Unknown check-out";
-    const confirmationCode = String(reservation.confirmation_code || reservation.channelReservationId || "").trim();
-    return `• ${guestLabel} — ${checkIn} → ${checkOut}${confirmationCode ? ` (${confirmationCode})` : ""}`;
+    const guestLabel = this.formatDisputeRiskUpcomingGuestLabel(reservation);
+    const checkInDate = reservation.arrivalDate ? new Date(reservation.arrivalDate) : null;
+    const checkOutDate = reservation.departureDate ? new Date(reservation.departureDate) : null;
+    const checkIn = checkInDate ? format(checkInDate, "MMM d") : "Unknown check-in";
+    const checkOut = checkOutDate ? format(checkOutDate, "MMM dd, yyyy") : "Unknown check-out";
+    const ownerRevenue = this.formatDisputeRiskCurrency(this.getDisputeRiskOwnerRevenue(reservation));
+    return `• ${guestLabel} — ${checkIn} → ${checkOut} (${ownerRevenue})`;
   }
 
   private toDisputeRiskMoneyValue(value: unknown): number | null {
@@ -1734,6 +1751,25 @@ export class ReservationInfoService {
     return value === null
       ? "unknown total paid"
       : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+  }
+
+  private getDisputeRiskCoveringReservations(
+    reservations: ReservationInfoEntity[],
+    targetTotalPaid: number | null,
+  ) {
+    if (targetTotalPaid === null) return { reservations: [] as ReservationInfoEntity[], totalOwnerRevenue: 0, isCovered: false };
+
+    const selected: ReservationInfoEntity[] = [];
+    let totalOwnerRevenue = 0;
+    for (const reservation of reservations) {
+      const ownerRevenue = this.getDisputeRiskOwnerRevenue(reservation);
+      if (ownerRevenue === null || ownerRevenue <= 0) continue;
+      selected.push(reservation);
+      totalOwnerRevenue += ownerRevenue;
+      if (totalOwnerRevenue >= targetTotalPaid) break;
+    }
+
+    return { reservations: selected, totalOwnerRevenue, isCovered: totalOwnerRevenue >= targetTotalPaid };
   }
 
   private async getUpcomingReservationsForDisputeRisk(reservation: ReservationInfoEntity) {
@@ -1762,25 +1798,24 @@ export class ReservationInfoService {
 
     const upcomingReservations = await this.getUpcomingReservationsForDisputeRisk(reservation);
     const disputeRiskTotalPaid = this.getDisputeRiskTotalPaid(reservation);
-    const coveringReservations = disputeRiskTotalPaid === null
-      ? []
-      : upcomingReservations.filter((item) => {
-        const ownerRevenue = this.getDisputeRiskOwnerRevenue(item);
-        return ownerRevenue !== null && ownerRevenue >= disputeRiskTotalPaid;
-      });
+    const coveringResult = this.getDisputeRiskCoveringReservations(upcomingReservations, disputeRiskTotalPaid);
+    const coveringReservations = coveringResult.isCovered ? coveringResult.reservations : [];
     const propertyName = String(reservation.listingName || "the property").trim();
     const reservationSubject = `${propertyName} - ${this.formatDisputeRiskGuestLabel(reservation)}`;
     const totalPaidText = this.formatDisputeRiskCurrency(disputeRiskTotalPaid);
+    const offboardingNote = /\boffboard(?:ing|ed)?\b/i.test(propertyName)
+      ? `\n⚠️ ${propertyName} appears to be offboarding/offboarded.`
+      : "";
     const upcomingText = disputeRiskTotalPaid === null
-      ? `I could not determine the total paid for ${reservationSubject}, so I could not compare it against upcoming owner revenue for ${propertyName}.`
+      ? `❌ I could not determine the total paid for ${reservationSubject}, so I could not compare it against upcoming owner revenue for ${propertyName}. Please hold payout for ${propertyName}.`
       : coveringReservations.length
-        ? `${coveringReservations.length} upcoming reservation${coveringReservations.length === 1 ? "" : "s"} for ${propertyName} have owner revenue that can cover the total paid for ${reservationSubject} (${totalPaidText}):\n${coveringReservations.map((item) => this.formatDisputeRiskReservationLine(item)).join("\n")}`
-        : `No upcoming reservations for ${propertyName} have owner revenue that can cover the total paid for ${reservationSubject} (${totalPaidText}).`;
+        ? `✅ ${coveringReservations.length} upcoming reservation${coveringReservations.length === 1 ? "" : "s"} for ${propertyName} have owner revenue that can cover the total paid of this guest:\n${coveringReservations.map((item) => this.formatDisputeRiskReservationLine(item)).join("\n")}`
+        : `❌ No upcoming reservations for ${propertyName} have owner revenue that can cover the total paid of this guest. Please hold payout for ${propertyName}.`;
 
     await new ResolutionsTeamSlackService().postActivityToThread(reviewCheckout.id, {
       type: "dispute_risk",
       actor: changedBy,
-      details: `<@${FERDY_SLACK_USER_ID}> ${reservationSubject} is a dispute risk.\n${upcomingText}`,
+      details: `<@${FERDY_SLACK_USER_ID}> ${reservationSubject} (${totalPaidText}) is a dispute risk.${offboardingNote}\n${upcomingText}`,
     });
   }
 
