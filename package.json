@@ -16,6 +16,8 @@
     "migrate:prod": "NODE_ENV=production node dist/out-tsc/runMigrations.js",
     "backfill:slack-thread-replies": "npx ts-node-dev src/scripts/backfillSlackThreadReplies.ts",
     "backfill:issue-reservations": "npx ts-node src/scripts/backfillIssueReservationIds.ts",
+    "seed:ir-portfolio": "npx ts-node src/scripts/seedIrPortfolioDefaults.ts",
+    "seed:ir-vendors": "npx ts-node src/scripts/seedIrVendorScrape.ts",
     "refund:paid-rc-report": "NODE_ENV=development npx ts-node src/scripts/sendPaidRcRefundReport.ts",
     "refund:paid-rc-report:prod": "NODE_ENV=production node dist/out-tsc/scripts/sendPaidRcRefundReport.js"
   },

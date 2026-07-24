@@ -36,10 +36,17 @@ function roleToCategory(role: string | undefined): string {
 
 async function main() {
     const dryRun = process.argv.includes("--dry-run");
-    const jsonPath = path.join(__dirname, "../../tmp/vendor-list-90d-2026-07-24.json");
-    if (!fs.existsSync(jsonPath)) {
-        throw new Error(`Missing scrape file: ${jsonPath}`);
+    // Prefer packaged data (deployed); fall back to local tmp scrape output.
+    const candidates = [
+        path.join(process.cwd(), "src/data/vendor-list-90d-2026-07-24.json"),
+        path.join(__dirname, "../data/vendor-list-90d-2026-07-24.json"),
+        path.join(process.cwd(), "tmp/vendor-list-90d-2026-07-24.json"),
+    ];
+    const jsonPath = candidates.find((p) => fs.existsSync(p));
+    if (!jsonPath) {
+        throw new Error(`Missing scrape file. Tried: ${candidates.join(", ")}`);
     }
+    console.log(`Using scrape file: ${jsonPath}`);
     const data = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
     const byCity: Record<string, ScrapePerson[]> = data.byCity || {};
 

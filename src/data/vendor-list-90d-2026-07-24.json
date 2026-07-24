@@ -1,0 +1,6427 @@
+{
+  "generatedAt": "2026-07-24T12:31:04.056968Z",
+  "windowDays": 90,
+  "method": "90d Quo+tickets scrape (older\u2192newer), trust filter (contacts/tickets >> Quo), drop bogus NPAs, keep per-city rows + portfolio by phone.",
+  "totals": {
+    "portfolioPeople": 134,
+    "cityRows": 162,
+    "cities": 68,
+    "highTrustPeople": 127,
+    "mediumTrustPeople": 7
+  },
+  "portfolio": [
+    {
+      "name": "Miguel",
+      "aliases": [],
+      "phone": "(773) 243-9091",
+      "role": "Maintenance",
+      "cities": [
+        "Chicago",
+        "Elmwood Park",
+        "Lombard"
+      ],
+      "trust": "high",
+      "score": 278,
+      "evidenceCount": 76,
+      "sources": [
+        "contact_baseline",
+        "issue_poc",
+        "issue_update",
+        "issue_update_name",
+        "issue_update_poc_phone",
+        "quo_message_name_participant",
+        "quo_outgoing"
+      ],
+      "listings": [
+        "5105 River Rd (#1E)",
+        "5105 River Rd (#1G)",
+        "5105 River Rd (#3F)",
+        "Drummond (#01)",
+        "Drummond (#02)",
+        "Drummond (Basement) - Parent",
+        "Elmwood Park (#1W)",
+        "Elmwood Park (#2E)",
+        "Elmwood Park (#2W)",
+        "Elmwood Park (#GE)",
+        "Elmwood Park (#GW)",
+        "Kilpatrick",
+        "Lombard - Sammy",
+        "N Central",
+        "N Mobile"
+      ],
+      "listingCount": 19,
+      "lastSeen": "2026-07-24T12:00:55.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Shravan",
+      "aliases": [],
+      "phone": "(646) 404-0022",
+      "role": "Cleaner",
+      "cities": [
+        "Jersey City"
+      ],
+      "trust": "high",
+      "score": 202,
+      "evidenceCount": 188,
+      "sources": [
+        "contact_baseline",
+        "quo_message_address",
+        "quo_message_name_participant",
+        "quo_outgoing"
+      ],
+      "listings": [
+        "Bowers St (Basement) - Sharvan (OFFBOARDED)"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-06-30T19:51:42.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Eugene",
+      "aliases": [],
+      "phone": "(912) 656-9737",
+      "role": "Owner's PM/Building Manager",
+      "cities": [
+        "Savannah"
+      ],
+      "trust": "high",
+      "score": 200,
+      "evidenceCount": 186,
+      "sources": [
+        "contact_baseline",
+        "quo_message_address",
+        "quo_message_name_participant",
+        "quo_outgoing"
+      ],
+      "listings": [
+        "Claremont Cir - Eugene"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-07-23T15:06:09.000Z",
+      "addresses": [
+        "411 Oak St",
+        "411 Oak Street"
+      ]
+    },
+    {
+      "name": "Rodolfo",
+      "aliases": [],
+      "phone": "(813) 947-4704",
+      "role": "Maintenance",
+      "cities": [
+        "Tampa"
+      ],
+      "trust": "high",
+      "score": 194,
+      "evidenceCount": 9,
+      "sources": [
+        "contact_baseline",
+        "issue_update",
+        "issue_update_name"
+      ],
+      "listings": [
+        "Compound",
+        "Interbay Blvd",
+        "Rogers"
+      ],
+      "listingCount": 3,
+      "lastSeen": "2026-06-28T21:26:49.507Z",
+      "addresses": []
+    },
+    {
+      "name": "Ana",
+      "aliases": [],
+      "phone": "(773) 592-5234",
+      "role": "Cleaner",
+      "cities": [
+        "Chicago",
+        "Elmwood Park",
+        "Lombard"
+      ],
+      "trust": "high",
+      "score": 190,
+      "evidenceCount": 32,
+      "sources": [
+        "contact_baseline",
+        "issue_poc",
+        "issue_update_name"
+      ],
+      "listings": [
+        "5105 River Rd (#1E)",
+        "5105 River Rd (#1G)",
+        "5105 River Rd (#3F)",
+        "Elmwood Park (#1W)",
+        "Elmwood Park (#2E)",
+        "Elmwood Park (#2W)",
+        "Elmwood Park (#GE)",
+        "Elmwood Park (#GW)",
+        "Kilpatrick",
+        "Lombard - Sammy",
+        "N Central",
+        "N Mobile",
+        "Osage (#02)",
+        "Osage (#03)",
+        "St Paul"
+      ],
+      "listingCount": 18,
+      "lastSeen": "2026-06-29T23:01:06.246Z",
+      "addresses": []
+    },
+    {
+      "name": "Diana",
+      "aliases": [],
+      "phone": "(813) 830-3287",
+      "role": "Cleaner",
+      "cities": [
+        "Bradenton",
+        "Largo",
+        "Madeira Beach",
+        "St. Petersburg",
+        "Tampa"
+      ],
+      "trust": "high",
+      "score": 142,
+      "evidenceCount": 73,
+      "sources": [
+        "contact_baseline",
+        "issue_update_name",
+        "quo_message_name_participant",
+        "quo_outgoing"
+      ],
+      "listings": [
+        "101st - Kurush",
+        "46th Ave",
+        "57th Ave (Unit #5) - Long",
+        "57th Ave (Unit #6) - Long",
+        "57th Ave (Unit #7) - Long",
+        "57th Ave (Unit #8) - Long",
+        "57th Ave (Unit #9) - Long",
+        "Bay Pointe - Jeffrey",
+        "Compound",
+        "Fulton",
+        "Interbay Blvd",
+        "Madeira (Parent)  - Frank",
+        "Pineway",
+        "Rogers",
+        "Seminole St"
+      ],
+      "listingCount": 16,
+      "lastSeen": "2026-07-12T23:36:27.396Z",
+      "addresses": []
+    },
+    {
+      "name": "Inna Matiushenko",
+      "aliases": [],
+      "phone": "(305) 413-8568",
+      "role": "Maintenance",
+      "cities": [
+        "Cudjoe Key"
+      ],
+      "trust": "high",
+      "score": 142,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline",
+        "issue_poc"
+      ],
+      "listings": [
+        "Colson Dr - Ahmed"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-28T14:39:15.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Herley",
+      "aliases": [],
+      "phone": "(843) 315-4495",
+      "role": "Maintenance",
+      "cities": [
+        "North Myrtle Beach"
+      ],
+      "trust": "high",
+      "score": 136,
+      "evidenceCount": 21,
+      "sources": [
+        "contact_baseline",
+        "issue_update_name",
+        "quo_message_name_participant",
+        "quo_outgoing"
+      ],
+      "listings": [
+        "58th Ave. N (Child - Sunrise) - Tom",
+        "58th Ave. N (Parent - Tropical Impulse) - Tom",
+        "7th Ave. N - Tom"
+      ],
+      "listingCount": 3,
+      "lastSeen": "2026-07-11T22:48:22.631Z",
+      "addresses": []
+    },
+    {
+      "name": "Ofelia",
+      "aliases": [],
+      "phone": "(956) 363-8803",
+      "role": "Cleaner",
+      "cities": [
+        "San Antonio"
+      ],
+      "trust": "high",
+      "score": 128,
+      "evidenceCount": 3,
+      "sources": [
+        "contact_baseline",
+        "issue_update_name"
+      ],
+      "listings": [
+        "Bingham St. - Javier ",
+        "Pasadena - Daniel"
+      ],
+      "listingCount": 2,
+      "lastSeen": "2026-03-18T00:13:41.848Z",
+      "addresses": []
+    },
+    {
+      "name": "Augustine Exterminators",
+      "aliases": [],
+      "phone": "(844) 686-7576",
+      "role": "Pest Control",
+      "cities": [
+        "Kansas City"
+      ],
+      "trust": "high",
+      "score": 127,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline",
+        "issue_update_name"
+      ],
+      "listings": [
+        "S24th KC"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-28T22:20:22.340Z",
+      "addresses": []
+    },
+    {
+      "name": "Pest Control Chicago",
+      "aliases": [],
+      "phone": "(219) 232-0220",
+      "role": "Pest Control",
+      "cities": [
+        "Chicago"
+      ],
+      "trust": "high",
+      "score": 127,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline",
+        "issue_update_name"
+      ],
+      "listings": [
+        "Kilpatrick"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-22T15:36:07.711Z",
+      "addresses": []
+    },
+    {
+      "name": "Groover Buitron - S Michigan Parking On-site Manager",
+      "aliases": [],
+      "phone": "(773) 503-3879",
+      "role": "Cleaner",
+      "cities": [
+        "Chicago"
+      ],
+      "trust": "high",
+      "score": 113,
+      "evidenceCount": 13,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "S Michigan (Unit #01) - Ozzie (LEADING)",
+        "S Michigan (Unit #02) - Ozzie ",
+        "S Michigan (Unit #03) - Ozzie ",
+        "S Michigan (Unit #04) - Ozzie ",
+        "S Michigan (Unit #05) - Ozzie ",
+        "S Michigan (Unit #06) - Ozzie ",
+        "S Michigan (Unit #07) - Ozzie ",
+        "S Michigan (Unit #08) - Ozzie ",
+        "S Michigan (Unit #09) - Ozzie ",
+        "S Michigan (Unit #12) - Ozzie ",
+        "S Michigan (Unit #13) - Ozzie ",
+        "S Michigan (Unit #14) - Ozzie "
+      ],
+      "listingCount": 12,
+      "lastSeen": "2026-02-17T18:03:29.000Z",
+      "addresses": []
+    },
+    {
+      "name": "MC Trappers",
+      "aliases": [],
+      "phone": "(727) 349-3703",
+      "role": "Pest Control",
+      "cities": [
+        "Madeira Beach",
+        "St. Petersburg"
+      ],
+      "trust": "high",
+      "score": 107,
+      "evidenceCount": 8,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "57th Ave (PARENT) - Long",
+        "Madeira (Parent)  - Frank",
+        "Madeira (Unit #0) - Frank",
+        "Madeira (Unit #1) - Frank",
+        "Madeira (Unit #2) - Frank",
+        "Madeira (Unit #3) - Frank",
+        "Madeira (Unit #4) - Frank",
+        "Madeira (Unit #5) - Frank"
+      ],
+      "listingCount": 8,
+      "lastSeen": "2026-05-20T17:15:30.000Z",
+      "addresses": []
+    },
+    {
+      "name": "David",
+      "aliases": [],
+      "phone": "(708) 270-1444",
+      "role": "Cleaner",
+      "cities": [
+        "Bradenton",
+        "Tampa"
+      ],
+      "trust": "high",
+      "score": 106,
+      "evidenceCount": 10,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "40th St W - Diana",
+        "46th Ave",
+        "Compound",
+        "Interbay Blvd",
+        "Rogers",
+        "Seminole St"
+      ],
+      "listingCount": 6,
+      "lastSeen": "2026-05-25T05:23:16.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Tyler",
+      "aliases": [],
+      "phone": "(727) 479-7166",
+      "role": "Cleaner",
+      "cities": [
+        "Largo"
+      ],
+      "trust": "high",
+      "score": 106,
+      "evidenceCount": 6,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "101st - Kurush",
+        "Fulton",
+        "Pineway",
+        "Spring St/Danielle Dr"
+      ],
+      "listingCount": 4,
+      "lastSeen": "2026-05-25T05:25:26.032Z",
+      "addresses": []
+    },
+    {
+      "name": "Justina - PM Of Cyrenia",
+      "aliases": [],
+      "phone": "(758) 488-5522",
+      "role": "Cleaner",
+      "cities": [
+        "Vieux Fort"
+      ],
+      "trust": "high",
+      "score": 105,
+      "evidenceCount": 5,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Unit 1 - Moule La Chique Rd. - Cyrenia",
+        "Unit 3 - Moule La Chique Rd. - Cyrenia",
+        "Unit 4 - Moule La Chique Rd. - Cyrenia",
+        "Unit 5 - Moule La Chique Rd. - Cyrenia",
+        "Unit 6 - Moule La Chique Rd. - Cyrenia"
+      ],
+      "listingCount": 5,
+      "lastSeen": "2026-04-10T14:21:45.804Z",
+      "addresses": []
+    },
+    {
+      "name": "Frania-Oakland Milwaukee",
+      "aliases": [],
+      "phone": "(414) 722-2190",
+      "role": "Cleaner",
+      "cities": [
+        "Milwaukee"
+      ],
+      "trust": "high",
+      "score": 104,
+      "evidenceCount": 4,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "3373 N Oakland",
+        "3377B N Oakland",
+        "N 52nd - Cassandra"
+      ],
+      "listingCount": 3,
+      "lastSeen": "2026-03-30T17:40:10.268Z",
+      "addresses": []
+    },
+    {
+      "name": "Sparkling Pool Service",
+      "aliases": [],
+      "phone": "(727) 492-9396",
+      "role": "Cleaner",
+      "cities": [
+        "Largo"
+      ],
+      "trust": "high",
+      "score": 104,
+      "evidenceCount": 4,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "101st - Kurush",
+        "Fulton",
+        "Pineway",
+        "Spring St/Danielle Dr"
+      ],
+      "listingCount": 4,
+      "lastSeen": "2026-05-25T05:33:22.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Ethan Green",
+      "aliases": [],
+      "phone": "(864) 477-0915",
+      "role": "Cleaner",
+      "cities": [
+        "Indianapolis",
+        "Joshua Tree",
+        "KCMO",
+        "Marietta",
+        "North Myrtle Beach",
+        "Spartanburg",
+        "Swannanoa"
+      ],
+      "trust": "high",
+      "score": 103,
+      "evidenceCount": 10,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "58th Ave. N (Child - Sunset) - Tom",
+        "58th Ave. N (Parent - Tropical Impulse) - Tom",
+        "7th Ave. N - Tom",
+        "Alta Mesa Dr. - Rakesh",
+        "E 32nd - KC",
+        "Elwood St. - Rakesh",
+        "Hope View Rd",
+        "N Park Ave. - Adebanjo",
+        "Oakledge Dr. NW - Kenneth",
+        "S Converse - Rosalyn HM"
+      ],
+      "listingCount": 10,
+      "lastSeen": "2026-04-19T23:01:52.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Jaime CH 3 LAWN",
+      "aliases": [],
+      "phone": "(773) 559-2458",
+      "role": "Maintenance",
+      "cities": [
+        "Chicago",
+        "Elmwood Park"
+      ],
+      "trust": "high",
+      "score": 103,
+      "evidenceCount": 4,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Elmwood Park (#GE)",
+        "N Central",
+        "N Mobile",
+        "Waller"
+      ],
+      "listingCount": 4,
+      "lastSeen": "2025-11-15T16:10:02.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Karen Pardo Perez",
+      "aliases": [],
+      "phone": "(312) 607-2919",
+      "role": "Cleaner",
+      "cities": [
+        "Chicago"
+      ],
+      "trust": "high",
+      "score": 103,
+      "evidenceCount": 3,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "E 76th Pl. - Rashid"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-04-17T23:47:14.933Z",
+      "addresses": []
+    },
+    {
+      "name": "Rina Beltran",
+      "aliases": [],
+      "phone": "(323) 536-6857",
+      "role": "Cleaner",
+      "cities": [
+        "Beverly Hills"
+      ],
+      "trust": "high",
+      "score": 103,
+      "evidenceCount": 3,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "N Hamel Dr. (Guest House) - Rebeka",
+        "N Hamel Dr. (Main House) - Rebeka",
+        "N Hamel Dr. (Parent) - Rebeka"
+      ],
+      "listingCount": 3,
+      "lastSeen": "2026-02-19T18:01:33.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Robert- Glenns Bay",
+      "aliases": [],
+      "phone": "(843) 877-7677",
+      "role": "Cleaner",
+      "cities": [
+        "Myrtle Beach",
+        "North Myrtle Beach"
+      ],
+      "trust": "high",
+      "score": 103,
+      "evidenceCount": 4,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "58th Ave. N (Child - Sunset) - Tom",
+        "58th Ave. N (Parent - Tropical Impulse) - Tom",
+        "7th Ave. N - Tom",
+        "Glenns Bay Rd (Unit #204C) - Ebony"
+      ],
+      "listingCount": 4,
+      "lastSeen": "2026-05-16T23:35:13.008Z",
+      "addresses": []
+    },
+    {
+      "name": "Adeshola",
+      "aliases": [],
+      "phone": "(612) 978-7925",
+      "role": "Cleaner",
+      "cities": [
+        "Atlanta"
+      ],
+      "trust": "high",
+      "score": 102,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "264 Chenault Pl NW - Sam",
+        "270 Chenault Pl NW - Sam"
+      ],
+      "listingCount": 2,
+      "lastSeen": "2026-01-16T17:38:20.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Allsect Pest Control",
+      "aliases": [],
+      "phone": "(404) 345-8392",
+      "role": "Pest Control",
+      "cities": [
+        "Atlanta"
+      ],
+      "trust": "high",
+      "score": 102,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "264 Chenault Pl NW - Sam",
+        "270 Chenault Pl NW - Sam"
+      ],
+      "listingCount": 2,
+      "lastSeen": "2026-05-27T22:20:28.655Z",
+      "addresses": []
+    },
+    {
+      "name": "Angel Hernandez",
+      "aliases": [],
+      "phone": "(828) 242-1597",
+      "role": "Maintenance",
+      "cities": [
+        "Swannanoa"
+      ],
+      "trust": "high",
+      "score": 102,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Hope View Rd"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-15T08:45:31.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Arely",
+      "aliases": [],
+      "phone": "(609) 231-6024",
+      "role": "Cleaner",
+      "cities": [
+        "Middle Township"
+      ],
+      "trust": "high",
+      "score": 102,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Golden Beacon Retreat #31 Swainton Goshen Rd - Chris",
+        "Midnight Beacon Retreat #32 Swainton Goshen Rd - Chris"
+      ],
+      "listingCount": 2,
+      "lastSeen": "2026-05-05T20:36:41.890Z",
+      "addresses": []
+    },
+    {
+      "name": "Ashley",
+      "aliases": [],
+      "phone": "(424) 426-8544",
+      "role": "Cleaner",
+      "cities": [
+        "Los Angeles"
+      ],
+      "trust": "high",
+      "score": 102,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "1236 W 90th St - Kenrick",
+        "1238 W 90th - Kenrick"
+      ],
+      "listingCount": 2,
+      "lastSeen": "2026-05-20T15:15:02.025Z",
+      "addresses": []
+    },
+    {
+      "name": "Brenda",
+      "aliases": [],
+      "phone": "(281) 910-1130",
+      "role": "Cleaner",
+      "cities": [
+        "Bolivar Peninsula"
+      ],
+      "trust": "high",
+      "score": 102,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Marble St - Quincy"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-08T17:52:59.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Brook State Hwy",
+      "aliases": [],
+      "phone": "(615) 571-6809",
+      "role": "Cleaner",
+      "cities": [
+        "Houston"
+      ],
+      "trust": "high",
+      "score": 102,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Sears Dr. (Unit A) - Christopher",
+        "Sears Dr. (Unit B) - Christopher (OFFBOARDING- July 28, 2026)"
+      ],
+      "listingCount": 2,
+      "lastSeen": "2026-03-09T18:06:00.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Carmen - Bass Rd 2",
+      "aliases": [],
+      "phone": "(727) 242-4145",
+      "role": "Cleaner",
+      "cities": [
+        "Dunnellon"
+      ],
+      "trust": "high",
+      "score": 102,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Bass Rd - Kathy"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-01-31T15:37:21.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Carmen Sibrian",
+      "aliases": [],
+      "phone": "(832) 531-3506",
+      "role": "Cleaner",
+      "cities": [
+        "Houston"
+      ],
+      "trust": "high",
+      "score": 102,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Sears Dr. (Unit A) - Christopher",
+        "Sears Dr. (Unit B) - Christopher (OFFBOARDING- July 28, 2026)"
+      ],
+      "listingCount": 2,
+      "lastSeen": "2026-02-27T14:43:08.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Destiny Alter - Alta Mesa",
+      "aliases": [],
+      "phone": "(760) 218-6368",
+      "role": "Cleaner",
+      "cities": [
+        "Joshua Tree",
+        "Yucca Valley"
+      ],
+      "trust": "high",
+      "score": 102,
+      "evidenceCount": 3,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Alta Mesa Dr. - Rakesh",
+        "El Dorado Dr. - Rakesh",
+        "Elwood St. - Rakesh"
+      ],
+      "listingCount": 3,
+      "lastSeen": "2026-04-18T01:00:20.868Z",
+      "addresses": []
+    },
+    {
+      "name": "Eli Aqualux",
+      "aliases": [],
+      "phone": "(941) 287-5018",
+      "role": "Cleaner",
+      "cities": [
+        "Bradenton"
+      ],
+      "trust": "high",
+      "score": 102,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "46th Ave",
+        "Seminole St"
+      ],
+      "listingCount": 2,
+      "lastSeen": "2026-05-25T05:34:44.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Gessica Colet",
+      "aliases": [],
+      "phone": "(205) 206-3478",
+      "role": "Cleaner",
+      "cities": [
+        "Englewood",
+        "North Port"
+      ],
+      "trust": "high",
+      "score": 102,
+      "evidenceCount": 3,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Cyrus Ave. - Sergey",
+        "E 3rd St. - Sergey",
+        "VANTAGE - Shadow Ln. - Scott"
+      ],
+      "listingCount": 3,
+      "lastSeen": "2026-04-30T17:32:34.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Houleymatou Back Up For Benton",
+      "aliases": [],
+      "phone": "(913) 388-9263",
+      "role": "Cleaner",
+      "cities": [
+        "KCMO"
+      ],
+      "trust": "high",
+      "score": 102,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Benton KC",
+        "E 32nd - KC"
+      ],
+      "listingCount": 2,
+      "lastSeen": "2026-04-18T03:20:13.742Z",
+      "addresses": []
+    },
+    {
+      "name": "Jose",
+      "aliases": [
+        "Jose Jr"
+      ],
+      "phone": "(813) 541-0166",
+      "role": "Landscaping",
+      "cities": [
+        "Largo",
+        "Tampa"
+      ],
+      "trust": "high",
+      "score": 102,
+      "evidenceCount": 3,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Compound",
+        "Spring St/Danielle Dr"
+      ],
+      "listingCount": 2,
+      "lastSeen": "2026-05-25T05:41:23.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Patricia",
+      "aliases": [],
+      "phone": "(210) 663-4393",
+      "role": "Cleaner",
+      "cities": [
+        "Houston"
+      ],
+      "trust": "high",
+      "score": 102,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Sears Dr. (Unit A) - Christopher",
+        "Sears Dr. (Unit B) - Christopher (OFFBOARDING- July 28, 2026)"
+      ],
+      "listingCount": 2,
+      "lastSeen": "2026-03-09T18:43:53.801Z",
+      "addresses": []
+    },
+    {
+      "name": "Rosemarie Taylor",
+      "aliases": [],
+      "phone": "(816) 352-8045",
+      "role": "Cleaner",
+      "cities": [
+        "KCMO"
+      ],
+      "trust": "high",
+      "score": 102,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Benton KC",
+        "Walnut KC"
+      ],
+      "listingCount": 2,
+      "lastSeen": "2026-05-25T17:09:43.555Z",
+      "addresses": []
+    },
+    {
+      "name": "SmoothMove",
+      "aliases": [],
+      "phone": "(727) 698-3088",
+      "role": "Trash Haul",
+      "cities": [
+        "Tampa"
+      ],
+      "trust": "high",
+      "score": 102,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Interbay Blvd",
+        "Rogers"
+      ],
+      "listingCount": 2,
+      "lastSeen": "2025-11-15T16:10:00.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Super D Pest Control",
+      "aliases": [
+        "Super D Pest Control - FL"
+      ],
+      "phone": "(727) 433-5310",
+      "role": "Pest Control",
+      "cities": [
+        "Bradenton",
+        "Largo",
+        "Tampa"
+      ],
+      "trust": "high",
+      "score": 102,
+      "evidenceCount": 5,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "46th Ave",
+        "Compound",
+        "Fulton",
+        "Pineway",
+        "Rogers"
+      ],
+      "listingCount": 5,
+      "lastSeen": "2025-11-15T16:10:01.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Affordable Cleaning Services",
+      "aliases": [],
+      "phone": "(571) 339-5471",
+      "role": "Cleaner",
+      "cities": [
+        "Hume"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Leeds Manor - Steve"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-12-17T16:23:00.250Z",
+      "addresses": []
+    },
+    {
+      "name": "Alejandra",
+      "aliases": [],
+      "phone": "(678) 558-8901",
+      "role": "Cleaner",
+      "cities": [
+        "Atlanta"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "264 Chenault Pl NW - Sam"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-16T16:09:00.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Alex Coastal",
+      "aliases": [],
+      "phone": "(941) 979-1394",
+      "role": "Maintenance",
+      "cities": [
+        "North Port"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Cyrus Ave. - Sergey"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-15T08:45:31.000Z",
+      "addresses": []
+    },
+    {
+      "name": "All U Need Pest Control",
+      "aliases": [],
+      "phone": "(813) 738-5055",
+      "role": "Pest Control",
+      "cities": [
+        "Tampa"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Interbay Blvd"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:00.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Amanda Beck",
+      "aliases": [],
+      "phone": "(864) 923-3205",
+      "role": "Cleaner",
+      "cities": [
+        "Spartanburg"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "S Converse - Rosalyn HM"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-04-23T22:45:32.796Z",
+      "addresses": []
+    },
+    {
+      "name": "Amber",
+      "aliases": [],
+      "phone": "(281) 942-0525",
+      "role": "Cleaner",
+      "cities": [
+        "Humble"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Wood Walk Ln. - Ruben (OFFBOARDING 7/16/26)"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-12-12T20:34:34.190Z",
+      "addresses": []
+    },
+    {
+      "name": "Andrea",
+      "aliases": [],
+      "phone": "(334) 201-3406",
+      "role": "Cleaner",
+      "cities": [
+        "Dadeville"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Rush Rd - Spencer (OFFBOARDING 05/06/2027)"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:03.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Arrow Pest",
+      "aliases": [],
+      "phone": "(800) 226-3139",
+      "role": "Pest Control",
+      "cities": [
+        "North Port"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "VANTAGE - Shadow Ln. - Scott"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-12-26T20:03:48.007Z",
+      "addresses": []
+    },
+    {
+      "name": "Beatriz Mata",
+      "aliases": [],
+      "phone": "(716) 482-2744",
+      "role": "Cleaner",
+      "cities": [
+        "Cheektowaga"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Shanley St (#1) - Kamal "
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-22T18:58:04.026Z",
+      "addresses": []
+    },
+    {
+      "name": "Benjamin- For E 3rd And Cyrus",
+      "aliases": [],
+      "phone": "(941) 599-4718",
+      "role": "Maintenance",
+      "cities": [
+        "Englewood"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "E 3rd St. - Sergey"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-15T08:45:31.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Cailey",
+      "aliases": [],
+      "phone": "(816) 787-7975",
+      "role": "Cleaner",
+      "cities": [
+        "Kansas City"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "S24th KC"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-04-18T18:22:00.534Z",
+      "addresses": []
+    },
+    {
+      "name": "Candi Broken Bow Cleaning",
+      "aliases": [],
+      "phone": "(580) 306-1997",
+      "role": "Cleaner",
+      "cities": [
+        "Broken Bow"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Plane Tree Trl - Michael (OFFBOARDING 07/21/2027)"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-18T16:52:17.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Carolina",
+      "aliases": [],
+      "phone": "(919) 559-8424",
+      "role": "Cleaner",
+      "cities": [
+        "Pinehurst"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Merion Circle - Cora"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:09.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Charles",
+      "aliases": [],
+      "phone": "(808) 377-6999",
+      "role": "Owner's PM/Building Manager",
+      "cities": [
+        "Lahaina"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 50,
+      "sources": [
+        "contact_baseline",
+        "quo_message_name_participant",
+        "quo_outgoing"
+      ],
+      "listings": [
+        "Lower Honoapiilani Rd (Unit #e1110) -Julieta"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-07-16T04:41:25.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Chris Stevenson",
+      "aliases": [],
+      "phone": "(773) 937-9974",
+      "role": "Cleaner",
+      "cities": [
+        "Chicago"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "E 76th Pl. - Rashid"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-02-12T17:35:25.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Christy Martin Edit",
+      "aliases": [],
+      "phone": "(816) 217-2458",
+      "role": "Cleaner",
+      "cities": [
+        "KCMO"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "E 32nd - KC"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-12-21T19:24:40.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Client Sandra",
+      "aliases": [],
+      "phone": "(956) 605-9612",
+      "role": "Cleaner",
+      "cities": [
+        "San Juan"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Lilly Dr. - Sandra"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:10.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Daneisha Lee - Oakledge",
+      "aliases": [],
+      "phone": "(678) 768-2219",
+      "role": "Cleaner",
+      "cities": [
+        "Marietta"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Oakledge Dr. NW - Kenneth"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-04-17T20:16:32.625Z",
+      "addresses": []
+    },
+    {
+      "name": "Donna- Old Colony",
+      "aliases": [],
+      "phone": "(248) 632-8882",
+      "role": "Cleaner",
+      "cities": [
+        "Leesburg"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Old Colony Rd. - Charlie"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-04-14T17:46:30.934Z",
+      "addresses": []
+    },
+    {
+      "name": "EZ Landscaping",
+      "aliases": [],
+      "phone": "(813) 469-5419",
+      "role": "Landscaping",
+      "cities": [
+        "Tampa"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Compound"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-25T05:39:54.387Z",
+      "addresses": []
+    },
+    {
+      "name": "Elite Mowers LLC",
+      "aliases": [],
+      "phone": "(727) 682-5234",
+      "role": "Landscaping",
+      "cities": [
+        "Largo"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Fulton"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:00.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Elizaveta",
+      "aliases": [],
+      "phone": "(916) 873-4338",
+      "role": "Cleaner",
+      "cities": [
+        "Camino"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Cable Rd - Mallikharjun"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:07.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Eric",
+      "aliases": [],
+      "phone": "(305) 600-8256",
+      "role": "Cleaner",
+      "cities": [
+        "Key Largo",
+        "Tavernier"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "N Bounty Ln - Avi",
+        "Overseas Hwy (Unit #104) - Avi"
+      ],
+      "listingCount": 2,
+      "lastSeen": "2026-01-16T13:00:22.254Z",
+      "addresses": []
+    },
+    {
+      "name": "Evaline Morley",
+      "aliases": [],
+      "phone": "(623) 306-6922",
+      "role": "Cleaner",
+      "cities": [
+        "Humble"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Wood Walk Ln. - Ruben (OFFBOARDING 7/16/26)"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-12-12T20:33:51.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Felisha - N Park Ave",
+      "aliases": [],
+      "phone": "(317) 401-6545",
+      "role": "Cleaner",
+      "cities": [
+        "Indianapolis"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "N Park Ave. - Adebanjo"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-04-18T01:18:49.565Z",
+      "addresses": []
+    },
+    {
+      "name": "Gentry",
+      "aliases": [],
+      "phone": "(828) 581-4045",
+      "role": "HVAC",
+      "cities": [
+        "Swannanoa"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Hope View Rd"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-01-08T12:30:44.052Z",
+      "addresses": []
+    },
+    {
+      "name": "Gillian Lane",
+      "aliases": [],
+      "phone": "(321) 458-0754",
+      "role": "Cleaner",
+      "cities": [
+        "Cape Canaveral"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Ridgewood - Michael"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-12-08T15:18:54.799Z",
+      "addresses": []
+    },
+    {
+      "name": "Gloria",
+      "aliases": [],
+      "phone": "(252) 402-7647",
+      "role": "Cleaner",
+      "cities": [
+        "Chocowinity"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Bayside Dr. - Nicole"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:13.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Hakem",
+      "aliases": [],
+      "phone": "(330) 770-0547",
+      "role": "Cleaner",
+      "cities": [
+        "Youngstown"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Redondo Rd - Lewis"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:07.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Ignacio Moena",
+      "aliases": [],
+      "phone": "(303) 601-6887",
+      "role": "Cleaner",
+      "cities": [
+        "Arvada"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "W 86th Dr. - Dallas"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-03-10T13:35:31.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Ismael",
+      "aliases": [],
+      "phone": "(864) 386-2455",
+      "role": "Maintenance",
+      "cities": [
+        "Spartanburg"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "S Converse - Rosalyn HM"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-15T08:45:31.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Jaclyn Blevins",
+      "aliases": [],
+      "phone": "(423) 512-1271",
+      "role": "Cleaner",
+      "cities": [
+        "Swannanoa"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Hope View Rd"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-04-19T23:03:05.525Z",
+      "addresses": []
+    },
+    {
+      "name": "Janet",
+      "aliases": [],
+      "phone": "(540) 244-5203",
+      "role": "Cleaner",
+      "cities": [
+        "Hume"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Leeds Manor - Steve"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:03.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Jason-Cameron Termite Pest Control",
+      "aliases": [],
+      "phone": "(727) 577-0789",
+      "role": "Pest Control",
+      "cities": [
+        "Largo"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Spring St/Danielle Dr"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:00.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Jennifer S Converse New",
+      "aliases": [],
+      "phone": "(828) 371-2797",
+      "role": "Cleaner",
+      "cities": [
+        "Spartanburg"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "S Converse - Rosalyn HM"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-04-23T22:44:45.000Z",
+      "addresses": []
+    },
+    {
+      "name": "John Ray",
+      "aliases": [],
+      "phone": "(828) 768-5586",
+      "role": "Electrical",
+      "cities": [
+        "Swannanoa"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Hope View Rd"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-01-08T12:31:31.017Z",
+      "addresses": []
+    },
+    {
+      "name": "Juliana Coelho",
+      "aliases": [],
+      "phone": "(650) 420-9635",
+      "role": "Cleaner",
+      "cities": [
+        "Sacramento"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Edison Ave - Crisina"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-02-19T17:58:53.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Juliana Garduno-",
+      "aliases": [],
+      "phone": "(910) 664-9622",
+      "role": "Cleaner",
+      "cities": [
+        "Myrtle Beach"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Glenns Bay Rd (Unit #204C) - Ebony"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-04-21T18:19:58.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Julie",
+      "aliases": [],
+      "phone": "(805) 341-1183",
+      "role": "Cleaner",
+      "cities": [
+        "Bryant"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Dusty Trail - John"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:09.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Kambri Rowell",
+      "aliases": [],
+      "phone": "(501) 359-9640",
+      "role": "Cleaner",
+      "cities": [
+        "Myrtle Beach"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Glenns Bay Rd (Unit #204C) - Ebony"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-04-07T23:27:41.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Kathleen Herb",
+      "aliases": [],
+      "phone": "(941) 202-9984",
+      "role": "Cleaner",
+      "cities": [
+        "North Port"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "VANTAGE - Shadow Ln. - Scott"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-04-30T17:34:35.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Kellie Russell",
+      "aliases": [],
+      "phone": "(913) 304-4494",
+      "role": "Cleaner",
+      "cities": [
+        "KCMO"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Benton KC"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-04-14T18:27:15.587Z",
+      "addresses": []
+    },
+    {
+      "name": "Laura",
+      "aliases": [],
+      "phone": "(352) 240-5208",
+      "role": "Cleaner",
+      "cities": [
+        "Putnam County"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Lake Green - Kathy"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:09.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Leidys",
+      "aliases": [],
+      "phone": "(727) 466-7448",
+      "role": "Cleaner",
+      "cities": [
+        "Arvada",
+        "Colorado Springs"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 2,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "W 86th Dr. - Dallas",
+        "Wallowing Way - Juan"
+      ],
+      "listingCount": 2,
+      "lastSeen": "2026-04-11T14:29:23.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Leroy Williams",
+      "aliases": [],
+      "phone": "(816) 673-5680",
+      "role": "Maintenance",
+      "cities": [
+        "KCMO"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "E 32nd - KC"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-15T08:45:31.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Maria - W 86th",
+      "aliases": [],
+      "phone": "(720) 586-3287",
+      "role": "Cleaner",
+      "cities": [
+        "Arvada"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "W 86th Dr. - Dallas"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-04-11T14:30:11.259Z",
+      "addresses": []
+    },
+    {
+      "name": "Maria Lopez",
+      "aliases": [],
+      "phone": "(201) 927-7245",
+      "role": "Cleaner",
+      "cities": [
+        "Jersey City"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Congress St. (Unit #1) - Akriti (OFFBOARDED)"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-16T15:42:00.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Meeka",
+      "aliases": [],
+      "phone": "(312) 476-0581",
+      "role": "Cleaner",
+      "cities": [
+        "Birmingham"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "7th Ave - Birmingham"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-08T20:08:44.389Z",
+      "addresses": []
+    },
+    {
+      "name": "Megan",
+      "aliases": [],
+      "phone": "(216) 333-2377",
+      "role": "Cleaner",
+      "cities": [
+        "Geneva"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Orchard Grove - Sharon"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T19:02:00.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Melinda",
+      "aliases": [],
+      "phone": "(414) 231-0723",
+      "role": "Cleaner",
+      "cities": [
+        "Milwaukee"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "N 52nd - Cassandra"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-04-11T17:20:52.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Nadia",
+      "aliases": [],
+      "phone": "(754) 801-3638",
+      "role": "Cleaner",
+      "cities": [
+        "Atlanta"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "270 Chenault Pl NW - Sam"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-16T16:09:01.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Nataysha Woods",
+      "aliases": [],
+      "phone": "(912) 856-6012",
+      "role": "Cleaner",
+      "cities": [
+        "Marietta"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Oakledge Dr. NW - Kenneth"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-02-27T17:34:21.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Nelsi",
+      "aliases": [],
+      "phone": "(816) 588-8123",
+      "role": "Cleaner",
+      "cities": [
+        "Kansas City"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "S24th KC"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-03-17T16:13:04.000Z",
+      "addresses": []
+    },
+    {
+      "name": "New Sparkles",
+      "aliases": [],
+      "phone": "(321) 310-2118",
+      "role": "Cleaner",
+      "cities": [
+        "Cape Canaveral"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Ridgewood - Michael"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:09.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Nicholle Eaton",
+      "aliases": [],
+      "phone": "(307) 286-8956",
+      "role": "Cleaner",
+      "cities": [
+        "Cheyenne"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Evans Ave (3BR - Main Floor) - Laurell (OFFBOARDED)"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-01-01T19:51:50.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Olena Gartner",
+      "aliases": [],
+      "phone": "(970) 732-9010",
+      "role": "Cleaner",
+      "cities": [
+        "Cheyenne"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Evans Ave (3BR - Main Floor) - Laurell (OFFBOARDED)"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-01-01T21:30:51.576Z",
+      "addresses": []
+    },
+    {
+      "name": "Olivia",
+      "aliases": [],
+      "phone": "(678) 791-2483",
+      "role": "Cleaner",
+      "cities": [
+        "Atlanta"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 48,
+      "sources": [
+        "contact_baseline",
+        "quo_conversation",
+        "quo_message_name_participant",
+        "quo_outgoing"
+      ],
+      "listings": [
+        "Promenade Dr SW - Shaheed"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-07-15T23:35:22.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Rachel Adkins",
+      "aliases": [],
+      "phone": "(760) 910-1531",
+      "role": "Cleaner",
+      "cities": [
+        "Joshua Tree"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Alta Mesa Dr. - Rakesh"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-03-28T14:18:07.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Rachel Moena",
+      "aliases": [],
+      "phone": "(360) 503-4862",
+      "role": "Cleaner",
+      "cities": [
+        "Seattle"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "SW Admiral Wy - Tatiana"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-01-12T18:38:35.948Z",
+      "addresses": []
+    },
+    {
+      "name": "Sabrina",
+      "aliases": [],
+      "phone": "(916) 640-4359",
+      "role": "Cleaner",
+      "cities": [
+        "Camino"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Cable Rd - Mallikharjun"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:07.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Sally",
+      "aliases": [],
+      "phone": "(269) 208-1502",
+      "role": "Cleaner",
+      "cities": [
+        "South Haven"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Monroe - Catherine"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-18T16:52:15.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Sara Wright",
+      "aliases": [],
+      "phone": "(949) 832-7870",
+      "role": "Cleaner",
+      "cities": [
+        "Huntington Beach"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Pacific Coast Hwy - Wafa"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:13.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Sarah",
+      "aliases": [],
+      "phone": "(804) 548-5343",
+      "role": "Cleaner",
+      "cities": [
+        "Port Charlotte"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Cannon - Charles "
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-12-22T13:24:49.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Seun",
+      "aliases": [],
+      "phone": "(317) 909-3070",
+      "role": "Maintenance",
+      "cities": [
+        "Indianapolis"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "N Park Ave. - Adebanjo"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-15T08:45:31.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Shawn",
+      "aliases": [],
+      "phone": "(352) 999-8856",
+      "role": "Cleaner",
+      "cities": [
+        "Citra"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "NE 162nd St - Carlos"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-03-06T19:00:26.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Shawn Chapman",
+      "aliases": [],
+      "phone": "(203) 819-3089",
+      "role": "Cleaner",
+      "cities": [
+        "Englewood",
+        "North Port",
+        "Port Charlotte"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 3,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Cyrus Ave. - Sergey",
+        "E 3rd St. - Sergey",
+        "Munson - Bryan (OFFBOARDING 03/15/2027)"
+      ],
+      "listingCount": 3,
+      "lastSeen": "2026-05-15T08:45:32.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Shawndra Young",
+      "aliases": [],
+      "phone": "(864) 785-5197",
+      "role": "Cleaner",
+      "cities": [
+        "Swannanoa"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Hope View Rd"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-01-19T12:58:35.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Steve",
+      "aliases": [],
+      "phone": "(216) 244-2599",
+      "role": "Maintenance",
+      "cities": [
+        "Youngstown"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Redondo Rd - Lewis"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-15T08:45:31.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Sue Lotte",
+      "aliases": [],
+      "phone": "(419) 574-1282",
+      "role": "Cleaner",
+      "cities": [
+        "Port Charlotte"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Cannon - Charles "
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-12-22T13:23:32.635Z",
+      "addresses": []
+    },
+    {
+      "name": "Swat Exterminating",
+      "aliases": [],
+      "phone": "(727) 531-5583",
+      "role": "Pest Control",
+      "cities": [
+        "Largo"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "101st - Kurush"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:02.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Tauriette",
+      "aliases": [],
+      "phone": "(334) 753-3643",
+      "role": "Cleaner",
+      "cities": [
+        "Montgomery"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "S Perry St - Beverly (OFFBOARDING OCT 22, 2026)"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-03-26T19:01:17.890Z",
+      "addresses": []
+    },
+    {
+      "name": "Tequila",
+      "aliases": [],
+      "phone": "(205) 427-8650",
+      "role": "Cleaner",
+      "cities": [
+        "Birmingham"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Viola Ave. SW - Thomas"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-12-11T13:08:20.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Tina Rapp",
+      "aliases": [],
+      "phone": "(334) 306-8024",
+      "role": "Cleaner",
+      "cities": [
+        "Montgomery"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "S Perry St - Beverly (OFFBOARDING OCT 22, 2026)"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-03-10T13:40:53.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Tom Smith",
+      "aliases": [],
+      "phone": "(727) 403-7555",
+      "role": "Cleaner",
+      "cities": [
+        "Madeira Beach"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Madeira (Parent)  - Frank"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:03.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Tony KC",
+      "aliases": [],
+      "phone": "(816) 565-1072",
+      "role": "Maintenance",
+      "cities": [
+        "KCMO"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "E 32nd - KC"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-15T08:45:31.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Veronica Duran",
+      "aliases": [],
+      "phone": "(707) 714-9820",
+      "role": "Cleaner",
+      "cities": [
+        "Clearlake Oaks"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Shoreview Dr - Sovichet"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-01-15T19:41:50.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Xavier Mr. Handy ATL",
+      "aliases": [],
+      "phone": "(404) 953-9286",
+      "role": "Maintenance",
+      "cities": [
+        "Atlanta"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Promenade Dr SW - Shaheed"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-15T08:45:31.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Yady",
+      "aliases": [],
+      "phone": "(352) 436-9304",
+      "role": "Cleaner",
+      "cities": [
+        "Dunnellon"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Bass Rd - Kathy"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:10.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Yanera Alvarez",
+      "aliases": [],
+      "phone": "(850) 902-9917",
+      "role": "Cleaner",
+      "cities": [
+        "Fort Walton Beach"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Merioneth Dr. NE - Aileen"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-01-26T17:31:25.042Z",
+      "addresses": []
+    },
+    {
+      "name": "Yari",
+      "aliases": [],
+      "phone": "(936) 499-4781",
+      "role": "Cleaner",
+      "cities": [
+        "The Woodlands"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "North Logrun - Thomas"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2025-11-15T16:10:02.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Your Get It Done Guys",
+      "aliases": [],
+      "phone": "(480) 381-4181",
+      "role": "Maintenance",
+      "cities": [
+        "Scottsdale"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "Scottsdale"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-15T08:45:31.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Zulmary Maisonet",
+      "aliases": [],
+      "phone": "(904) 900-8220",
+      "role": "Cleaner",
+      "cities": [
+        "Citra"
+      ],
+      "trust": "high",
+      "score": 101,
+      "evidenceCount": 1,
+      "sources": [
+        "contact_baseline"
+      ],
+      "listings": [
+        "NE 162nd St - Carlos"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-15T05:34:11.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Angel",
+      "aliases": [],
+      "phone": "(828) 423-6289",
+      "role": "Maintenance",
+      "cities": [
+        "Swannanoa"
+      ],
+      "trust": "high",
+      "score": 88,
+      "evidenceCount": 3,
+      "sources": [
+        "issue_update",
+        "issue_update_name"
+      ],
+      "listings": [
+        "Hope View Rd"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-07-04T13:37:08.743Z",
+      "addresses": []
+    },
+    {
+      "name": "TJ's",
+      "aliases": [],
+      "phone": "(816) 267-5100",
+      "role": "Maintenance",
+      "cities": [
+        "KCMO"
+      ],
+      "trust": "high",
+      "score": 62,
+      "evidenceCount": 2,
+      "sources": [
+        "issue_update"
+      ],
+      "listings": [
+        "Walnut KC"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-07-13T22:52:15.441Z",
+      "addresses": []
+    },
+    {
+      "name": "Wayne's Pest Control",
+      "aliases": [],
+      "phone": "(769) 239-3382",
+      "role": "Cleaner",
+      "cities": [
+        "Birmingham"
+      ],
+      "trust": "high",
+      "score": 61,
+      "evidenceCount": 1,
+      "sources": [
+        "issue_update"
+      ],
+      "listings": [
+        "7th Ave - Birmingham"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-23T14:30:49.936Z",
+      "addresses": []
+    },
+    {
+      "name": "Ana",
+      "aliases": [],
+      "phone": "(916) 663-8221",
+      "role": "Cleaner",
+      "cities": [
+        "(unknown city)"
+      ],
+      "trust": "high",
+      "score": 41,
+      "evidenceCount": 16,
+      "sources": [
+        "issue_update_name"
+      ],
+      "listings": [
+        "N Mobile - Vrbo - New",
+        "W Fullerton Ave - Rajeev"
+      ],
+      "listingCount": 2,
+      "lastSeen": "2026-07-23T15:06:59.808Z",
+      "addresses": []
+    },
+    {
+      "name": "Julie",
+      "aliases": [],
+      "phone": "(815) 483-1309",
+      "role": "Cleaner",
+      "cities": [
+        "Chicago"
+      ],
+      "trust": "medium",
+      "score": 19,
+      "evidenceCount": 9,
+      "sources": [
+        "quo_message_name_participant",
+        "quo_outgoing"
+      ],
+      "listings": [
+        "Waveland (#2A)"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-04-30T13:48:14.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Ashley",
+      "aliases": [],
+      "phone": "(859) 559-5238",
+      "role": "Vendor",
+      "cities": [
+        "Chicago"
+      ],
+      "trust": "medium",
+      "score": 15,
+      "evidenceCount": 5,
+      "sources": [
+        "quo_message_name_participant",
+        "quo_outgoing"
+      ],
+      "listings": [
+        "Waveland (#1A)"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-06T20:17:44.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Jose",
+      "aliases": [],
+      "phone": "(219) 746-6273",
+      "role": "Pool",
+      "cities": [
+        "Key Largo"
+      ],
+      "trust": "medium",
+      "score": 15,
+      "evidenceCount": 5,
+      "sources": [
+        "quo_message_name_participant",
+        "quo_outgoing"
+      ],
+      "listings": [
+        "N Bounty Ln - Avi"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-04-25T13:25:00.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Jose",
+      "aliases": [],
+      "phone": "(817) 692-2291",
+      "role": "Vendor",
+      "cities": [
+        "Houston"
+      ],
+      "trust": "medium",
+      "score": 14,
+      "evidenceCount": 4,
+      "sources": [
+        "quo_message_name_participant",
+        "quo_outgoing"
+      ],
+      "listings": [
+        "Sears Dr. (Unit A) - Christopher"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-05-01T19:56:07.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Charles",
+      "aliases": [],
+      "phone": "(917) 710-0099",
+      "role": "Vendor",
+      "cities": [
+        "Chicago"
+      ],
+      "trust": "medium",
+      "score": 13,
+      "evidenceCount": 8,
+      "sources": [
+        "quo_message_text"
+      ],
+      "listings": [
+        "Columbia (#02)",
+        "S Michigan (Unit #13) - Ozzie "
+      ],
+      "listingCount": 2,
+      "lastSeen": "2026-06-18T17:19:23.000Z",
+      "addresses": []
+    },
+    {
+      "name": "David",
+      "aliases": [],
+      "phone": "(332) 234-8644",
+      "role": "Cleaner",
+      "cities": [
+        "Cape Coral"
+      ],
+      "trust": "medium",
+      "score": 13,
+      "evidenceCount": 3,
+      "sources": [
+        "quo_message_name_participant",
+        "quo_outgoing"
+      ],
+      "listings": [
+        "NE 1st Terrace (House) - Maria"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-04-25T15:48:58.000Z",
+      "addresses": []
+    },
+    {
+      "name": "Julie",
+      "aliases": [],
+      "phone": "(196) 193-5090",
+      "role": "Vendor",
+      "cities": [
+        "KCMO"
+      ],
+      "trust": "medium",
+      "score": 10,
+      "evidenceCount": 5,
+      "sources": [
+        "quo_message_text"
+      ],
+      "listings": [
+        "Benton KC"
+      ],
+      "listingCount": 1,
+      "lastSeen": "2026-06-18T16:18:37.000Z",
+      "addresses": []
+    }
+  ],
+  "byCity": {
+    "(unknown city)": [
+      {
+        "name": "Miguel",
+        "phone": "(773) 243-9091",
+        "role": "HVAC",
+        "trust": "high",
+        "score": 141,
+        "evidenceCount": 11,
+        "sources": [
+          "issue_poc",
+          "issue_update_name",
+          "issue_update_poc_phone",
+          "quo_outgoing",
+          "quo_message_name_participant"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Drummond (Basement) - Parent"
+        ],
+        "lastSeen": "2026-07-24T12:00:55.000Z",
+        "cities": [
+          "(unknown city)"
+        ]
+      },
+      {
+        "name": "Ana",
+        "phone": "(916) 663-8221",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 41,
+        "evidenceCount": 16,
+        "sources": [
+          "issue_update_name"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "N Mobile - Vrbo - New",
+          "W Fullerton Ave - Rajeev"
+        ],
+        "lastSeen": "2026-07-23T15:06:59.808Z",
+        "cities": [
+          "(unknown city)"
+        ]
+      }
+    ],
+    "Arvada": [
+      {
+        "name": "Ignacio Moena",
+        "phone": "(303) 601-6887",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "W 86th Dr. - Dallas"
+        ],
+        "lastSeen": "2026-03-10T13:35:31.000Z",
+        "cities": [
+          "Arvada"
+        ]
+      },
+      {
+        "name": "Leidys",
+        "phone": "(727) 466-7448",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "W 86th Dr. - Dallas"
+        ],
+        "lastSeen": "2026-04-11T14:29:23.000Z",
+        "cities": [
+          "Arvada"
+        ]
+      },
+      {
+        "name": "Maria - W 86th",
+        "phone": "(720) 586-3287",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "W 86th Dr. - Dallas"
+        ],
+        "lastSeen": "2026-04-11T14:30:11.259Z",
+        "cities": [
+          "Arvada"
+        ]
+      }
+    ],
+    "Atlanta": [
+      {
+        "name": "Adeshola",
+        "phone": "(612) 978-7925",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "264 Chenault Pl NW - Sam",
+          "270 Chenault Pl NW - Sam"
+        ],
+        "lastSeen": "2026-01-16T17:38:20.000Z",
+        "cities": [
+          "Atlanta"
+        ]
+      },
+      {
+        "name": "Allsect Pest Control",
+        "phone": "(404) 345-8392",
+        "role": "Pest Control",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "270 Chenault Pl NW - Sam",
+          "264 Chenault Pl NW - Sam"
+        ],
+        "lastSeen": "2026-05-27T22:20:28.655Z",
+        "cities": [
+          "Atlanta"
+        ]
+      },
+      {
+        "name": "Alejandra",
+        "phone": "(678) 558-8901",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "264 Chenault Pl NW - Sam"
+        ],
+        "lastSeen": "2025-11-16T16:09:00.000Z",
+        "cities": [
+          "Atlanta"
+        ]
+      },
+      {
+        "name": "Nadia",
+        "phone": "(754) 801-3638",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "270 Chenault Pl NW - Sam"
+        ],
+        "lastSeen": "2025-11-16T16:09:01.000Z",
+        "cities": [
+          "Atlanta"
+        ]
+      },
+      {
+        "name": "Olivia",
+        "phone": "(678) 791-2483",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Promenade Dr SW - Shaheed"
+        ],
+        "lastSeen": "2026-05-22T14:28:43.705Z",
+        "cities": [
+          "(unknown city)",
+          "Atlanta"
+        ]
+      },
+      {
+        "name": "Xavier Mr. Handy ATL",
+        "phone": "(404) 953-9286",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Promenade Dr SW - Shaheed"
+        ],
+        "lastSeen": "2026-05-15T08:45:31.000Z",
+        "cities": [
+          "Atlanta"
+        ]
+      }
+    ],
+    "Beverly Hills": [
+      {
+        "name": "Rina Beltran",
+        "phone": "(323) 536-6857",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 103,
+        "evidenceCount": 3,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 3,
+        "listings": [
+          "N Hamel Dr. (Parent) - Rebeka",
+          "N Hamel Dr. (Guest House) - Rebeka",
+          "N Hamel Dr. (Main House) - Rebeka"
+        ],
+        "lastSeen": "2026-02-19T18:01:33.000Z",
+        "cities": [
+          "Beverly Hills"
+        ]
+      }
+    ],
+    "Birmingham": [
+      {
+        "name": "Tequila",
+        "phone": "(205) 427-8650",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Viola Ave. SW - Thomas"
+        ],
+        "lastSeen": "2025-12-11T13:08:20.000Z",
+        "cities": [
+          "Birmingham"
+        ]
+      },
+      {
+        "name": "Meeka",
+        "phone": "(312) 476-0581",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "7th Ave - Birmingham"
+        ],
+        "lastSeen": "2026-05-08T20:08:44.389Z",
+        "cities": [
+          "Birmingham"
+        ]
+      },
+      {
+        "name": "Wayne's Pest Control",
+        "phone": "(769) 239-3382",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 61,
+        "evidenceCount": 1,
+        "sources": [
+          "issue_update"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "7th Ave - Birmingham"
+        ],
+        "lastSeen": "2026-05-23T14:30:49.936Z",
+        "cities": [
+          "Birmingham"
+        ]
+      }
+    ],
+    "Bolivar Peninsula": [
+      {
+        "name": "Brenda",
+        "phone": "(281) 910-1130",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Marble St - Quincy"
+        ],
+        "lastSeen": "2026-05-08T17:52:59.000Z",
+        "cities": [
+          "Bolivar Peninsula"
+        ]
+      }
+    ],
+    "Bradenton": [
+      {
+        "name": "Diana",
+        "phone": "(813) 830-3287",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 129,
+        "evidenceCount": 4,
+        "sources": [
+          "contact_baseline",
+          "issue_update_name"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "46th Ave",
+          "Seminole St"
+        ],
+        "lastSeen": "2026-05-26T16:53:37.777Z",
+        "cities": [
+          "(unknown city)",
+          "Bradenton"
+        ]
+      },
+      {
+        "name": "David",
+        "phone": "(708) 270-1444",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 106,
+        "evidenceCount": 6,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 3,
+        "listings": [
+          "46th Ave",
+          "Seminole St",
+          "40th St W - Diana"
+        ],
+        "lastSeen": "2026-05-25T05:21:56.024Z",
+        "cities": [
+          "Bradenton"
+        ]
+      },
+      {
+        "name": "Eli Aqualux",
+        "phone": "(941) 287-5018",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "Seminole St",
+          "46th Ave"
+        ],
+        "lastSeen": "2026-05-25T05:34:44.000Z",
+        "cities": [
+          "Bradenton"
+        ]
+      },
+      {
+        "name": "Super D Pest Control - FL",
+        "phone": "(727) 433-5310",
+        "role": "Pest Control",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "46th Ave"
+        ],
+        "lastSeen": "2025-11-15T16:10:01.000Z",
+        "cities": [
+          "Bradenton"
+        ]
+      }
+    ],
+    "Broken Bow": [
+      {
+        "name": "Candi Broken Bow Cleaning",
+        "phone": "(580) 306-1997",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Plane Tree Trl - Michael (OFFBOARDING 07/21/2027)"
+        ],
+        "lastSeen": "2025-11-18T16:52:17.000Z",
+        "cities": [
+          "Broken Bow"
+        ]
+      }
+    ],
+    "Bryant": [
+      {
+        "name": "Julie",
+        "phone": "(805) 341-1183",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Dusty Trail - John"
+        ],
+        "lastSeen": "2025-11-15T16:10:09.000Z",
+        "cities": [
+          "Bryant"
+        ]
+      }
+    ],
+    "Camino": [
+      {
+        "name": "Elizaveta",
+        "phone": "(916) 873-4338",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Cable Rd - Mallikharjun"
+        ],
+        "lastSeen": "2025-11-15T16:10:07.000Z",
+        "cities": [
+          "Camino"
+        ]
+      },
+      {
+        "name": "Sabrina",
+        "phone": "(916) 640-4359",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Cable Rd - Mallikharjun"
+        ],
+        "lastSeen": "2025-11-15T16:10:07.000Z",
+        "cities": [
+          "Camino"
+        ]
+      }
+    ],
+    "Cape Canaveral": [
+      {
+        "name": "New Sparkles",
+        "phone": "(321) 310-2118",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Ridgewood - Michael"
+        ],
+        "lastSeen": "2025-11-15T16:10:09.000Z",
+        "cities": [
+          "Cape Canaveral"
+        ]
+      },
+      {
+        "name": "Gillian Lane",
+        "phone": "(321) 458-0754",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Ridgewood - Michael"
+        ],
+        "lastSeen": "2025-12-08T15:18:54.799Z",
+        "cities": [
+          "Cape Canaveral"
+        ]
+      }
+    ],
+    "Cape Coral": [
+      {
+        "name": "David",
+        "phone": "(332) 234-8644",
+        "role": "Cleaner",
+        "trust": "medium",
+        "score": 13,
+        "evidenceCount": 3,
+        "sources": [
+          "quo_outgoing",
+          "quo_message_name_participant"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "NE 1st Terrace (House) - Maria"
+        ],
+        "lastSeen": "2026-04-25T15:48:58.000Z",
+        "cities": [
+          "Cape Coral"
+        ]
+      }
+    ],
+    "Cheektowaga": [
+      {
+        "name": "Beatriz Mata",
+        "phone": "(716) 482-2744",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Shanley St (#1) - Kamal "
+        ],
+        "lastSeen": "2026-05-22T18:58:04.026Z",
+        "cities": [
+          "Cheektowaga"
+        ]
+      }
+    ],
+    "Cheyenne": [
+      {
+        "name": "Nicholle Eaton",
+        "phone": "(307) 286-8956",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Evans Ave (3BR - Main Floor) - Laurell (OFFBOARDED)"
+        ],
+        "lastSeen": "2026-01-01T19:51:50.000Z",
+        "cities": [
+          "Cheyenne"
+        ]
+      },
+      {
+        "name": "Olena Gartner",
+        "phone": "(970) 732-9010",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Evans Ave (3BR - Main Floor) - Laurell (OFFBOARDED)"
+        ],
+        "lastSeen": "2026-01-01T21:30:51.576Z",
+        "cities": [
+          "Cheyenne"
+        ]
+      }
+    ],
+    "Chicago": [
+      {
+        "name": "Miguel",
+        "phone": "(773) 243-9091",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 278,
+        "evidenceCount": 53,
+        "sources": [
+          "contact_baseline",
+          "issue_poc",
+          "issue_update",
+          "issue_update_name"
+        ],
+        "listingCount": 22,
+        "listings": [
+          "Drummond (#01)",
+          "Drummond (#02)",
+          "5105 River Rd (#1E)",
+          "5105 River Rd (#1G)",
+          "5105 River Rd (#3F)",
+          "Osage (#02)",
+          "Osage (#03)",
+          "Kilpatrick"
+        ],
+        "lastSeen": "2026-07-10T19:41:04.829Z",
+        "cities": [
+          "(unknown city)",
+          "Chicago"
+        ]
+      },
+      {
+        "name": "Ana",
+        "phone": "(773) 592-5234",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 190,
+        "evidenceCount": 25,
+        "sources": [
+          "contact_baseline",
+          "issue_poc",
+          "issue_update_name"
+        ],
+        "listingCount": 23,
+        "listings": [
+          "5105 River Rd (#1E)",
+          "5105 River Rd (#1G)",
+          "5105 River Rd (#3F)",
+          "Osage (#02)",
+          "Osage (#03)",
+          "Kilpatrick",
+          "St Paul",
+          "Waveland (#1A)"
+        ],
+        "lastSeen": "2026-06-10T15:58:04.085Z",
+        "cities": [
+          "Chicago"
+        ]
+      },
+      {
+        "name": "Pest Control Chicago",
+        "phone": "(219) 232-0220",
+        "role": "Pest Control",
+        "trust": "high",
+        "score": 127,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline",
+          "issue_update_name"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Kilpatrick"
+        ],
+        "lastSeen": "2026-05-22T15:36:07.711Z",
+        "cities": [
+          "Chicago"
+        ]
+      },
+      {
+        "name": "Groover Buitron - S Michigan Parking On-site Manager",
+        "phone": "(773) 503-3879",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 113,
+        "evidenceCount": 13,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 12,
+        "listings": [
+          "S Michigan (Unit #01) - Ozzie (LEADING)",
+          "S Michigan (Unit #02) - Ozzie ",
+          "S Michigan (Unit #03) - Ozzie ",
+          "S Michigan (Unit #04) - Ozzie ",
+          "S Michigan (Unit #05) - Ozzie ",
+          "S Michigan (Unit #06) - Ozzie ",
+          "S Michigan (Unit #07) - Ozzie ",
+          "S Michigan (Unit #08) - Ozzie "
+        ],
+        "lastSeen": "2026-02-17T18:03:29.000Z",
+        "cities": [
+          "Chicago"
+        ]
+      },
+      {
+        "name": "Karen Pardo Perez",
+        "phone": "(312) 607-2919",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 103,
+        "evidenceCount": 3,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "E 76th Pl. - Rashid"
+        ],
+        "lastSeen": "2026-04-17T23:47:14.933Z",
+        "cities": [
+          "Chicago"
+        ]
+      },
+      {
+        "name": "Jaime CH 3 LAWN",
+        "phone": "(773) 559-2458",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 103,
+        "evidenceCount": 3,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 3,
+        "listings": [
+          "Waller",
+          "N Central",
+          "N Mobile"
+        ],
+        "lastSeen": "2025-11-15T16:10:02.000Z",
+        "cities": [
+          "Chicago"
+        ]
+      },
+      {
+        "name": "Chris Stevenson",
+        "phone": "(773) 937-9974",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "E 76th Pl. - Rashid"
+        ],
+        "lastSeen": "2026-02-12T17:35:25.000Z",
+        "cities": [
+          "Chicago"
+        ]
+      },
+      {
+        "name": "Julie",
+        "phone": "(815) 483-1309",
+        "role": "Cleaner",
+        "trust": "medium",
+        "score": 19,
+        "evidenceCount": 9,
+        "sources": [
+          "quo_outgoing",
+          "quo_message_name_participant"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Waveland (#2A)"
+        ],
+        "lastSeen": "2026-04-30T13:48:14.000Z",
+        "cities": [
+          "Chicago"
+        ]
+      },
+      {
+        "name": "Ashley",
+        "phone": "(859) 559-5238",
+        "role": "Vendor",
+        "trust": "medium",
+        "score": 15,
+        "evidenceCount": 5,
+        "sources": [
+          "quo_outgoing",
+          "quo_message_name_participant"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Waveland (#1A)"
+        ],
+        "lastSeen": "2026-05-06T20:17:44.000Z",
+        "cities": [
+          "Chicago"
+        ]
+      },
+      {
+        "name": "Charles",
+        "phone": "(917) 710-0099",
+        "role": "Vendor",
+        "trust": "medium",
+        "score": 13,
+        "evidenceCount": 8,
+        "sources": [
+          "quo_message_text"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "Columbia (#02)",
+          "S Michigan (Unit #13) - Ozzie "
+        ],
+        "lastSeen": "2026-06-18T17:19:23.000Z",
+        "cities": [
+          "Chicago"
+        ]
+      }
+    ],
+    "Chocowinity": [
+      {
+        "name": "Gloria",
+        "phone": "(252) 402-7647",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Bayside Dr. - Nicole"
+        ],
+        "lastSeen": "2025-11-15T16:10:13.000Z",
+        "cities": [
+          "Chocowinity"
+        ]
+      }
+    ],
+    "Citra": [
+      {
+        "name": "Shawn",
+        "phone": "(352) 999-8856",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "NE 162nd St - Carlos"
+        ],
+        "lastSeen": "2026-03-06T19:00:26.000Z",
+        "cities": [
+          "Citra"
+        ]
+      },
+      {
+        "name": "Zulmary Maisonet",
+        "phone": "(904) 900-8220",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "NE 162nd St - Carlos"
+        ],
+        "lastSeen": "2026-05-15T05:34:11.000Z",
+        "cities": [
+          "Citra"
+        ]
+      }
+    ],
+    "Clearlake Oaks": [
+      {
+        "name": "Veronica Duran",
+        "phone": "(707) 714-9820",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Shoreview Dr - Sovichet"
+        ],
+        "lastSeen": "2026-01-15T19:41:50.000Z",
+        "cities": [
+          "Clearlake Oaks"
+        ]
+      }
+    ],
+    "Colorado Springs": [
+      {
+        "name": "Leidys",
+        "phone": "(727) 466-7448",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Wallowing Way - Juan"
+        ],
+        "lastSeen": "2026-02-10T20:37:55.380Z",
+        "cities": [
+          "Arvada",
+          "Colorado Springs"
+        ]
+      }
+    ],
+    "Cudjoe Key": [
+      {
+        "name": "Inna Matiushenko",
+        "phone": "(305) 413-8568",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 142,
+        "evidenceCount": 2,
+        "sources": [
+          "issue_poc",
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Colson Dr - Ahmed"
+        ],
+        "lastSeen": "2026-05-28T14:39:15.000Z",
+        "cities": [
+          "Cudjoe Key"
+        ]
+      }
+    ],
+    "Dadeville": [
+      {
+        "name": "Andrea",
+        "phone": "(334) 201-3406",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Rush Rd - Spencer (OFFBOARDING 05/06/2027)"
+        ],
+        "lastSeen": "2025-11-15T16:10:03.000Z",
+        "cities": [
+          "Dadeville"
+        ]
+      }
+    ],
+    "Dunnellon": [
+      {
+        "name": "Carmen - Bass Rd 2",
+        "phone": "(727) 242-4145",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Bass Rd - Kathy"
+        ],
+        "lastSeen": "2026-01-31T15:37:21.000Z",
+        "cities": [
+          "Dunnellon"
+        ]
+      },
+      {
+        "name": "Yady",
+        "phone": "(352) 436-9304",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Bass Rd - Kathy"
+        ],
+        "lastSeen": "2025-11-15T16:10:10.000Z",
+        "cities": [
+          "Dunnellon"
+        ]
+      }
+    ],
+    "Elmwood Park": [
+      {
+        "name": "Miguel",
+        "phone": "(773) 243-9091",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 132,
+        "evidenceCount": 7,
+        "sources": [
+          "contact_baseline",
+          "issue_update_name"
+        ],
+        "listingCount": 5,
+        "listings": [
+          "Elmwood Park (#GW)",
+          "Elmwood Park (#GE)",
+          "Elmwood Park (#2W)",
+          "Elmwood Park (#2E)",
+          "Elmwood Park (#1W)"
+        ],
+        "lastSeen": "2026-06-22T18:21:36.248Z",
+        "cities": [
+          "(unknown city)",
+          "Chicago",
+          "Elmwood Park"
+        ]
+      },
+      {
+        "name": "Ana",
+        "phone": "(773) 592-5234",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 105,
+        "evidenceCount": 5,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 5,
+        "listings": [
+          "Elmwood Park (#GW)",
+          "Elmwood Park (#1W)",
+          "Elmwood Park (#2W)",
+          "Elmwood Park (#2E)",
+          "Elmwood Park (#GE)"
+        ],
+        "lastSeen": "2025-11-15T16:10:00.000Z",
+        "cities": [
+          "Chicago",
+          "Elmwood Park"
+        ]
+      },
+      {
+        "name": "Jaime CH 3 LAWN",
+        "phone": "(773) 559-2458",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Elmwood Park (#GE)"
+        ],
+        "lastSeen": "2025-11-15T16:10:00.000Z",
+        "cities": [
+          "Chicago",
+          "Elmwood Park"
+        ]
+      }
+    ],
+    "Englewood": [
+      {
+        "name": "Gessica Colet",
+        "phone": "(205) 206-3478",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "E 3rd St. - Sergey"
+        ],
+        "lastSeen": "2025-12-30T15:32:02.158Z",
+        "cities": [
+          "Englewood"
+        ]
+      },
+      {
+        "name": "Shawn Chapman",
+        "phone": "(203) 819-3089",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "E 3rd St. - Sergey"
+        ],
+        "lastSeen": "2026-05-15T08:45:32.000Z",
+        "cities": [
+          "Englewood"
+        ]
+      },
+      {
+        "name": "Benjamin- For E 3rd And Cyrus",
+        "phone": "(941) 599-4718",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "E 3rd St. - Sergey"
+        ],
+        "lastSeen": "2026-05-15T08:45:31.000Z",
+        "cities": [
+          "Englewood"
+        ]
+      }
+    ],
+    "Fort Walton Beach": [
+      {
+        "name": "Yanera Alvarez",
+        "phone": "(850) 902-9917",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Merioneth Dr. NE - Aileen"
+        ],
+        "lastSeen": "2026-01-26T17:31:25.042Z",
+        "cities": [
+          "Fort Walton Beach"
+        ]
+      }
+    ],
+    "Geneva": [
+      {
+        "name": "Megan",
+        "phone": "(216) 333-2377",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Orchard Grove - Sharon"
+        ],
+        "lastSeen": "2025-11-15T19:02:00.000Z",
+        "cities": [
+          "Geneva"
+        ]
+      }
+    ],
+    "Houston": [
+      {
+        "name": "Carmen Sibrian",
+        "phone": "(832) 531-3506",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "Sears Dr. (Unit B) - Christopher (OFFBOARDING- July 28, 2026)",
+          "Sears Dr. (Unit A) - Christopher"
+        ],
+        "lastSeen": "2026-02-27T14:43:08.000Z",
+        "cities": [
+          "Houston"
+        ]
+      },
+      {
+        "name": "Brook State Hwy",
+        "phone": "(615) 571-6809",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "Sears Dr. (Unit B) - Christopher (OFFBOARDING- July 28, 2026)",
+          "Sears Dr. (Unit A) - Christopher"
+        ],
+        "lastSeen": "2026-03-09T18:06:00.000Z",
+        "cities": [
+          "Houston"
+        ]
+      },
+      {
+        "name": "Patricia",
+        "phone": "(210) 663-4393",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "Sears Dr. (Unit B) - Christopher (OFFBOARDING- July 28, 2026)",
+          "Sears Dr. (Unit A) - Christopher"
+        ],
+        "lastSeen": "2026-03-09T18:43:53.801Z",
+        "cities": [
+          "Houston"
+        ]
+      },
+      {
+        "name": "Jose",
+        "phone": "(817) 692-2291",
+        "role": "Vendor",
+        "trust": "medium",
+        "score": 14,
+        "evidenceCount": 4,
+        "sources": [
+          "quo_outgoing",
+          "quo_message_name_participant"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Sears Dr. (Unit A) - Christopher"
+        ],
+        "lastSeen": "2026-05-01T19:56:07.000Z",
+        "cities": [
+          "Houston"
+        ]
+      }
+    ],
+    "Humble": [
+      {
+        "name": "Evaline Morley",
+        "phone": "(623) 306-6922",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Wood Walk Ln. - Ruben (OFFBOARDING 7/16/26)"
+        ],
+        "lastSeen": "2025-12-12T20:33:51.000Z",
+        "cities": [
+          "Humble"
+        ]
+      },
+      {
+        "name": "Amber",
+        "phone": "(281) 942-0525",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Wood Walk Ln. - Ruben (OFFBOARDING 7/16/26)"
+        ],
+        "lastSeen": "2025-12-12T20:34:34.190Z",
+        "cities": [
+          "Humble"
+        ]
+      }
+    ],
+    "Hume": [
+      {
+        "name": "Janet",
+        "phone": "(540) 244-5203",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Leeds Manor - Steve"
+        ],
+        "lastSeen": "2025-11-15T16:10:03.000Z",
+        "cities": [
+          "Hume"
+        ]
+      },
+      {
+        "name": "Affordable Cleaning Services",
+        "phone": "(571) 339-5471",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Leeds Manor - Steve"
+        ],
+        "lastSeen": "2025-12-17T16:23:00.250Z",
+        "cities": [
+          "Hume"
+        ]
+      }
+    ],
+    "Huntington Beach": [
+      {
+        "name": "Sara Wright",
+        "phone": "(949) 832-7870",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Pacific Coast Hwy - Wafa"
+        ],
+        "lastSeen": "2025-11-15T16:10:13.000Z",
+        "cities": [
+          "Huntington Beach"
+        ]
+      }
+    ],
+    "Indianapolis": [
+      {
+        "name": "Ethan Green",
+        "phone": "(864) 477-0915",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "N Park Ave. - Adebanjo"
+        ],
+        "lastSeen": "2026-04-18T01:18:32.000Z",
+        "cities": [
+          "Indianapolis"
+        ]
+      },
+      {
+        "name": "Felisha - N Park Ave",
+        "phone": "(317) 401-6545",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "N Park Ave. - Adebanjo"
+        ],
+        "lastSeen": "2026-04-18T01:18:49.565Z",
+        "cities": [
+          "Indianapolis"
+        ]
+      },
+      {
+        "name": "Seun",
+        "phone": "(317) 909-3070",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "N Park Ave. - Adebanjo"
+        ],
+        "lastSeen": "2026-05-15T08:45:31.000Z",
+        "cities": [
+          "Indianapolis"
+        ]
+      }
+    ],
+    "Jersey City": [
+      {
+        "name": "Maria Lopez",
+        "phone": "(201) 927-7245",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Congress St. (Unit #1) - Akriti (OFFBOARDED)"
+        ],
+        "lastSeen": "2025-11-16T15:42:00.000Z",
+        "cities": [
+          "Jersey City"
+        ]
+      },
+      {
+        "name": "Shravan",
+        "phone": "(646) 404-0022",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Bowers St (Basement) - Sharvan (OFFBOARDED)"
+        ],
+        "lastSeen": "2026-05-15T08:45:32.000Z",
+        "cities": [
+          "(unknown city)",
+          "Jersey City"
+        ]
+      }
+    ],
+    "Joshua Tree": [
+      {
+        "name": "Ethan Green",
+        "phone": "(864) 477-0915",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "Alta Mesa Dr. - Rakesh",
+          "Elwood St. - Rakesh"
+        ],
+        "lastSeen": "2026-04-18T00:59:35.000Z",
+        "cities": [
+          "Indianapolis",
+          "Joshua Tree"
+        ]
+      },
+      {
+        "name": "Destiny Alter - Alta Mesa",
+        "phone": "(760) 218-6368",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "Alta Mesa Dr. - Rakesh",
+          "Elwood St. - Rakesh"
+        ],
+        "lastSeen": "2026-04-18T00:59:55.419Z",
+        "cities": [
+          "Joshua Tree"
+        ]
+      },
+      {
+        "name": "Rachel Adkins",
+        "phone": "(760) 910-1531",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Alta Mesa Dr. - Rakesh"
+        ],
+        "lastSeen": "2026-03-28T14:18:07.000Z",
+        "cities": [
+          "Joshua Tree"
+        ]
+      }
+    ],
+    "Kansas City": [
+      {
+        "name": "Augustine Exterminators",
+        "phone": "(844) 686-7576",
+        "role": "Pest Control",
+        "trust": "high",
+        "score": 127,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline",
+          "issue_update_name"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "S24th KC"
+        ],
+        "lastSeen": "2026-05-28T22:20:22.340Z",
+        "cities": [
+          "Kansas City"
+        ]
+      },
+      {
+        "name": "Nelsi",
+        "phone": "(816) 588-8123",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "S24th KC"
+        ],
+        "lastSeen": "2026-03-17T16:13:04.000Z",
+        "cities": [
+          "Kansas City"
+        ]
+      },
+      {
+        "name": "Cailey",
+        "phone": "(816) 787-7975",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "S24th KC"
+        ],
+        "lastSeen": "2026-04-18T18:22:00.534Z",
+        "cities": [
+          "Kansas City"
+        ]
+      }
+    ],
+    "KCMO": [
+      {
+        "name": "Rosemarie Taylor",
+        "phone": "(816) 352-8045",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "Benton KC",
+          "Walnut KC"
+        ],
+        "lastSeen": "2026-05-25T17:09:43.555Z",
+        "cities": [
+          "KCMO"
+        ]
+      },
+      {
+        "name": "Houleymatou Back Up For Benton",
+        "phone": "(913) 388-9263",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "E 32nd - KC",
+          "Benton KC"
+        ],
+        "lastSeen": "2026-04-18T03:20:13.742Z",
+        "cities": [
+          "KCMO"
+        ]
+      },
+      {
+        "name": "Christy Martin Edit",
+        "phone": "(816) 217-2458",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "E 32nd - KC"
+        ],
+        "lastSeen": "2025-12-21T19:24:40.000Z",
+        "cities": [
+          "KCMO"
+        ]
+      },
+      {
+        "name": "Kellie Russell",
+        "phone": "(913) 304-4494",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Benton KC"
+        ],
+        "lastSeen": "2026-04-14T18:27:15.587Z",
+        "cities": [
+          "KCMO"
+        ]
+      },
+      {
+        "name": "Ethan Green",
+        "phone": "(864) 477-0915",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "E 32nd - KC"
+        ],
+        "lastSeen": "2026-04-18T03:19:50.000Z",
+        "cities": [
+          "Indianapolis",
+          "Joshua Tree",
+          "KCMO"
+        ]
+      },
+      {
+        "name": "Tony KC",
+        "phone": "(816) 565-1072",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "E 32nd - KC"
+        ],
+        "lastSeen": "2026-05-15T08:45:31.000Z",
+        "cities": [
+          "KCMO"
+        ]
+      },
+      {
+        "name": "Leroy Williams",
+        "phone": "(816) 673-5680",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "E 32nd - KC"
+        ],
+        "lastSeen": "2026-05-15T08:45:31.000Z",
+        "cities": [
+          "KCMO"
+        ]
+      },
+      {
+        "name": "TJ's",
+        "phone": "(816) 267-5100",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 62,
+        "evidenceCount": 2,
+        "sources": [
+          "issue_update"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Walnut KC"
+        ],
+        "lastSeen": "2026-07-13T22:52:15.441Z",
+        "cities": [
+          "KCMO"
+        ]
+      },
+      {
+        "name": "Julie",
+        "phone": "(196) 193-5090",
+        "role": "Vendor",
+        "trust": "medium",
+        "score": 10,
+        "evidenceCount": 5,
+        "sources": [
+          "quo_message_text"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Benton KC"
+        ],
+        "lastSeen": "2026-06-18T16:18:37.000Z",
+        "cities": [
+          "KCMO"
+        ]
+      }
+    ],
+    "Key Largo": [
+      {
+        "name": "Eric",
+        "phone": "(305) 600-8256",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "N Bounty Ln - Avi"
+        ],
+        "lastSeen": "2026-01-16T13:00:22.254Z",
+        "cities": [
+          "Key Largo"
+        ]
+      },
+      {
+        "name": "Jose",
+        "phone": "(219) 746-6273",
+        "role": "Pool",
+        "trust": "medium",
+        "score": 15,
+        "evidenceCount": 5,
+        "sources": [
+          "quo_outgoing",
+          "quo_message_name_participant"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "N Bounty Ln - Avi"
+        ],
+        "lastSeen": "2026-04-25T13:25:00.000Z",
+        "cities": [
+          "Key Largo"
+        ]
+      }
+    ],
+    "Lahaina": [
+      {
+        "name": "Charles",
+        "phone": "(808) 377-6999",
+        "role": "Owner's PM/Building Manager",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Lower Honoapiilani Rd (Unit #e1110) -Julieta"
+        ],
+        "lastSeen": "2026-01-01T15:47:07.733Z",
+        "cities": [
+          "(unknown city)",
+          "Lahaina"
+        ]
+      }
+    ],
+    "Largo": [
+      {
+        "name": "Diana",
+        "phone": "(813) 830-3287",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 139,
+        "evidenceCount": 14,
+        "sources": [
+          "contact_baseline",
+          "issue_update_name"
+        ],
+        "listingCount": 4,
+        "listings": [
+          "Fulton",
+          "Spring St/Danielle Dr",
+          "101st - Kurush",
+          "Pineway"
+        ],
+        "lastSeen": "2026-07-12T23:36:27.396Z",
+        "cities": [
+          "(unknown city)",
+          "Bradenton",
+          "Largo"
+        ]
+      },
+      {
+        "name": "Tyler",
+        "phone": "(727) 479-7166",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 106,
+        "evidenceCount": 6,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 4,
+        "listings": [
+          "Spring St/Danielle Dr",
+          "Pineway",
+          "101st - Kurush",
+          "Fulton"
+        ],
+        "lastSeen": "2026-05-25T05:25:26.032Z",
+        "cities": [
+          "Largo"
+        ]
+      },
+      {
+        "name": "Sparkling Pool Service",
+        "phone": "(727) 492-9396",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 104,
+        "evidenceCount": 4,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 4,
+        "listings": [
+          "101st - Kurush",
+          "Spring St/Danielle Dr",
+          "Pineway",
+          "Fulton"
+        ],
+        "lastSeen": "2026-05-25T05:33:22.000Z",
+        "cities": [
+          "Largo"
+        ]
+      },
+      {
+        "name": "Super D Pest Control",
+        "phone": "(727) 433-5310",
+        "role": "Pest Control",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "Pineway",
+          "Fulton"
+        ],
+        "lastSeen": "2025-11-15T16:10:00.000Z",
+        "cities": [
+          "Bradenton",
+          "Largo"
+        ]
+      },
+      {
+        "name": "Jose Jr",
+        "phone": "(813) 541-0166",
+        "role": "Landscaping",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Spring St/Danielle Dr"
+        ],
+        "lastSeen": "2025-11-15T16:10:00.000Z",
+        "cities": [
+          "Largo"
+        ]
+      },
+      {
+        "name": "Elite Mowers LLC",
+        "phone": "(727) 682-5234",
+        "role": "Landscaping",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Fulton"
+        ],
+        "lastSeen": "2025-11-15T16:10:00.000Z",
+        "cities": [
+          "Largo"
+        ]
+      },
+      {
+        "name": "Jason-Cameron Termite Pest Control",
+        "phone": "(727) 577-0789",
+        "role": "Pest Control",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Spring St/Danielle Dr"
+        ],
+        "lastSeen": "2025-11-15T16:10:00.000Z",
+        "cities": [
+          "Largo"
+        ]
+      },
+      {
+        "name": "Swat Exterminating",
+        "phone": "(727) 531-5583",
+        "role": "Pest Control",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "101st - Kurush"
+        ],
+        "lastSeen": "2025-11-15T16:10:02.000Z",
+        "cities": [
+          "Largo"
+        ]
+      }
+    ],
+    "Leesburg": [
+      {
+        "name": "Donna- Old Colony",
+        "phone": "(248) 632-8882",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Old Colony Rd. - Charlie"
+        ],
+        "lastSeen": "2026-04-14T17:46:30.934Z",
+        "cities": [
+          "Leesburg"
+        ]
+      }
+    ],
+    "Lombard": [
+      {
+        "name": "Miguel",
+        "phone": "(773) 243-9091",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 130,
+        "evidenceCount": 5,
+        "sources": [
+          "contact_baseline",
+          "issue_update_name"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Lombard - Sammy"
+        ],
+        "lastSeen": "2026-07-22T20:35:59.978Z",
+        "cities": [
+          "(unknown city)",
+          "Chicago",
+          "Elmwood Park",
+          "Lombard"
+        ]
+      },
+      {
+        "name": "Ana",
+        "phone": "(773) 592-5234",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 127,
+        "evidenceCount": 2,
+        "sources": [
+          "issue_update_name",
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Lombard - Sammy"
+        ],
+        "lastSeen": "2026-06-29T23:01:06.246Z",
+        "cities": [
+          "Chicago",
+          "Elmwood Park",
+          "Lombard"
+        ]
+      }
+    ],
+    "Los Angeles": [
+      {
+        "name": "Ashley",
+        "phone": "(424) 426-8544",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "1236 W 90th St - Kenrick",
+          "1238 W 90th - Kenrick"
+        ],
+        "lastSeen": "2026-05-20T15:15:02.025Z",
+        "cities": [
+          "Los Angeles"
+        ]
+      }
+    ],
+    "Madeira Beach": [
+      {
+        "name": "MC Trappers",
+        "phone": "(727) 349-3703",
+        "role": "Pest Control",
+        "trust": "high",
+        "score": 107,
+        "evidenceCount": 7,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 7,
+        "listings": [
+          "Madeira (Parent)  - Frank",
+          "Madeira (Unit #1) - Frank",
+          "Madeira (Unit #3) - Frank",
+          "Madeira (Unit #5) - Frank",
+          "Madeira (Unit #2) - Frank",
+          "Madeira (Unit #4) - Frank",
+          "Madeira (Unit #0) - Frank"
+        ],
+        "lastSeen": "2026-05-20T17:15:30.000Z",
+        "cities": [
+          "Madeira Beach"
+        ]
+      },
+      {
+        "name": "Diana",
+        "phone": "(813) 830-3287",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Madeira (Parent)  - Frank"
+        ],
+        "lastSeen": "2025-11-15T16:10:03.000Z",
+        "cities": [
+          "(unknown city)",
+          "Bradenton",
+          "Largo",
+          "Madeira Beach"
+        ]
+      },
+      {
+        "name": "Tom Smith",
+        "phone": "(727) 403-7555",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Madeira (Parent)  - Frank"
+        ],
+        "lastSeen": "2025-11-15T16:10:03.000Z",
+        "cities": [
+          "Madeira Beach"
+        ]
+      }
+    ],
+    "Marietta": [
+      {
+        "name": "Nataysha Woods",
+        "phone": "(912) 856-6012",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Oakledge Dr. NW - Kenneth"
+        ],
+        "lastSeen": "2026-02-27T17:34:21.000Z",
+        "cities": [
+          "Marietta"
+        ]
+      },
+      {
+        "name": "Ethan Green",
+        "phone": "(864) 477-0915",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Oakledge Dr. NW - Kenneth"
+        ],
+        "lastSeen": "2026-04-17T20:16:14.000Z",
+        "cities": [
+          "Indianapolis",
+          "Joshua Tree",
+          "KCMO",
+          "Marietta"
+        ]
+      },
+      {
+        "name": "Daneisha Lee - Oakledge",
+        "phone": "(678) 768-2219",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Oakledge Dr. NW - Kenneth"
+        ],
+        "lastSeen": "2026-04-17T20:16:32.625Z",
+        "cities": [
+          "Marietta"
+        ]
+      }
+    ],
+    "Middle Township": [
+      {
+        "name": "Arely",
+        "phone": "(609) 231-6024",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "Golden Beacon Retreat #31 Swainton Goshen Rd - Chris",
+          "Midnight Beacon Retreat #32 Swainton Goshen Rd - Chris"
+        ],
+        "lastSeen": "2026-05-05T20:36:41.890Z",
+        "cities": [
+          "Middle Township"
+        ]
+      }
+    ],
+    "Milwaukee": [
+      {
+        "name": "Frania-Oakland Milwaukee",
+        "phone": "(414) 722-2190",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 104,
+        "evidenceCount": 4,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 3,
+        "listings": [
+          "3373 N Oakland",
+          "3377B N Oakland",
+          "N 52nd - Cassandra"
+        ],
+        "lastSeen": "2026-03-30T17:40:10.268Z",
+        "cities": [
+          "Milwaukee"
+        ]
+      },
+      {
+        "name": "Melinda",
+        "phone": "(414) 231-0723",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "N 52nd - Cassandra"
+        ],
+        "lastSeen": "2026-04-11T17:20:52.000Z",
+        "cities": [
+          "Milwaukee"
+        ]
+      }
+    ],
+    "Montgomery": [
+      {
+        "name": "Tina Rapp",
+        "phone": "(334) 306-8024",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "S Perry St - Beverly (OFFBOARDING OCT 22, 2026)"
+        ],
+        "lastSeen": "2026-03-10T13:40:53.000Z",
+        "cities": [
+          "Montgomery"
+        ]
+      },
+      {
+        "name": "Tauriette",
+        "phone": "(334) 753-3643",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "S Perry St - Beverly (OFFBOARDING OCT 22, 2026)"
+        ],
+        "lastSeen": "2026-03-26T19:01:17.890Z",
+        "cities": [
+          "Montgomery"
+        ]
+      }
+    ],
+    "Myrtle Beach": [
+      {
+        "name": "Kambri Rowell",
+        "phone": "(501) 359-9640",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Glenns Bay Rd (Unit #204C) - Ebony"
+        ],
+        "lastSeen": "2026-04-07T23:27:41.000Z",
+        "cities": [
+          "Myrtle Beach"
+        ]
+      },
+      {
+        "name": "Juliana Garduno-",
+        "phone": "(910) 664-9622",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Glenns Bay Rd (Unit #204C) - Ebony"
+        ],
+        "lastSeen": "2026-04-21T18:19:58.000Z",
+        "cities": [
+          "Myrtle Beach"
+        ]
+      },
+      {
+        "name": "Robert- Glenns Bay",
+        "phone": "(843) 877-7677",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Glenns Bay Rd (Unit #204C) - Ebony"
+        ],
+        "lastSeen": "2026-04-21T18:20:41.507Z",
+        "cities": [
+          "Myrtle Beach"
+        ]
+      }
+    ],
+    "North Myrtle Beach": [
+      {
+        "name": "Herley",
+        "phone": "(843) 315-4495",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 136,
+        "evidenceCount": 11,
+        "sources": [
+          "contact_baseline",
+          "issue_update_name"
+        ],
+        "listingCount": 3,
+        "listings": [
+          "58th Ave. N (Parent - Tropical Impulse) - Tom",
+          "7th Ave. N - Tom",
+          "58th Ave. N (Child - Sunrise) - Tom"
+        ],
+        "lastSeen": "2026-07-11T22:48:22.631Z",
+        "cities": [
+          "(unknown city)",
+          "North Myrtle Beach"
+        ]
+      },
+      {
+        "name": "Ethan Green",
+        "phone": "(864) 477-0915",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 103,
+        "evidenceCount": 3,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 3,
+        "listings": [
+          "58th Ave. N (Child - Sunset) - Tom",
+          "58th Ave. N (Parent - Tropical Impulse) - Tom",
+          "7th Ave. N - Tom"
+        ],
+        "lastSeen": "2026-03-03T22:42:38.000Z",
+        "cities": [
+          "Indianapolis",
+          "Joshua Tree",
+          "KCMO",
+          "Marietta",
+          "North Myrtle Beach"
+        ]
+      },
+      {
+        "name": "Robert- Glenns Bay",
+        "phone": "(843) 877-7677",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 103,
+        "evidenceCount": 3,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 3,
+        "listings": [
+          "58th Ave. N (Child - Sunset) - Tom",
+          "58th Ave. N (Parent - Tropical Impulse) - Tom",
+          "7th Ave. N - Tom"
+        ],
+        "lastSeen": "2026-05-16T23:35:13.008Z",
+        "cities": [
+          "Myrtle Beach",
+          "North Myrtle Beach"
+        ]
+      }
+    ],
+    "North Port": [
+      {
+        "name": "Gessica Colet",
+        "phone": "(205) 206-3478",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "Cyrus Ave. - Sergey",
+          "VANTAGE - Shadow Ln. - Scott"
+        ],
+        "lastSeen": "2026-04-30T17:32:34.000Z",
+        "cities": [
+          "Englewood",
+          "North Port"
+        ]
+      },
+      {
+        "name": "Kathleen Herb",
+        "phone": "(941) 202-9984",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "VANTAGE - Shadow Ln. - Scott"
+        ],
+        "lastSeen": "2026-04-30T17:34:35.000Z",
+        "cities": [
+          "North Port"
+        ]
+      },
+      {
+        "name": "Shawn Chapman",
+        "phone": "(203) 819-3089",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Cyrus Ave. - Sergey"
+        ],
+        "lastSeen": "2026-05-15T08:45:32.000Z",
+        "cities": [
+          "Englewood",
+          "North Port"
+        ]
+      },
+      {
+        "name": "Alex Coastal",
+        "phone": "(941) 979-1394",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Cyrus Ave. - Sergey"
+        ],
+        "lastSeen": "2026-05-15T08:45:31.000Z",
+        "cities": [
+          "North Port"
+        ]
+      },
+      {
+        "name": "Arrow Pest",
+        "phone": "(800) 226-3139",
+        "role": "Pest Control",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "VANTAGE - Shadow Ln. - Scott"
+        ],
+        "lastSeen": "2025-12-26T20:03:48.007Z",
+        "cities": [
+          "North Port"
+        ]
+      }
+    ],
+    "Pinehurst": [
+      {
+        "name": "Carolina",
+        "phone": "(919) 559-8424",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Merion Circle - Cora"
+        ],
+        "lastSeen": "2025-11-15T16:10:09.000Z",
+        "cities": [
+          "Pinehurst"
+        ]
+      }
+    ],
+    "Port Charlotte": [
+      {
+        "name": "Sue Lotte",
+        "phone": "(419) 574-1282",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Cannon - Charles "
+        ],
+        "lastSeen": "2025-12-22T13:23:32.635Z",
+        "cities": [
+          "Port Charlotte"
+        ]
+      },
+      {
+        "name": "Sarah",
+        "phone": "(804) 548-5343",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Cannon - Charles "
+        ],
+        "lastSeen": "2025-12-22T13:24:49.000Z",
+        "cities": [
+          "Port Charlotte"
+        ]
+      },
+      {
+        "name": "Shawn Chapman",
+        "phone": "(203) 819-3089",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Munson - Bryan (OFFBOARDING 03/15/2027)"
+        ],
+        "lastSeen": "2026-05-15T08:45:32.000Z",
+        "cities": [
+          "Englewood",
+          "North Port",
+          "Port Charlotte"
+        ]
+      }
+    ],
+    "Putnam County": [
+      {
+        "name": "Laura",
+        "phone": "(352) 240-5208",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Lake Green - Kathy"
+        ],
+        "lastSeen": "2025-11-15T16:10:09.000Z",
+        "cities": [
+          "Putnam County"
+        ]
+      }
+    ],
+    "Sacramento": [
+      {
+        "name": "Juliana Coelho",
+        "phone": "(650) 420-9635",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Edison Ave - Crisina"
+        ],
+        "lastSeen": "2026-02-19T17:58:53.000Z",
+        "cities": [
+          "Sacramento"
+        ]
+      }
+    ],
+    "San Antonio": [
+      {
+        "name": "Ofelia",
+        "phone": "(956) 363-8803",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 128,
+        "evidenceCount": 3,
+        "sources": [
+          "contact_baseline",
+          "issue_update_name"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "Pasadena - Daniel",
+          "Bingham St. - Javier "
+        ],
+        "lastSeen": "2026-03-18T00:13:41.848Z",
+        "cities": [
+          "San Antonio"
+        ]
+      }
+    ],
+    "San Juan": [
+      {
+        "name": "Client Sandra",
+        "phone": "(956) 605-9612",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Lilly Dr. - Sandra"
+        ],
+        "lastSeen": "2025-11-15T16:10:10.000Z",
+        "cities": [
+          "San Juan"
+        ]
+      }
+    ],
+    "Savannah": [
+      {
+        "name": "Eugene",
+        "phone": "(912) 656-9737",
+        "role": "Owner's PM/Building Manager",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Claremont Cir - Eugene"
+        ],
+        "lastSeen": "2026-02-25T21:42:28.537Z",
+        "cities": [
+          "(unknown city)",
+          "Savannah"
+        ]
+      }
+    ],
+    "Scottsdale": [
+      {
+        "name": "Your Get It Done Guys",
+        "phone": "(480) 381-4181",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Scottsdale"
+        ],
+        "lastSeen": "2026-05-15T08:45:31.000Z",
+        "cities": [
+          "Scottsdale"
+        ]
+      }
+    ],
+    "Seattle": [
+      {
+        "name": "Rachel Moena",
+        "phone": "(360) 503-4862",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "SW Admiral Wy - Tatiana"
+        ],
+        "lastSeen": "2026-01-12T18:38:35.948Z",
+        "cities": [
+          "Seattle"
+        ]
+      }
+    ],
+    "South Haven": [
+      {
+        "name": "Sally",
+        "phone": "(269) 208-1502",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Monroe - Catherine"
+        ],
+        "lastSeen": "2025-11-18T16:52:15.000Z",
+        "cities": [
+          "South Haven"
+        ]
+      }
+    ],
+    "Spartanburg": [
+      {
+        "name": "Ethan Green",
+        "phone": "(864) 477-0915",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "S Converse - Rosalyn HM"
+        ],
+        "lastSeen": "2026-04-18T00:19:31.000Z",
+        "cities": [
+          "Indianapolis",
+          "Joshua Tree",
+          "KCMO",
+          "Marietta",
+          "North Myrtle Beach",
+          "Spartanburg"
+        ]
+      },
+      {
+        "name": "Jennifer S Converse New",
+        "phone": "(828) 371-2797",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "S Converse - Rosalyn HM"
+        ],
+        "lastSeen": "2026-04-23T22:44:45.000Z",
+        "cities": [
+          "Spartanburg"
+        ]
+      },
+      {
+        "name": "Amanda Beck",
+        "phone": "(864) 923-3205",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "S Converse - Rosalyn HM"
+        ],
+        "lastSeen": "2026-04-23T22:45:32.796Z",
+        "cities": [
+          "Spartanburg"
+        ]
+      },
+      {
+        "name": "Ismael",
+        "phone": "(864) 386-2455",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "S Converse - Rosalyn HM"
+        ],
+        "lastSeen": "2026-05-15T08:45:31.000Z",
+        "cities": [
+          "Spartanburg"
+        ]
+      }
+    ],
+    "St. Petersburg": [
+      {
+        "name": "Diana",
+        "phone": "(813) 830-3287",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 131,
+        "evidenceCount": 6,
+        "sources": [
+          "contact_baseline",
+          "issue_update_name"
+        ],
+        "listingCount": 5,
+        "listings": [
+          "57th Ave (Unit #8) - Long",
+          "57th Ave (Unit #9) - Long",
+          "57th Ave (Unit #6) - Long",
+          "57th Ave (Unit #7) - Long",
+          "57th Ave (Unit #5) - Long"
+        ],
+        "lastSeen": "2026-05-28T22:52:10.665Z",
+        "cities": [
+          "(unknown city)",
+          "Bradenton",
+          "Largo",
+          "Madeira Beach",
+          "St. Petersburg"
+        ]
+      },
+      {
+        "name": "MC Trappers",
+        "phone": "(727) 349-3703",
+        "role": "Pest Control",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "57th Ave (PARENT) - Long"
+        ],
+        "lastSeen": "2026-04-22T18:31:52.481Z",
+        "cities": [
+          "Madeira Beach",
+          "St. Petersburg"
+        ]
+      }
+    ],
+    "Swannanoa": [
+      {
+        "name": "Angel Hernandez",
+        "phone": "(828) 242-1597",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Hope View Rd"
+        ],
+        "lastSeen": "2026-05-15T08:45:31.000Z",
+        "cities": [
+          "Swannanoa"
+        ]
+      },
+      {
+        "name": "Shawndra Young",
+        "phone": "(864) 785-5197",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Hope View Rd"
+        ],
+        "lastSeen": "2026-01-19T12:58:35.000Z",
+        "cities": [
+          "Swannanoa"
+        ]
+      },
+      {
+        "name": "Ethan Green",
+        "phone": "(864) 477-0915",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Hope View Rd"
+        ],
+        "lastSeen": "2026-04-19T23:01:52.000Z",
+        "cities": [
+          "Indianapolis",
+          "Joshua Tree",
+          "KCMO",
+          "Marietta",
+          "North Myrtle Beach",
+          "Spartanburg",
+          "Swannanoa"
+        ]
+      },
+      {
+        "name": "Jaclyn Blevins",
+        "phone": "(423) 512-1271",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Hope View Rd"
+        ],
+        "lastSeen": "2026-04-19T23:03:05.525Z",
+        "cities": [
+          "Swannanoa"
+        ]
+      },
+      {
+        "name": "John Ray",
+        "phone": "(828) 768-5586",
+        "role": "Electrical",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Hope View Rd"
+        ],
+        "lastSeen": "2026-01-08T12:31:31.017Z",
+        "cities": [
+          "Swannanoa"
+        ]
+      },
+      {
+        "name": "Gentry",
+        "phone": "(828) 581-4045",
+        "role": "HVAC",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Hope View Rd"
+        ],
+        "lastSeen": "2026-01-08T12:30:44.052Z",
+        "cities": [
+          "Swannanoa"
+        ]
+      },
+      {
+        "name": "Angel",
+        "phone": "(828) 423-6289",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 88,
+        "evidenceCount": 3,
+        "sources": [
+          "issue_update",
+          "issue_update_name"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Hope View Rd"
+        ],
+        "lastSeen": "2026-07-04T13:37:08.743Z",
+        "cities": [
+          "Swannanoa"
+        ]
+      }
+    ],
+    "Tampa": [
+      {
+        "name": "Rodolfo",
+        "phone": "(813) 947-4704",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 194,
+        "evidenceCount": 9,
+        "sources": [
+          "contact_baseline",
+          "issue_update_name",
+          "issue_update"
+        ],
+        "listingCount": 3,
+        "listings": [
+          "Compound",
+          "Interbay Blvd",
+          "Rogers"
+        ],
+        "lastSeen": "2026-06-28T21:26:49.507Z",
+        "cities": [
+          "Tampa"
+        ]
+      },
+      {
+        "name": "Diana",
+        "phone": "(813) 830-3287",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 142,
+        "evidenceCount": 17,
+        "sources": [
+          "issue_update_name",
+          "contact_baseline"
+        ],
+        "listingCount": 4,
+        "listings": [
+          "Interbay Blvd",
+          "Compound",
+          "Bay Pointe - Jeffrey",
+          "Rogers"
+        ],
+        "lastSeen": "2026-06-23T20:57:46.440Z",
+        "cities": [
+          "(unknown city)",
+          "Bradenton",
+          "Largo",
+          "Madeira Beach",
+          "St. Petersburg",
+          "Tampa"
+        ]
+      },
+      {
+        "name": "David",
+        "phone": "(708) 270-1444",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 104,
+        "evidenceCount": 4,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 3,
+        "listings": [
+          "Rogers",
+          "Interbay Blvd",
+          "Compound"
+        ],
+        "lastSeen": "2026-05-25T05:23:16.000Z",
+        "cities": [
+          "Bradenton",
+          "Tampa"
+        ]
+      },
+      {
+        "name": "Jose",
+        "phone": "(813) 541-0166",
+        "role": "Trash Haul",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Compound"
+        ],
+        "lastSeen": "2026-05-25T05:41:23.000Z",
+        "cities": [
+          "Largo",
+          "Tampa"
+        ]
+      },
+      {
+        "name": "Super D Pest Control",
+        "phone": "(727) 433-5310",
+        "role": "Pest Control",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "Compound",
+          "Rogers"
+        ],
+        "lastSeen": "2025-11-15T16:10:00.000Z",
+        "cities": [
+          "Bradenton",
+          "Largo",
+          "Tampa"
+        ]
+      },
+      {
+        "name": "SmoothMove",
+        "phone": "(727) 698-3088",
+        "role": "Trash Haul",
+        "trust": "high",
+        "score": 102,
+        "evidenceCount": 2,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 2,
+        "listings": [
+          "Interbay Blvd",
+          "Rogers"
+        ],
+        "lastSeen": "2025-11-15T16:10:00.000Z",
+        "cities": [
+          "Tampa"
+        ]
+      },
+      {
+        "name": "EZ Landscaping",
+        "phone": "(813) 469-5419",
+        "role": "Landscaping",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Compound"
+        ],
+        "lastSeen": "2026-05-25T05:39:54.387Z",
+        "cities": [
+          "Tampa"
+        ]
+      },
+      {
+        "name": "All U Need Pest Control",
+        "phone": "(813) 738-5055",
+        "role": "Pest Control",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Interbay Blvd"
+        ],
+        "lastSeen": "2025-11-15T16:10:00.000Z",
+        "cities": [
+          "Tampa"
+        ]
+      }
+    ],
+    "Tavernier": [
+      {
+        "name": "Eric",
+        "phone": "(305) 600-8256",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Overseas Hwy (Unit #104) - Avi"
+        ],
+        "lastSeen": "2026-01-01T14:34:15.869Z",
+        "cities": [
+          "Key Largo",
+          "Tavernier"
+        ]
+      }
+    ],
+    "The Woodlands": [
+      {
+        "name": "Yari",
+        "phone": "(936) 499-4781",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "North Logrun - Thomas"
+        ],
+        "lastSeen": "2025-11-15T16:10:02.000Z",
+        "cities": [
+          "The Woodlands"
+        ]
+      }
+    ],
+    "Vieux Fort": [
+      {
+        "name": "Justina - PM Of Cyrenia",
+        "phone": "(758) 488-5522",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 105,
+        "evidenceCount": 5,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 5,
+        "listings": [
+          "Unit 6 - Moule La Chique Rd. - Cyrenia",
+          "Unit 5 - Moule La Chique Rd. - Cyrenia",
+          "Unit 4 - Moule La Chique Rd. - Cyrenia",
+          "Unit 3 - Moule La Chique Rd. - Cyrenia",
+          "Unit 1 - Moule La Chique Rd. - Cyrenia"
+        ],
+        "lastSeen": "2026-04-10T14:21:45.804Z",
+        "cities": [
+          "Vieux Fort"
+        ]
+      }
+    ],
+    "Youngstown": [
+      {
+        "name": "Hakem",
+        "phone": "(330) 770-0547",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Redondo Rd - Lewis"
+        ],
+        "lastSeen": "2025-11-15T16:10:07.000Z",
+        "cities": [
+          "Youngstown"
+        ]
+      },
+      {
+        "name": "Steve",
+        "phone": "(216) 244-2599",
+        "role": "Maintenance",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "Redondo Rd - Lewis"
+        ],
+        "lastSeen": "2026-05-15T08:45:31.000Z",
+        "cities": [
+          "Youngstown"
+        ]
+      }
+    ],
+    "Yucca Valley": [
+      {
+        "name": "Destiny Alter - Alta Mesa",
+        "phone": "(760) 218-6368",
+        "role": "Cleaner",
+        "trust": "high",
+        "score": 101,
+        "evidenceCount": 1,
+        "sources": [
+          "contact_baseline"
+        ],
+        "listingCount": 1,
+        "listings": [
+          "El Dorado Dr. - Rakesh"
+        ],
+        "lastSeen": "2026-04-18T01:00:20.868Z",
+        "cities": [
+          "Joshua Tree",
+          "Yucca Valley"
+        ]
+      }
+    ]
+  }
+}

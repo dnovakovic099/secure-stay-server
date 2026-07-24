@@ -87,6 +87,10 @@ jobs:
             echo ">>> Running database migrations..."
             npm run migrate || { echo "❌ Migration failed"; exit 1; }
 
+            echo ">>> Seeding IR portfolio defaults + scraped vendor memory (best-effort)..."
+            npx ts-node src/scripts/seedIrPortfolioDefaults.ts || echo "⚠️ IR portfolio defaults seed failed (non-fatal)"
+            npx ts-node src/scripts/seedIrVendorScrape.ts || echo "⚠️ IR vendor scrape seed failed (non-fatal)"
+
             echo ">>> Pruning dev dependencies to reclaim disk..."
             npm prune --omit=dev || { echo "❌ npm prune failed"; exit 1; }
 
