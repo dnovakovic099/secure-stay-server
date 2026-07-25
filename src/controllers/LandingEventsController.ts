@@ -34,6 +34,47 @@ async function ensureTable(): Promise<void> {
           INDEX idx_landing_events_visitor (visitorId)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
       `);
+
+      await appDatabase.query(`
+        CREATE TABLE IF NOT EXISTS landing_page_users (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          createdAt DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          updatedAt DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+          site VARCHAR(64) NOT NULL,
+          visitorId VARCHAR(64) NOT NULL,
+          firstSeenAt DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          lastSeenAt DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+          eventCount INT UNSIGNED NOT NULL DEFAULT 0,
+          pageViewCount INT UNSIGNED NOT NULL DEFAULT 0,
+          isLead TINYINT(1) NOT NULL DEFAULT 0,
+          leadAt DATETIME(6) NULL,
+          leadForm VARCHAR(64) NULL,
+          firstName VARCHAR(128) NULL,
+          lastName VARCHAR(128) NULL,
+          fullName VARCHAR(256) NULL,
+          email VARCHAR(256) NULL,
+          phone VARCHAR(64) NULL,
+          propertyLocation VARCHAR(512) NULL,
+          bedrooms VARCHAR(32) NULL,
+          message TEXT NULL,
+          landingPage VARCHAR(1024) NULL,
+          referrer VARCHAR(1024) NULL,
+          utmSource VARCHAR(128) NULL,
+          utmMedium VARCHAR(128) NULL,
+          utmCampaign VARCHAR(256) NULL,
+          utmContent VARCHAR(256) NULL,
+          utmTerm VARCHAR(256) NULL,
+          rdtCid VARCHAR(256) NULL,
+          gclid VARCHAR(256) NULL,
+          fbclid VARCHAR(256) NULL,
+          userAgent VARCHAR(512) NULL,
+          lastIp VARCHAR(64) NULL,
+          UNIQUE KEY uq_landing_users_site_visitor (site, visitorId),
+          INDEX idx_landing_users_site_last (site, lastSeenAt),
+          INDEX idx_landing_users_email (email),
+          INDEX idx_landing_users_lead (site, isLead, leadAt)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+      `);
     })().catch((err) => {
       tableReady = null;
       throw err;
@@ -44,9 +85,120 @@ async function ensureTable(): Promise<void> {
 
 function asString(value: unknown, max = 1024): string | null {
   if (value == null) return null;
-  const s = String(value);
+  const s = String(value).trim();
   if (!s) return null;
   return s.slice(0, max);
+}
+
+function propsRecord(props: unknown): Record<string, unknown> {
+  if (!props || typeof props !== "object" || Array.isArray(props)) return {};
+  return props as Record<string, unknown>;
+}
+
+async function upsertUser(params: {
+  site: string;
+  visitorId: string | null;
+  eventName: string;
+  attribution: Record<string, unknown>;
+  props: Record<string, unknown>;
+  pagePath: string | null;
+  referrer: string | null;
+  userAgent: string | null;
+  ip: string | null;
+}): Promise<void> {
+  const { site, visitorId, eventName, attribution, props, pagePath, referrer, userAgent, ip } =
+    params;
+  if (!visitorId) return;
+
+  const isPageView = eventName === "page_view";
+  const isLead = eventName === "lead_submit" || eventName === "form_submit";
+
+  const firstName = asString(props.first_name ?? props.firstName, 128);
+  const lastName = asString(props.last_name ?? props.lastName, 128);
+  const fullName =
+    asString(props.full_name ?? props.fullName ?? props.name, 256) ||
+    [firstName, lastName].filter(Boolean).join(" ") ||
+    null;
+  const email = asString(props.email, 256);
+  const phone = asString(props.phone, 64);
+  const propertyLocation = asString(
+    props.property_location ?? props.propertyLocation,
+    512,
+  );
+  const bedrooms = asString(props.bedrooms, 32);
+  const message = asString(props.message, 4000);
+  const leadForm = asString(props.form, 64);
+  const hasContact = Boolean(email || phone || fullName);
+
+  await appDatabase.query(
+    `INSERT INTO landing_page_users
+      (site, visitorId, firstSeenAt, lastSeenAt, eventCount, pageViewCount,
+       isLead, leadAt, leadForm, firstName, lastName, fullName, email, phone,
+       propertyLocation, bedrooms, message, landingPage, referrer,
+       utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
+       rdtCid, gclid, fbclid, userAgent, lastIp)
+     VALUES
+      (?, ?, NOW(6), NOW(6), 1, ?,
+       ?, IF(?, NOW(6), NULL), ?, ?, ?, ?, ?, ?,
+       ?, ?, ?, ?, ?,
+       ?, ?, ?, ?, ?,
+       ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       lastSeenAt = NOW(6),
+       eventCount = eventCount + 1,
+       pageViewCount = pageViewCount + VALUES(pageViewCount),
+       isLead = GREATEST(isLead, VALUES(isLead)),
+       leadAt = IF(VALUES(isLead) = 1 AND leadAt IS NULL, NOW(6), leadAt),
+       leadForm = COALESCE(VALUES(leadForm), leadForm),
+       firstName = COALESCE(VALUES(firstName), firstName),
+       lastName = COALESCE(VALUES(lastName), lastName),
+       fullName = COALESCE(VALUES(fullName), fullName),
+       email = COALESCE(VALUES(email), email),
+       phone = COALESCE(VALUES(phone), phone),
+       propertyLocation = COALESCE(VALUES(propertyLocation), propertyLocation),
+       bedrooms = COALESCE(VALUES(bedrooms), bedrooms),
+       message = COALESCE(VALUES(message), message),
+       landingPage = COALESCE(landingPage, VALUES(landingPage)),
+       referrer = COALESCE(referrer, VALUES(referrer)),
+       utmSource = COALESCE(utmSource, VALUES(utmSource)),
+       utmMedium = COALESCE(utmMedium, VALUES(utmMedium)),
+       utmCampaign = COALESCE(utmCampaign, VALUES(utmCampaign)),
+       utmContent = COALESCE(utmContent, VALUES(utmContent)),
+       utmTerm = COALESCE(utmTerm, VALUES(utmTerm)),
+       rdtCid = COALESCE(rdtCid, VALUES(rdtCid)),
+       gclid = COALESCE(gclid, VALUES(gclid)),
+       fbclid = COALESCE(fbclid, VALUES(fbclid)),
+       userAgent = COALESCE(VALUES(userAgent), userAgent),
+       lastIp = COALESCE(VALUES(lastIp), lastIp)`,
+    [
+      site,
+      visitorId,
+      isPageView ? 1 : 0,
+      isLead && hasContact ? 1 : 0,
+      isLead && hasContact ? 1 : 0,
+      isLead ? leadForm : null,
+      firstName,
+      lastName,
+      fullName,
+      email,
+      phone,
+      propertyLocation,
+      bedrooms,
+      message,
+      pagePath,
+      referrer,
+      asString(attribution.utm_source, 128),
+      asString(attribution.utm_medium, 128),
+      asString(attribution.utm_campaign, 256),
+      asString(attribution.utm_content, 256),
+      asString(attribution.utm_term, 256),
+      asString(attribution.rdt_cid, 256),
+      asString(attribution.gclid, 256),
+      asString(attribution.fbclid, 256),
+      userAgent,
+      ip,
+    ],
+  );
 }
 
 export class LandingEventsController {
@@ -66,9 +218,14 @@ export class LandingEventsController {
       }
 
       const site = asString(body.site, 64) || "luxurylodging";
+      const visitorId = asString(body.visitor_id, 64);
+      const pagePath = asString(body.page_path, 512);
+      const referrer = asString(body.referrer || attribution.referrer, 1024);
+      const userAgent = asString(body.user_agent || req.headers["user-agent"], 512);
       const ip =
         asString(req.headers["x-forwarded-for"], 64)?.split(",")[0]?.trim() ||
         asString(req.socket.remoteAddress, 64);
+      const props = propsRecord(body.props);
 
       await appDatabase.query(
         `INSERT INTO landing_page_events
@@ -80,10 +237,10 @@ export class LandingEventsController {
           site,
           eventName,
           asString(body.session_id, 64),
-          asString(body.visitor_id, 64),
-          asString(body.page_path, 512),
+          visitorId,
+          pagePath,
           asString(body.page_url, 1024),
-          asString(body.referrer || attribution.referrer, 1024),
+          referrer,
           asString(attribution.utm_source, 128),
           asString(attribution.utm_medium, 128),
           asString(attribution.utm_campaign, 256),
@@ -92,11 +249,23 @@ export class LandingEventsController {
           asString(attribution.rdt_cid, 256),
           asString(attribution.gclid, 256),
           asString(attribution.fbclid, 256),
-          JSON.stringify(body.props || {}),
-          asString(body.user_agent || req.headers["user-agent"], 512),
+          JSON.stringify(props),
+          userAgent,
           ip,
         ],
       );
+
+      await upsertUser({
+        site,
+        visitorId,
+        eventName,
+        attribution,
+        props,
+        pagePath,
+        referrer,
+        userAgent,
+        ip,
+      });
 
       return res.status(204).end();
     } catch (error: any) {
@@ -126,10 +295,12 @@ export class LandingEventsController {
       );
 
       const visitors = await appDatabase.query(
-        `SELECT COUNT(DISTINCT visitorId) AS visitors
-         FROM landing_page_events
+        `SELECT COUNT(*) AS visitors,
+                SUM(isLead) AS leads,
+                SUM(pageViewCount) AS pageViews
+         FROM landing_page_users
          WHERE site = ?
-           AND createdAt >= (NOW() - INTERVAL ? DAY)`,
+           AND lastSeenAt >= (NOW() - INTERVAL ? DAY)`,
         [site, days],
       );
 
@@ -138,6 +309,8 @@ export class LandingEventsController {
         site,
         days,
         visitors: Number(visitors?.[0]?.visitors || 0),
+        leads: Number(visitors?.[0]?.leads || 0),
+        pageViews: Number(visitors?.[0]?.pageViews || 0),
         events: rows,
       });
     } catch (error: any) {
