@@ -67,13 +67,33 @@ const normalizeRefundChargeToClient = (value?: unknown) => {
     return value === true || value === 1 || value === "1" || value === "true" ? "Yes" : "No";
 };
 
+const parseRefundBreakdownItems = (refundRequest: RefundRequestEntity) => {
+    const enabled = refundRequest.refundBreakdownEnabled === 1
+        || (refundRequest.refundBreakdownEnabled as any) === true
+        || String(refundRequest.refundBreakdownEnabled).toLowerCase() === "true";
+    if (!enabled || !refundRequest.refundBreakdown) return [];
+    try {
+        const parsed = JSON.parse(String(refundRequest.refundBreakdown));
+        return Array.isArray(parsed) ? parsed.filter((item) => Number(item?.amount || 0) > 0) : [];
+    } catch {
+        return [];
+    }
+};
+
 const isPaidAirbnbResolutionsCenterRefund = (refundRequest: RefundRequestEntity) => (
     String(refundRequest.status || "").trim().toLowerCase() === "paid"
     && String(refundRequest.paymentMethod || "").trim().toLowerCase() === AIRBNB_RESOLUTIONS_CENTER_PAYMENT_METHOD
 );
 
+const hasPaidAirbnbResolutionsCenterBreakdown = (refundRequest: RefundRequestEntity) => (
+    parseRefundBreakdownItems(refundRequest).some((item) => (
+        String(item?.status || "").trim().toLowerCase() === "paid"
+        && String(item?.paymentMethod || "").trim().toLowerCase() === AIRBNB_RESOLUTIONS_CENTER_PAYMENT_METHOD
+    ))
+);
+
 const buildPaidRcTransactionNote = (refundRequest: RefundRequestEntity) => (
-    isPaidAirbnbResolutionsCenterRefund(refundRequest)
+    isPaidAirbnbResolutionsCenterRefund(refundRequest) || hasPaidAirbnbResolutionsCenterBreakdown(refundRequest)
         ? `\n<@${FERDY_SLACK_USER_ID}> Please take note of the Paid RC transaction`
         : ""
 );
@@ -117,6 +137,20 @@ const formatRefundStayDates = (refundRequest: RefundRequestEntity) => {
         : `${format(checkInDate, "MMM d")} → ${format(checkOutDate, "MMM dd")}`;
 };
 
+const buildRefundBreakdownText = (refundRequest: RefundRequestEntity) => {
+    const items = parseRefundBreakdownItems(refundRequest);
+    if (!items.length) return null;
+    return items.map((item, index) => {
+        const label = normalizeSlackField(item?.label, `Payment ${index + 1}`);
+        const amount = formatCurrency(Number(item?.amount || 0));
+        const status = normalizeSlackField(item?.status || refundRequest.status);
+        const method = normalizeSlackField(item?.paymentMethod);
+        const charge = normalizeRefundChargeToClient(item?.chargeToClient);
+        const notes = String(item?.notes || "").trim() ? ` · ${item.notes}` : "";
+        return `• *${label}:* ${amount} · ${status} · ${method} · Charge to Client: ${charge}${notes}`;
+    }).join("\n");
+};
+
 const buildRefundRequestDetailBlocks = (refundRequest: RefundRequestEntity) => {
     const channelName = (refundRequest as any).channelName || (refundRequest as any).source;
     const leftColumn = [
@@ -144,6 +178,10 @@ const buildRefundRequestDetailBlocks = (refundRequest: RefundRequestEntity) => {
             type: "section",
             text: { type: "mrkdwn", text: `*Refund Category:*\n${normalizeSlackField(refundRequest.refundCategory)}` }
         },
+        ...(buildRefundBreakdownText(refundRequest) ? [{
+            type: "section",
+            text: { type: "mrkdwn", text: `*Payment Breakdown:*\n${buildRefundBreakdownText(refundRequest)}` }
+        }] : []),
         ...(shouldShowRefundApprovedBy(refundRequest.status) ? [{
             type: "section",
             text: { type: "mrkdwn", text: `*Approved By:*\n${normalizeSlackField(refundRequest.approvedBy)}` }

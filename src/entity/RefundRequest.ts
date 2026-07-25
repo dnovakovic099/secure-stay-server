@@ -45,6 +45,12 @@ export class RefundRequestEntity {
     @Column({ type: "float", nullable: false })
     refundAmount: number;
 
+    @Column({ type: "tinyint", default: 0 })
+    refundBreakdownEnabled: number;
+
+    @Column({ type: "longtext", nullable: true })
+    refundBreakdown: string;
+
     @Column({ nullable: true })
     requestedBy: string;
 

@@ -3,6 +3,22 @@ import Joi from "joi";
 
 const REFUND_REQUEST_STATUS_OPTIONS = ["Pending", "Approved", "For Processing", "Paid", "Denied", "Cancelled"];
 const REFUND_REQUEST_CATEGORY_OPTIONS = ["Refund for 5-star", "Refund for No Review", "Refund to Remove Bad Review", "Others"];
+const refundBreakdownItemSchema = Joi.object({
+    id: Joi.string().optional().allow(null, ''),
+    label: Joi.string().optional().allow(null, ''),
+    amount: Joi.number().min(0).required(),
+    status: Joi.string().optional().valid(...REFUND_REQUEST_STATUS_OPTIONS).allow(null, ''),
+    paymentMethod: Joi.string().optional().allow(null, ''),
+    paymentDetails: Joi.string().optional().allow(null, ''),
+    chargeToClient: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false'), Joi.number().valid(0, 1)).optional(),
+    notes: Joi.string().optional().allow(null, ''),
+    expenseId: Joi.number().optional().allow(null, ''),
+}).unknown(true);
+
+const refundBreakdownSchema = Joi.alternatives().try(
+    Joi.string().allow(null, ''),
+    Joi.array().items(refundBreakdownItemSchema)
+).optional();
 
 export const validateSaveRefundRequest = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
@@ -19,11 +35,13 @@ export const validateSaveRefundRequest = (request: Request, response: Response, 
         requestedBy: Joi.string().optional().allow(null, ''),
         status: Joi.string().required().valid(...REFUND_REQUEST_STATUS_OPTIONS),
         approvedBy: Joi.string().optional().allow(null, ''),
-        paymentMethod: Joi.string().optional().allow(null, ''),
-        paymentDetails: Joi.string().optional().allow(null, ''),
-        chargeToClient: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false'), Joi.number().valid(0, 1)).optional(),
-        notes: Joi.string().optional().allow(null, '')
-    });
+	        paymentMethod: Joi.string().optional().allow(null, ''),
+	        paymentDetails: Joi.string().optional().allow(null, ''),
+	        chargeToClient: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false'), Joi.number().valid(0, 1)).optional(),
+	        refundBreakdownEnabled: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false'), Joi.number().valid(0, 1)).optional(),
+	        refundBreakdown: refundBreakdownSchema,
+	        notes: Joi.string().optional().allow(null, '')
+	    });
 
     const { error } = schema.validate(request.body);
     if (error) {
@@ -49,11 +67,13 @@ export const validateUpdateRefundRequest = (request: Request, response: Response
         requestedBy: Joi.string().optional().allow(null, ''),
         status: Joi.string().required().valid(...REFUND_REQUEST_STATUS_OPTIONS),
         approvedBy: Joi.string().optional().allow(null, ''),
-        paymentMethod: Joi.string().optional().allow(null, ''),
-        paymentDetails: Joi.string().optional().allow(null, ''),
-        chargeToClient: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false'), Joi.number().valid(0, 1)).optional(),
-        notes: Joi.string().optional().allow(null,'')
-    });
+	        paymentMethod: Joi.string().optional().allow(null, ''),
+	        paymentDetails: Joi.string().optional().allow(null, ''),
+	        chargeToClient: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false'), Joi.number().valid(0, 1)).optional(),
+	        refundBreakdownEnabled: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false'), Joi.number().valid(0, 1)).optional(),
+	        refundBreakdown: refundBreakdownSchema,
+	        notes: Joi.string().optional().allow(null,'')
+	    });
 
     const { error } = schema.validate(request.body);
     if (error) {

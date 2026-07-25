@@ -57,6 +57,18 @@ type PaidRcRefundReportResult = {
     lines: string[];
 };
 
+type RefundBreakdownItem = {
+    id: string;
+    label?: string | null;
+    amount: number;
+    status?: string | null;
+    paymentMethod?: string | null;
+    paymentDetails?: string | null;
+    chargeToClient?: number | boolean | string | null;
+    notes?: string | null;
+    expenseId?: number | null;
+};
+
 export class RefundRequestService {
     private refundRequestRepo = appDatabase.getRepository(RefundRequestEntity);
     private usersRepo = appDatabase.getRepository(UsersEntity);
@@ -90,6 +102,87 @@ export class RefundRequestService {
   private shouldSkipExpenseForRefundRequest(request: Partial<RefundRequestEntity>) {
     return String(request.status || "").trim() === "Paid"
       && this.isAirbnbResolutionsCenterPaymentMethod(request.paymentMethod);
+  }
+
+  private isRefundBreakdownEnabled(value: unknown) {
+    return value === true || value === 1 || value === "1" || String(value).toLowerCase() === "true";
+  }
+
+  private parseRefundBreakdown(value: unknown): RefundBreakdownItem[] {
+    if (!value) return [];
+    const raw = Array.isArray(value) ? value : (() => {
+      try {
+        return JSON.parse(String(value));
+      } catch {
+        return [];
+      }
+    })();
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((item, index) => {
+        const amount = Number(item?.amount || 0);
+        if (!Number.isFinite(amount) || amount <= 0) return null;
+        const expenseId = Number(item?.expenseId);
+        return {
+          id: String(item?.id || `breakdown-${index + 1}`),
+          label: item?.label ? String(item.label) : `Payment ${index + 1}`,
+          amount,
+          status: item?.status ? String(item.status) : null,
+          paymentMethod: item?.paymentMethod ? String(item.paymentMethod) : null,
+          paymentDetails: item?.paymentDetails ? String(item.paymentDetails) : null,
+          chargeToClient: item?.chargeToClient ?? null,
+          notes: item?.notes ? String(item.notes) : null,
+          expenseId: Number.isFinite(expenseId) && expenseId > 0 ? expenseId : null,
+        } as RefundBreakdownItem;
+      })
+      .filter(Boolean) as RefundBreakdownItem[];
+  }
+
+  private normalizeRefundBreakdownItems(body: Partial<RefundRequestEntity>) {
+    const fallbackStatus = String(body.status || "Pending");
+    return this.parseRefundBreakdown((body as any).refundBreakdown).map((item, index) => ({
+      ...item,
+      id: item.id || `breakdown-${Date.now()}-${index}`,
+      label: item.label || `Payment ${index + 1}`,
+      status: item.status || fallbackStatus,
+      paymentMethod: item.paymentMethod ?? body.paymentMethod ?? null,
+      paymentDetails: item.paymentDetails ?? body.paymentDetails ?? null,
+      chargeToClient: this.normalizeChargeToClient(item.chargeToClient ?? body.chargeToClient),
+      notes: item.notes ?? null,
+    }));
+  }
+
+  private getRefundBreakdownTotal(items: RefundBreakdownItem[]) {
+    return Number(items.reduce((total, item) => total + Number(item.amount || 0), 0).toFixed(2));
+  }
+
+  private applyRefundBreakdownToRequest(request: RefundRequestEntity, body: Partial<RefundRequestEntity>) {
+    const hasBreakdownPayload = Object.prototype.hasOwnProperty.call(body, "refundBreakdownEnabled")
+      || Object.prototype.hasOwnProperty.call(body, "refundBreakdown");
+    if (!hasBreakdownPayload && request.id && this.isRefundBreakdownEnabled(request.refundBreakdownEnabled)) {
+      const existingItems = this.getRefundBreakdownItems(request);
+      request.refundAmount = existingItems.length ? this.getRefundBreakdownTotal(existingItems) : Number(body.refundAmount || request.refundAmount || 0);
+      return existingItems;
+    }
+    const enabled = this.isRefundBreakdownEnabled((body as any).refundBreakdownEnabled);
+    const items = enabled ? this.normalizeRefundBreakdownItems(body) : [];
+    request.refundBreakdownEnabled = enabled && items.length ? 1 : 0;
+    request.refundBreakdown = enabled && items.length ? JSON.stringify(items) : null;
+    request.refundAmount = enabled && items.length ? this.getRefundBreakdownTotal(items) : Number(body.refundAmount || 0);
+    return items;
+  }
+
+  private getRefundBreakdownItems(request: Partial<RefundRequestEntity>) {
+    if (!this.isRefundBreakdownEnabled((request as any).refundBreakdownEnabled)) return [];
+    return this.parseRefundBreakdown((request as any).refundBreakdown);
+  }
+
+  private getRefundExpenseIds(request: Partial<RefundRequestEntity>) {
+    const ids = [
+      Number(request.expenseId),
+      ...this.getRefundBreakdownItems(request).map((item) => Number(item.expenseId)),
+    ].filter((id) => Number.isFinite(id) && id > 0);
+    return Array.from(new Set(ids));
   }
 
   private getUserDisplayName(user?: UsersEntity | null) {
@@ -207,7 +300,7 @@ export class RefundRequestService {
 
     const listingIds = Array.from(new Set(rows.map((request) => Number(request.listingId)).filter(Boolean)));
     const reservationIds = Array.from(new Set(rows.map((request) => Number(request.reservationId)).filter(Boolean)));
-    const expenseIds = Array.from(new Set(rows.map((request) => Number(request.expenseId)).filter(Boolean)));
+	    const expenseIds = Array.from(new Set(rows.flatMap((request) => this.getRefundExpenseIds(request)).filter(Boolean)));
     const [listings, reservations, expenses, reviews] = await Promise.all([
       listingIds.length ? this.listingRepo.find({ where: { id: In(listingIds) } }) : [],
       reservationIds.length ? this.reservationInfoRepo.find({ where: { id: In(reservationIds) } }) : [],
@@ -226,7 +319,22 @@ export class RefundRequestService {
     rows.forEach((request: any) => {
       const listing = listingMap.get(Number(request.listingId));
       const reservation = reservationMap.get(Number(request.reservationId));
-      const expense = expenseMap.get(Number(request.expenseId));
+	      const expense = expenseMap.get(Number(request.expenseId));
+	      const breakdownExpenses = this.getRefundBreakdownItems(request).map((item) => {
+	        const expense = item.expenseId ? expenseMap.get(Number(item.expenseId)) : null;
+	        return {
+	          ...item,
+	          expense: expense
+	            ? {
+	              id: expense.id,
+	              expenseId: expense.expenseId,
+	              status: expense.status,
+	              datePaid: expense.datePaid,
+	              expenseDate: expense.expenseDate,
+	            }
+	            : null,
+	        };
+	      });
       const review = reviewMap.get(Number(request.reservationId));
       request.propertyType = this.inferPropertyTypeTag(listing);
       request.serviceType = this.inferServiceTypeTag(listing);
@@ -235,16 +343,17 @@ export class RefundRequestService {
       request.reviewRating = review?.rating ?? null;
       request.publicReview = review?.publicReview || null;
       request.expenseStatus = expense?.status || null;
-      request.expense = expense
-        ? {
-          id: expense.id,
-          expenseId: expense.expenseId,
-          status: expense.status,
-          datePaid: expense.datePaid,
-          expenseDate: expense.expenseDate,
-        }
-        : null;
-    });
+	      request.expense = expense
+	        ? {
+	          id: expense.id,
+	          expenseId: expense.expenseId,
+	          status: expense.status,
+	          datePaid: expense.datePaid,
+	          expenseDate: expense.expenseDate,
+	        }
+	        : null;
+	      request.refundBreakdownItems = breakdownExpenses;
+	    });
 
     return refundRequests;
   }
@@ -427,12 +536,12 @@ export class RefundRequestService {
         newRefundRequest.checkIn = body.checkIn;
         newRefundRequest.checkOut = body.checkOut;
         newRefundRequest.issueId = body.issueId;
-        newRefundRequest.explaination = body.explaination;
-        newRefundRequest.refundCategory = body.refundCategory || null;
-        newRefundRequest.refundAmount = body.refundAmount;
-        newRefundRequest.requestedBy = body.requestedBy;
-        newRefundRequest.status = body.status;
-        newRefundRequest.approvedBy = body.approvedBy || null;
+	        newRefundRequest.explaination = body.explaination;
+	        newRefundRequest.refundCategory = body.refundCategory || null;
+	        this.applyRefundBreakdownToRequest(newRefundRequest, body);
+	        newRefundRequest.requestedBy = body.requestedBy;
+	        newRefundRequest.status = body.status;
+	        newRefundRequest.approvedBy = body.approvedBy || null;
         newRefundRequest.paymentMethod = body.paymentMethod;
         newRefundRequest.paymentDetails = body.paymentDetails;
         newRefundRequest.chargeToClient = this.normalizeChargeToClient((body as any).chargeToClient);
@@ -454,11 +563,13 @@ export class RefundRequestService {
             paymentDetails: refundRequest.paymentDetails ?? null,
             approvedBy: refundRequest.approvedBy ?? null,
             refundCategory: refundRequest.refundCategory ?? null,
-            chargeToClient: refundRequest.chargeToClient ?? 0,
-            notes: refundRequest.notes ?? null,
-            checkIn: refundRequest.checkIn ?? null,
-            checkOut: refundRequest.checkOut ?? null,
-        };
+	            chargeToClient: refundRequest.chargeToClient ?? 0,
+	            notes: refundRequest.notes ?? null,
+	            refundBreakdownEnabled: refundRequest.refundBreakdownEnabled ?? 0,
+	            refundBreakdown: refundRequest.refundBreakdown ?? null,
+	            checkIn: refundRequest.checkIn ?? null,
+	            checkOut: refundRequest.checkOut ?? null,
+	        };
         const statusChangedToApproved = previousState.status !== body.status && this.shouldAutoAssignApprovedBy(body.status, previousState.approvedBy);
         const autoApprovedBy = statusChangedToApproved
             ? await this.getRefundActorDisplayName(userId)
@@ -470,10 +581,10 @@ export class RefundRequestService {
         refundRequest.checkIn = body.checkIn;
         refundRequest.checkOut = body.checkOut;
         refundRequest.issueId = body.issueId;
-        refundRequest.explaination = body.explaination;
-        refundRequest.refundCategory = body.refundCategory || null;
-        refundRequest.refundAmount = body.refundAmount;
-        refundRequest.requestedBy = body.requestedBy;
+	        refundRequest.explaination = body.explaination;
+	        refundRequest.refundCategory = body.refundCategory || null;
+	        this.applyRefundBreakdownToRequest(refundRequest, body);
+	        refundRequest.requestedBy = body.requestedBy;
         refundRequest.status = body.status;
         refundRequest.approvedBy = body.approvedBy || autoApprovedBy || null;
         refundRequest.paymentMethod = body.paymentMethod;
@@ -494,9 +605,10 @@ export class RefundRequestService {
             refundPaymentDetails: { old: previousState.paymentDetails, new: saved.paymentDetails ?? null },
             refundApprovedBy: { old: previousState.approvedBy, new: saved.approvedBy ?? null },
             refundCategory: { old: previousState.refundCategory, new: saved.refundCategory ?? null },
-            refundChargeToClient: { old: previousState.chargeToClient, new: saved.chargeToClient ?? 0 },
-            refundNotes: { old: previousState.notes, new: saved.notes ?? null },
-            refundCheckIn: { old: previousState.checkIn, new: saved.checkIn ?? null },
+	            refundChargeToClient: { old: previousState.chargeToClient, new: saved.chargeToClient ?? 0 },
+	            refundNotes: { old: previousState.notes, new: saved.notes ?? null },
+	            refundBreakdown: { old: previousState.refundBreakdown, new: saved.refundBreakdown ?? null },
+	            refundCheckIn: { old: previousState.checkIn, new: saved.checkIn ?? null },
             refundCheckOut: { old: previousState.checkOut, new: saved.checkOut ?? null },
         }, transactionalEntityManager);
         return saved;
@@ -570,12 +682,13 @@ export class RefundRequestService {
             paymentMethod: refundRequest.paymentMethod ?? null,
             paymentDetails: refundRequest.paymentDetails ?? null,
             approvedBy: refundRequest.approvedBy ?? null,
-            refundCategory: refundRequest.refundCategory ?? null,
-            chargeToClient: refundRequest.chargeToClient ?? 0,
-            notes: refundRequest.notes ?? null,
-            checkIn: refundRequest.checkIn ?? null,
-            checkOut: refundRequest.checkOut ?? null,
-        };
+	            refundCategory: refundRequest.refundCategory ?? null,
+	            chargeToClient: refundRequest.chargeToClient ?? 0,
+	            notes: refundRequest.notes ?? null,
+	            refundBreakdown: refundRequest.refundBreakdown ?? null,
+	            checkIn: refundRequest.checkIn ?? null,
+	            checkOut: refundRequest.checkOut ?? null,
+	        };
         const previousStatus = refundRequest.status;
         const isStatusChanged = previousStatus !== body.status;
 
@@ -729,13 +842,27 @@ export class RefundRequestService {
         userId: string,
       transactionalEntityManager: EntityManager,
       id: number
-    ) {
-        const expenseService = new ExpenseService();
-        const expenseStatus = this.getExpenseStatusForRefund(status, request.chargeToClient);
-        if (this.shouldSkipExpenseForRefundRequest(request)) {
-          await transactionalEntityManager.save(request);
-          return;
-        }
+	    ) {
+	        const expenseService = new ExpenseService();
+	        if (this.isRefundBreakdownEnabled(request.refundBreakdownEnabled)) {
+	          await this.handleBreakdownExpenses(status, request, userId, transactionalEntityManager, id, expenseService);
+	          return;
+	        }
+	        const expenseStatus = this.getExpenseStatusForRefund(status, request.chargeToClient);
+	        if (this.shouldSkipExpenseForRefundRequest(request)) {
+	          if (request.expenseId) {
+	            await expenseService.updateExpenseStatus({
+	              body: {
+	                expenseId: [request.expenseId],
+	                status: ExpenseStatus.CANCELLED,
+	                datePaid: "",
+	                skipRefundRequestSync: true,
+	              }
+	            } as any, userId);
+	          }
+	          await transactionalEntityManager.save(request);
+	          return;
+	        }
 
         if (!expenseStatus) {
           if (request.expenseId) {
@@ -758,13 +885,76 @@ export class RefundRequestService {
           const expense = await this.createExpenseForRefundRequest(request, userId, id, expenseStatus);
           request.expenseId = expense.id;
         }
-        await transactionalEntityManager.save(request);
-    }
+	        await transactionalEntityManager.save(request);
+	    }
+
+	  private async handleBreakdownExpenses(
+	    status: string,
+	    request: RefundRequestEntity,
+	    userId: string,
+	    transactionalEntityManager: EntityManager,
+	    id: number,
+	    expenseService: ExpenseService
+	  ) {
+	    const items = this.getRefundBreakdownItems(request);
+	    if (!items.length) {
+	      request.refundBreakdownEnabled = 0;
+	      request.refundBreakdown = null;
+	      await this.handleExpense(status, request, userId, transactionalEntityManager, id);
+	      return;
+	    }
+
+	    const nextItems: RefundBreakdownItem[] = [];
+	    for (const item of items) {
+	      const lineStatus = String(item.status || status || request.status || "Pending");
+	      const lineRequest: Partial<RefundRequestEntity> = {
+	        ...request,
+	        refundAmount: item.amount,
+	        status: lineStatus,
+	        paymentMethod: item.paymentMethod || request.paymentMethod,
+	        paymentDetails: item.paymentDetails || request.paymentDetails,
+	        chargeToClient: this.normalizeChargeToClient(item.chargeToClient ?? request.chargeToClient),
+	        notes: item.notes || null,
+	        expenseId: item.expenseId || null,
+	      };
+	      const expenseStatus = this.getExpenseStatusForRefund(lineStatus, lineRequest.chargeToClient);
+	      const shouldSkipExpense = this.shouldSkipExpenseForRefundRequest(lineRequest);
+
+	      if (!expenseStatus || shouldSkipExpense) {
+	        if (lineRequest.expenseId) {
+	          await expenseService.updateExpenseStatus({
+	            body: {
+	              expenseId: [lineRequest.expenseId],
+	              status: ExpenseStatus.CANCELLED,
+	              datePaid: "",
+	              skipRefundRequestSync: true,
+	            }
+	          } as any, userId);
+	        }
+	        nextItems.push({ ...item, status: lineStatus, expenseId: lineRequest.expenseId || null });
+	        continue;
+	      }
+
+	      if (lineRequest.expenseId) {
+	        await this.updateExpenseForRefundRequest(lineRequest, userId, id, expenseStatus, item.label || item.id);
+	      } else {
+	        const expense = await this.createExpenseForRefundRequest(lineRequest, userId, id, expenseStatus, item.label || item.id);
+	        lineRequest.expenseId = expense.id;
+	      }
+	      nextItems.push({ ...item, status: lineStatus, expenseId: Number(lineRequest.expenseId) || null });
+	    }
+
+	    request.refundBreakdown = JSON.stringify(nextItems);
+	    request.refundAmount = this.getRefundBreakdownTotal(nextItems);
+	    request.expenseId = nextItems.map((item) => Number(item.expenseId)).find((expenseId) => Number.isFinite(expenseId) && expenseId > 0) || null;
+	    await transactionalEntityManager.save(request);
+	  }
 
 
-  private buildExpensePayload(body: Partial<RefundRequestEntity>, userId: string, id: number, status: ExpenseStatus) {
-        const today = getEasternDateString();
-        return {
+	  private buildExpensePayload(body: Partial<RefundRequestEntity>, userId: string, id: number, status: ExpenseStatus, breakdownLabel?: string | null) {
+	        const today = getEasternDateString();
+	        const breakdownText = breakdownLabel ? ` · Breakdown: ${breakdownLabel}` : "";
+	        return {
             listingMapId: body.listingId,
             expenseDate: today,
             concept: body.explaination,
@@ -773,7 +963,7 @@ export class RefundRequestService {
             dateOfWork: null,
             contractorName: " ",
             contractorNumber: null,
-            findings: `${body.guestName} - <a href="https://securestay.ai/luxury-lodging/refund-requests?id=${id}" target="_blank" style="color:blue;text-decoration:underline;">Refund Request Link</a>`,
+	            findings: `${body.guestName} - <a href="https://securestay.ai/luxury-lodging/refund-requests?id=${id}" target="_blank" style="color:blue;text-decoration:underline;">Refund Request Link</a>${breakdownText}`,
             status,
             datePaid: status === ExpenseStatus.PAID ? today : null,
             paymentMethod: body.paymentMethod || null,
@@ -787,21 +977,21 @@ export class RefundRequestService {
         };
     }
 
-  private async updateExpenseForRefundRequest(body: Partial<RefundRequestEntity>, userId: string, id: number, status: ExpenseStatus) {
-        const expenseService = new ExpenseService();
-        return await expenseService.updateExpense({
-            body: {
-                expenseId: body.expenseId,
-                ...this.buildExpensePayload(body, userId, id, status)
-            }
-        }, userId);
-    }
+	  private async updateExpenseForRefundRequest(body: Partial<RefundRequestEntity>, userId: string, id: number, status: ExpenseStatus, breakdownLabel?: string | null) {
+	        const expenseService = new ExpenseService();
+	        return await expenseService.updateExpense({
+	            body: {
+	                expenseId: body.expenseId,
+	                ...this.buildExpensePayload(body, userId, id, status, breakdownLabel)
+	            }
+	        }, userId);
+	    }
 
-  private async createExpenseForRefundRequest(body: Partial<RefundRequestEntity>, userId: string, id: number, status: ExpenseStatus) {
-        //create expense object
-        const expenseObj = {
-            body: this.buildExpensePayload(body, userId, id, status)
-        };
+	  private async createExpenseForRefundRequest(body: Partial<RefundRequestEntity>, userId: string, id: number, status: ExpenseStatus, breakdownLabel?: string | null) {
+	        //create expense object
+	        const expenseObj = {
+	            body: this.buildExpensePayload(body, userId, id, status, breakdownLabel)
+	        };
 
         //save the expense
         const expenseService = new ExpenseService();
@@ -835,7 +1025,7 @@ export class RefundRequestService {
 
         const requestIds = new Set(refundRequests.map((request) => Number(request.id)));
         const reservationIds = Array.from(new Set(refundRequests.map((request) => Number(request.reservationId)).filter(Boolean)));
-        const expenseIds = Array.from(new Set(refundRequests.map((request) => Number(request.expenseId)).filter(Boolean)));
+	    const expenseIds = Array.from(new Set(refundRequests.flatMap((request) => this.getRefundExpenseIds(request)).filter(Boolean)));
         const expenses = expenseIds.length
           ? await this.expenseRepo.find({ where: { id: In(expenseIds) } })
           : [];
@@ -1330,11 +1520,15 @@ export class RefundRequestService {
         const previousStatus = refundRequest.status;
         const previousApprovedBy = refundRequest.approvedBy;
         const isStatusChanged = refundRequest && refundRequest.status !== status;
-        if (isStatusChanged) {
-            refundRequest.status = status;
-            if (this.shouldAutoAssignApprovedBy(status, refundRequest.approvedBy)) {
-                refundRequest.approvedBy = user;
-            }
+	        if (isStatusChanged) {
+	            refundRequest.status = status;
+	            const breakdownItems = this.getRefundBreakdownItems(refundRequest);
+	            if (breakdownItems.length) {
+	                refundRequest.refundBreakdown = JSON.stringify(breakdownItems.map((item) => ({ ...item, status })));
+	            }
+	            if (this.shouldAutoAssignApprovedBy(status, refundRequest.approvedBy)) {
+	                refundRequest.approvedBy = user;
+	            }
             refundRequest.updatedBy = userId;
             await this.handleExpense(status, refundRequest, userId, appDatabase.manager, refundRequest.id);
         }
@@ -2153,12 +2347,12 @@ export class RefundRequestService {
         const refundRequest = await this.refundRequestRepo.findOne({ where: { id } });
         if (!refundRequest) {
             throw CustomErrorHandler.notFound('Refund request not found');
-        }
-        const expenseService = new ExpenseService();
-        if (refundRequest.expenseId) {
-            const expense = await expenseService.getExpense(refundRequest.expenseId);
-            await expenseService.deleteExpense(expense.expenseId, userId);
-        }
+	        }
+	        const expenseService = new ExpenseService();
+	        for (const expenseId of this.getRefundExpenseIds(refundRequest)) {
+	            const expense = await expenseService.getExpense(expenseId);
+	            await expenseService.deleteExpense(expense.expenseId, userId);
+	        }
         refundRequest.deletedBy = userId;
         refundRequest.deletedAt = new Date();
         const saved = await this.refundRequestRepo.save(refundRequest);
