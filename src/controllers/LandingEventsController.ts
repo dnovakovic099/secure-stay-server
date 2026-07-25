@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { appDatabase } from "../utils/database.util";
 import { RedditConversionsService } from "../services/RedditConversionsService";
+import sendEmail from "../utils/sendEmai";
 import logger from "../utils/logger.utils";
 
 let tableReady: Promise<void> | null = null;
@@ -94,6 +95,22 @@ function asString(value: unknown, max = 1024): string | null {
 function propsRecord(props: unknown): Record<string, unknown> {
   if (!props || typeof props !== "object" || Array.isArray(props)) return {};
   return props as Record<string, unknown>;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function leadInbox(): string {
+  return (
+    asString(process.env.LANDING_LEAD_EMAIL, 256) ||
+    asString(process.env.EMAIL_TO, 256) ||
+    "admin@luxurylodgingpm.com"
+  );
 }
 
 async function upsertUser(params: {
@@ -287,6 +304,167 @@ export class LandingEventsController {
     } catch (error: any) {
       logger.error(`[LandingEvents] ${error?.message || error}`);
       return res.status(500).json({ ok: false, message: "Failed to record event" });
+    }
+  };
+
+  /**
+   * POST /public/landing-events/leads
+   * Accepts a landing-page lead, emails the inbox, and marks the visitor as a lead.
+   */
+  createLead = async (req: Request, res: Response) => {
+    try {
+      await ensureTable();
+
+      const body = req.body || {};
+      const attribution = body.attribution || {};
+      const site = asString(body.site, 64) || "luxurylodging";
+      const form = asString(body.form, 64) || "qualify_modal";
+      const visitorId = asString(body.visitor_id, 64);
+      const pagePath = asString(body.page_path, 512);
+      const referrer = asString(body.referrer || attribution.referrer, 1024);
+      const userAgent = asString(body.user_agent || req.headers["user-agent"], 512);
+      const ip =
+        asString(req.headers["x-forwarded-for"], 64)?.split(",")[0]?.trim() ||
+        asString(req.socket.remoteAddress, 64);
+
+      const firstName = asString(body.first_name ?? body.firstName, 128);
+      const lastName = asString(body.last_name ?? body.lastName, 128);
+      const fullName =
+        asString(body.full_name ?? body.fullName ?? body.name, 256) ||
+        [firstName, lastName].filter(Boolean).join(" ") ||
+        null;
+      const email = asString(body.email, 256);
+      const phone = asString(body.phone, 64);
+      const propertyLocation = asString(
+        body.property_location ?? body.propertyLocation,
+        512,
+      );
+      const bedrooms = asString(body.bedrooms, 32);
+      const message = asString(body.message, 4000);
+
+      if (!phone) {
+        return res.status(400).json({ ok: false, message: "phone is required" });
+      }
+
+      const props = {
+        form,
+        first_name: firstName,
+        last_name: lastName,
+        full_name: fullName,
+        email,
+        phone,
+        property_location: propertyLocation,
+        bedrooms,
+        message,
+        conversion_id: asString(body.conversion_id, 128),
+      };
+
+      await upsertUser({
+        site,
+        visitorId,
+        eventName: "lead_submit",
+        attribution,
+        props,
+        pagePath,
+        referrer,
+        userAgent,
+        ip,
+      });
+
+      await appDatabase.query(
+        `INSERT INTO landing_page_events
+          (site, eventName, sessionId, visitorId, pagePath, pageUrl, referrer,
+           utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
+           rdtCid, gclid, fbclid, props, userAgent, ip)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          site,
+          "lead_email_sent",
+          asString(body.session_id, 64),
+          visitorId,
+          pagePath,
+          asString(body.page_url, 1024),
+          referrer,
+          asString(attribution.utm_source, 128),
+          asString(attribution.utm_medium, 128),
+          asString(attribution.utm_campaign, 256),
+          asString(attribution.utm_content, 256),
+          asString(attribution.utm_term, 256),
+          asString(attribution.rdt_cid, 256),
+          asString(attribution.gclid, 256),
+          asString(attribution.fbclid, 256),
+          JSON.stringify(props),
+          userAgent,
+          ip,
+        ],
+      );
+
+      const subject =
+        form === "contact"
+          ? "Income analysis request — Luxury Lodging"
+          : "Free revenue estimate — Luxury Lodging";
+
+      const rows: Array<[string, string | null]> = [
+        ["Form", form],
+        ["Name", fullName],
+        ["Phone", phone],
+        ["Email", email],
+        ["Property", propertyLocation],
+        ["Bedrooms", bedrooms],
+        ["Message", message],
+        ["Page", asString(body.page_url, 1024)],
+        ["UTM source", asString(attribution.utm_source, 128)],
+        ["UTM medium", asString(attribution.utm_medium, 128)],
+        ["UTM campaign", asString(attribution.utm_campaign, 256)],
+        ["UTM content", asString(attribution.utm_content, 256)],
+        ["rdt_cid", asString(attribution.rdt_cid, 256)],
+        ["Visitor", visitorId],
+      ];
+
+      const html = `
+        <div style="font-family:ui-sans-serif,system-ui,sans-serif;line-height:1.5;color:#111">
+          <h2 style="margin:0 0 12px">New Luxury Lodging website lead</h2>
+          <table style="border-collapse:collapse;width:100%;max-width:640px">
+            ${rows
+              .filter(([, value]) => Boolean(value))
+              .map(
+                ([label, value]) => `
+              <tr>
+                <td style="padding:8px 10px;border-bottom:1px solid #eee;font-weight:700;width:140px;vertical-align:top">${escapeHtml(label)}</td>
+                <td style="padding:8px 10px;border-bottom:1px solid #eee;vertical-align:top">${escapeHtml(String(value))}</td>
+              </tr>`,
+              )
+              .join("")}
+          </table>
+        </div>
+      `;
+
+      const from = asString(process.env.EMAIL_FROM, 256) || "noreply@securestay.ai";
+      const to = leadInbox()!;
+      const sent = await sendEmail(subject, html, from, to);
+      if (!sent) {
+        logger.error("[LandingLeads] Email send returned empty result");
+        return res.status(502).json({ ok: false, message: "Failed to send lead email" });
+      }
+
+      RedditConversionsService.sendFromLandingEvent({
+        eventName: "lead_submit",
+        conversionId: asString(body.conversion_id, 128),
+        clickId: asString(attribution.rdt_cid, 256),
+        pageUrl: asString(body.page_url, 1024),
+        visitorId,
+        email,
+        phone,
+        ip,
+        userAgent,
+        rdtUuid: asString(body.rdt_uuid, 256),
+        props,
+      });
+
+      return res.json({ ok: true });
+    } catch (error: any) {
+      logger.error(`[LandingLeads] ${error?.message || error}`);
+      return res.status(500).json({ ok: false, message: "Failed to submit lead" });
     }
   };
 
