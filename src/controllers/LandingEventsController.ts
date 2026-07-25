@@ -105,12 +105,16 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function leadInbox(): string {
-  return (
-    asString(process.env.LANDING_LEAD_EMAIL, 256) ||
-    asString(process.env.EMAIL_TO, 256) ||
-    "admin@luxurylodgingpm.com"
-  );
+function leadInbox(): string[] {
+  const configured = asString(process.env.LANDING_LEAD_EMAIL, 1024);
+  if (configured) {
+    return configured
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  // Landing leads should hit the Luxury Lodging inbox, not the generic ops alias.
+  return ["admin@luxurylodgingpm.com", "operations@luxurylodgingpm.com"];
 }
 
 async function upsertUser(params: {
@@ -440,12 +444,13 @@ export class LandingEventsController {
       `;
 
       const from = asString(process.env.EMAIL_FROM, 256) || "noreply@securestay.ai";
-      const to = leadInbox()!;
-      const sent = await sendEmail(subject, html, from, to);
+      const recipients = leadInbox();
+      const sent = await sendEmail(subject, html, from, recipients.join(", "));
       if (!sent) {
         logger.error("[LandingLeads] Email send returned empty result");
         return res.status(502).json({ ok: false, message: "Failed to send lead email" });
       }
+      logger.info(`[LandingLeads] Emailed lead to ${recipients.join(", ")}`);
 
       RedditConversionsService.sendFromLandingEvent({
         eventName: "lead_submit",
