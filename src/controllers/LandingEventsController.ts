@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { appDatabase } from "../utils/database.util";
+import { RedditConversionsService } from "../services/RedditConversionsService";
 import logger from "../utils/logger.utils";
 
 let tableReady: Promise<void> | null = null;
@@ -265,6 +266,21 @@ export class LandingEventsController {
         referrer,
         userAgent,
         ip,
+      });
+
+      // Send conversion signals back to Reddit (pixel + CAPI). Fire-and-forget.
+      RedditConversionsService.sendFromLandingEvent({
+        eventName,
+        conversionId: asString(props.conversion_id ?? body.conversion_id, 128),
+        clickId: asString(attribution.rdt_cid ?? props.rdt_cid, 256),
+        pageUrl: asString(body.page_url, 1024),
+        visitorId,
+        email: asString(props.email, 256),
+        phone: asString(props.phone, 64),
+        ip,
+        userAgent,
+        rdtUuid: asString(body.rdt_uuid ?? props.rdt_uuid, 256),
+        props,
       });
 
       return res.status(204).end();

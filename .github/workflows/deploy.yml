@@ -58,6 +58,8 @@ jobs:
               upsert_env REDDIT_REDIRECT_URI "$REDIRECT_URI"
               upsert_env REDDIT_USER_AGENT "SecureStay/1.0"
               upsert_env REDDIT_OAUTH_SCOPES "adsread,adsedit,adsconversions"
+              upsert_env REDDIT_PIXEL_ID "a2_ih4m3qbk6tej"
+              upsert_env REDDIT_CAPI_TEST_MODE "false"
               if [ -n "${ZAPIER_REDDIT_LEADS_WEBHOOK_URL:-}" ]; then
                 upsert_env ZAPIER_REDDIT_LEADS_WEBHOOK_URL "$ZAPIER_REDDIT_LEADS_WEBHOOK_URL"
               fi
