@@ -72,6 +72,7 @@ import oauthRoutes from "./oauthRoutes";
 import userNotificationRoutes from "./userNotificationRoutes";
 
 import { roomifyListingsRouter, roomifyReviewsRouter, roomifyCleanerReportRouter } from "./roomifyRoutes";
+import landingEventsRoutes from "./landingEventsRoutes";
 const router = Router();
 
 // Health check endpoint (no authentication required)
@@ -79,6 +80,8 @@ router.use('/health', healthRoutes);
 router.use('/slack', slackRoutes);
 // Public OAuth callbacks (Reddit Ads API, etc.)
 router.use('/oauth', oauthRoutes);
+// Public landing-page analytics beacons (no auth)
+router.use('/public/landing-events', landingEventsRoutes);
 
 router.use('/device', deviceRoutes);
 router.use('/messaging', messagingRoutes);
