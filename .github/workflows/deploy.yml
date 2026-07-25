@@ -60,6 +60,7 @@ jobs:
               upsert_env REDDIT_OAUTH_SCOPES "adsread,adsedit,adsconversions"
               upsert_env REDDIT_PIXEL_ID "a2_ih4m3qbk6tej"
               upsert_env REDDIT_CAPI_TEST_MODE "false"
+              upsert_env LANDING_LEAD_EMAIL "admin@luxurylodgingpm.com,operations@luxurylodgingpm.com"
               if [ -n "${ZAPIER_REDDIT_LEADS_WEBHOOK_URL:-}" ]; then
                 upsert_env ZAPIER_REDDIT_LEADS_WEBHOOK_URL "$ZAPIER_REDDIT_LEADS_WEBHOOK_URL"
               fi
