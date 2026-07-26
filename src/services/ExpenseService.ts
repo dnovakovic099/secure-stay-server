@@ -237,11 +237,70 @@ export class ExpenseService {
         return null;
     }
 
+    private parseRefundBreakdownItems(value?: string | null) {
+        if (!value) return [];
+        try {
+            const parsed = JSON.parse(String(value));
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    }
+
+    private getRefundStatusFromBreakdownItems(items: any[], fallbackStatus?: string | null) {
+        if (!items.length) return fallbackStatus || "Pending";
+        const paidCount = items.filter((item) => String(item?.status || "").trim() === "Paid").length;
+        if (paidCount === items.length) return "Paid";
+        if (paidCount > 0) return "Partially Paid";
+        return fallbackStatus || "Pending";
+    }
+
+    private async syncRefundBreakdownFromExpense(expense: ExpenseEntity, userId: string) {
+        const candidates = await this.refundRequestRepo.find({
+            where: {
+                refundBreakdownEnabled: 1,
+                refundBreakdown: Raw((alias) => `${alias} LIKE :needle`, { needle: `%"expenseId":${expense.id}%` }),
+            } as any,
+        });
+        const refundRequest = candidates.find((request) =>
+            this.parseRefundBreakdownItems(request.refundBreakdown).some((item) => Number(item?.expenseId) === Number(expense.id))
+        );
+        if (!refundRequest) return false;
+
+        const mappedStatus = this.getRefundStatusFromExpenseStatus(expense.status);
+        const items = this.parseRefundBreakdownItems(refundRequest.refundBreakdown).map((item) => {
+            if (Number(item?.expenseId) !== Number(expense.id)) return item;
+            return {
+                ...item,
+                status: mappedStatus || item.status,
+                amount: Math.abs(Number(expense.amount || item.amount || 0)),
+                paymentMethod: expense.paymentMethod || item.paymentMethod || null,
+                paymentDetails: expense.paymentDetails || item.paymentDetails || null,
+                chargeToClient: expense.llCover ? 0 : 1,
+            };
+        });
+
+        refundRequest.refundBreakdown = JSON.stringify(items);
+        refundRequest.refundAmount = Number(items.reduce((total, item) => total + Number(item?.amount || 0), 0).toFixed(2));
+        refundRequest.status = this.getRefundStatusFromBreakdownItems(items, refundRequest.status);
+        refundRequest.updatedBy = userId;
+        refundRequest.updatedAt = new Date();
+        await this.refundRequestRepo.save(refundRequest);
+        return true;
+    }
+
     private async syncLinkedRefundRequestFromExpense(expense: ExpenseEntity, userId: string) {
         if (expense.comesFrom !== "refund_request") return;
 
         const refundRequest = await this.refundRequestRepo.findOne({ where: { expenseId: expense.id } });
-        if (!refundRequest) return;
+        if (!refundRequest) {
+            await this.syncRefundBreakdownFromExpense(expense, userId);
+            return;
+        }
+        if (refundRequest.refundBreakdownEnabled) {
+            const syncedBreakdown = await this.syncRefundBreakdownFromExpense(expense, userId);
+            if (syncedBreakdown) return;
+        }
 
         const mappedStatus = this.getRefundStatusFromExpenseStatus(expense.status);
         if (mappedStatus) refundRequest.status = mappedStatus;

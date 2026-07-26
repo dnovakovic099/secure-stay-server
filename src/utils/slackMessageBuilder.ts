@@ -105,7 +105,7 @@ const buildMissingApprovedByPaidNote = (refundRequest: RefundRequestEntity) => (
         : ""
 );
 
-const REFUND_APPROVED_BY_STATUS_OPTIONS = ["Approved", "For Processing", "Paid"];
+const REFUND_APPROVED_BY_STATUS_OPTIONS = ["Approved", "For Processing", "Paid", "Partially Paid"];
 const REFUND_APPROVED_BY_OPTIONS = ["Louis", "Darko", "Anj", "Jade", "Owner", "Custom"];
 
 const shouldShowRefundApprovedBy = (status?: string | null) => (
@@ -140,15 +140,17 @@ const formatRefundStayDates = (refundRequest: RefundRequestEntity) => {
 const buildRefundBreakdownText = (refundRequest: RefundRequestEntity) => {
     const items = parseRefundBreakdownItems(refundRequest);
     if (!items.length) return null;
-    return items.map((item, index) => {
+    const total = items.reduce((sum, item) => sum + Number(item?.amount || 0), 0);
+    const lines = items.map((item, index) => {
         const label = normalizeSlackField(item?.label, `Payment ${index + 1}`);
         const amount = formatCurrency(Number(item?.amount || 0));
         const status = normalizeSlackField(item?.status || refundRequest.status);
         const method = normalizeSlackField(item?.paymentMethod);
         const charge = normalizeRefundChargeToClient(item?.chargeToClient);
         const notes = String(item?.notes || "").trim() ? ` · ${item.notes}` : "";
-        return `• *${label}:* ${amount} · ${status} · ${method} · Charge to Client: ${charge}${notes}`;
-    }).join("\n");
+        return `• *Transaction ${index + 1} of ${items.length} (${label}):* ${amount} · ${status} · ${method} · Charge to Client: ${charge}${notes}`;
+    });
+    return [`*Total Breakdown Amount:* ${formatCurrency(total)}`, ...lines].join("\n");
 };
 
 const buildRefundRequestDetailBlocks = (refundRequest: RefundRequestEntity) => {
@@ -241,7 +243,7 @@ const buildRefundIssueLink = (refundRequest: RefundRequestEntity) => {
         : "";
 };
 
-const REFUND_REQUEST_STATUS_OPTIONS = ["Pending", "Approved", "For Processing", "Paid", "Denied", "Cancelled"];
+const REFUND_REQUEST_STATUS_OPTIONS = ["Pending", "Approved", "For Processing", "Paid", "Partially Paid", "Denied", "Cancelled"];
 
 const getRefundStatusLabelWithEmoji = (status?: string | null) => {
     const normalized = status || "Pending";
@@ -768,6 +770,7 @@ export const buildRefundRequestReminderMessage = (refundRequest: RefundRequestEn
 
 export const buildUpdatedRefundRequestMessage = (refundRequest: RefundRequestEntity, user: string) => {
     const issueLink = buildRefundIssueLink(refundRequest);
+    const breakdownText = buildRefundBreakdownText(refundRequest);
     const slackMessage = {
         channel: REFUND_REQUEST_CHANNEL,
         text: `*${user}* updated the refund request for *${refundRequest.guestName}* recently`,
@@ -788,11 +791,15 @@ export const buildUpdatedRefundRequestMessage = (refundRequest: RefundRequestEnt
                     ...(shouldShowRefundApprovedBy(refundRequest.status) ? [{ type: "mrkdwn", text: `*Approved By:*\n${normalizeSlackField(refundRequest.approvedBy)}` }] : []),
                     { type: "mrkdwn", text: `*Refund Category:*\n${normalizeSlackField(refundRequest.refundCategory)}` },
                     { type: "mrkdwn", text: `*Explanation:*\n${refundRequest.explaination}` },
-                    { type: "mrkdwn", text: `*Status:*\n${refundRequest.status}` }
-                ]
-            }
-        ]
-    };
+	                    { type: "mrkdwn", text: `*Status:*\n${refundRequest.status}` }
+	                ]
+	            },
+	            ...(breakdownText ? [{
+	                type: "section",
+	                text: { type: "mrkdwn", text: `*Payment Breakdown:*\n${breakdownText}` }
+	            }] : [])
+	        ]
+	    };
 
     return slackMessage;
 };
@@ -801,6 +808,7 @@ export const buildUpdatedStatusRefundRequestMessage = (refundRequest: RefundRequ
     const issueLink = buildRefundIssueLink(refundRequest);
     const paidRcTransactionNote = buildPaidRcTransactionNote(refundRequest);
     const missingApprovedByPaidNote = buildMissingApprovedByPaidNote(refundRequest);
+    const breakdownText = buildRefundBreakdownText(refundRequest);
     const slackMessage = {
         channel: REFUND_REQUEST_CHANNEL,
         text: `${user} updated the status of refund request for ${refundRequest.guestName}`,
@@ -809,11 +817,15 @@ export const buildUpdatedStatusRefundRequestMessage = (refundRequest: RefundRequ
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `${refundRequest.status.toLowerCase() == "approved" ? "✅" : refundRequest.status.toLowerCase() == "for processing" ? "🔄" : refundRequest.status.toLowerCase() == "denied" ? "❌" : refundRequest.status.toLowerCase() == "cancelled" ? "🚫" : refundRequest.status.toLowerCase() == "paid" ? "💰" : "⏳"} *${user}* ${refundRequest.status.toLowerCase()} *${formatCurrency(refundRequest.refundAmount)}* refund request for *${refundRequest.guestName}*.${issueLink ? ` ${issueLink}` : ""}${paidRcTransactionNote}${missingApprovedByPaidNote}`
-                }
-            },
-        ]
-    };
+	                    text: `${refundRequest.status.toLowerCase() == "approved" ? "✅" : refundRequest.status.toLowerCase() == "for processing" ? "🔄" : refundRequest.status.toLowerCase() == "denied" ? "❌" : refundRequest.status.toLowerCase() == "cancelled" ? "🚫" : refundRequest.status.toLowerCase() == "paid" ? "💰" : "⏳"} *${user}* ${refundRequest.status.toLowerCase()} *${formatCurrency(refundRequest.refundAmount)}* refund request for *${refundRequest.guestName}*.${issueLink ? ` ${issueLink}` : ""}${paidRcTransactionNote}${missingApprovedByPaidNote}`
+	                }
+	            },
+	            ...(breakdownText ? [{
+	                type: "section",
+	                text: { type: "mrkdwn", text: `*Payment Breakdown:*\n${breakdownText}` }
+	            }] : [])
+	        ]
+	    };
 
     return slackMessage;
 };

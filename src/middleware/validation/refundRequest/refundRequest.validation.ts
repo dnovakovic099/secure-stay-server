@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import Joi from "joi";
 
-const REFUND_REQUEST_STATUS_OPTIONS = ["Pending", "Approved", "For Processing", "Paid", "Denied", "Cancelled"];
+const REFUND_REQUEST_STATUS_OPTIONS = ["Pending", "Approved", "For Processing", "Paid", "Partially Paid", "Denied", "Cancelled"];
 const REFUND_REQUEST_CATEGORY_OPTIONS = ["Refund for 5-star", "Refund for No Review", "Refund to Remove Bad Review", "Others"];
 const refundBreakdownItemSchema = Joi.object({
     id: Joi.string().optional().allow(null, ''),

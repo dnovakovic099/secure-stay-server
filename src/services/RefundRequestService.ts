@@ -36,6 +36,7 @@ const FERDY_SLACK_USER_ID = "U07P974D65P";
 const ANJ_SLACK_USER_ID = "U08END0JTBM";
 const PAID_RC_REPORT_TYPE = "paid_rc_refund_report";
 const DEFAULT_PAID_RC_REPORT_CHANNEL = "#worklog-ot-hours";
+const RESOLUTIONS_TEAM_SUBTEAM_MENTION = "<!subteam^S0A79UGQG0H>";
 
 type PaidRcRefundReportOptions = {
     force?: boolean;
@@ -67,6 +68,13 @@ type RefundBreakdownItem = {
     chargeToClient?: number | boolean | string | null;
     notes?: string | null;
     expenseId?: number | null;
+};
+
+type RefundBreakdownExpenseContext = {
+    label: string;
+    index: number;
+    totalCount: number;
+    totalAmount: number;
 };
 
 export class RefundRequestService {
@@ -156,12 +164,21 @@ export class RefundRequestService {
     return Number(items.reduce((total, item) => total + Number(item.amount || 0), 0).toFixed(2));
   }
 
+  private getStatusFromRefundBreakdown(items: RefundBreakdownItem[], fallbackStatus?: string | null) {
+    if (!items.length) return fallbackStatus || "Pending";
+    const paidCount = items.filter((item) => String(item.status || "").trim() === "Paid").length;
+    if (paidCount === items.length) return "Paid";
+    if (paidCount > 0) return "Partially Paid";
+    return fallbackStatus || "Pending";
+  }
+
   private applyRefundBreakdownToRequest(request: RefundRequestEntity, body: Partial<RefundRequestEntity>) {
     const hasBreakdownPayload = Object.prototype.hasOwnProperty.call(body, "refundBreakdownEnabled")
       || Object.prototype.hasOwnProperty.call(body, "refundBreakdown");
     if (!hasBreakdownPayload && request.id && this.isRefundBreakdownEnabled(request.refundBreakdownEnabled)) {
       const existingItems = this.getRefundBreakdownItems(request);
       request.refundAmount = existingItems.length ? this.getRefundBreakdownTotal(existingItems) : Number(body.refundAmount || request.refundAmount || 0);
+      request.status = this.getStatusFromRefundBreakdown(existingItems, body.status || request.status);
       return existingItems;
     }
     const enabled = this.isRefundBreakdownEnabled((body as any).refundBreakdownEnabled);
@@ -169,6 +186,7 @@ export class RefundRequestService {
     request.refundBreakdownEnabled = enabled && items.length ? 1 : 0;
     request.refundBreakdown = enabled && items.length ? JSON.stringify(items) : null;
     request.refundAmount = enabled && items.length ? this.getRefundBreakdownTotal(items) : Number(body.refundAmount || 0);
+    request.status = enabled && items.length ? this.getStatusFromRefundBreakdown(items, body.status) : String(body.status || request.status || "Pending");
     return items;
   }
 
@@ -366,6 +384,78 @@ export class RefundRequestService {
     });
   }
 
+  private normalizeReviewRating(reviewRating?: number | string | null) {
+    const rating = Number(reviewRating);
+    if (!Number.isFinite(rating) || rating <= 0) return null;
+    return rating > 5 ? rating / 2 : rating;
+  }
+
+  private async getRefundRequestReviewRating(refundRequest: Partial<RefundRequestEntity>) {
+    if (!refundRequest.reservationId) return null;
+
+    const reviews = await this.reviewRepo.find({
+      where: { reservationId: Number(refundRequest.reservationId) },
+      order: { submittedAt: "DESC", updatedAt: "DESC" },
+      take: 1,
+    });
+
+    return this.normalizeReviewRating(reviews[0]?.rating ?? null);
+  }
+
+  private shouldSendPaidNonFiveStarReviewAlert(previousStatus?: string | null, currentStatus?: string | null, rating?: number | null) {
+    return String(previousStatus || "").trim().toLowerCase() !== "paid"
+      && String(currentStatus || "").trim().toLowerCase() === "paid"
+      && rating !== null
+      && rating < 5;
+  }
+
+  private async postPaidNonFiveStarReviewAlert(refundRequest: RefundRequestEntity, previousStatus?: string | null) {
+    const rating = await this.getRefundRequestReviewRating(refundRequest);
+    if (!this.shouldSendPaidNonFiveStarReviewAlert(previousStatus, refundRequest.status, rating)) return false;
+
+    const mitigationThread = await this.findMitigationThreadForRefundRequest(refundRequest);
+    const slackMessageInfo = mitigationThread?.slackThreadTs
+      ? null
+      : await this.slackMessageRepo.findOne({
+        where: {
+          entityType: "refund_request",
+          entityId: refundRequest.id,
+        },
+        order: { createdAt: "DESC" },
+      });
+
+    const threadTs = mitigationThread?.slackThreadTs || slackMessageInfo?.threadTs || slackMessageInfo?.messageTs;
+    if (!threadTs) return false;
+
+    const channel = mitigationThread?.slackChannelId || slackMessageInfo?.channel || "#resolutions-team";
+    const refundLink = `https://securestay.ai/luxury-lodging/refund-requests?id=${refundRequest.id}`;
+    const ratingText = Number.isInteger(rating) ? String(rating) : rating!.toFixed(1);
+    const messageText = `${RESOLUTIONS_TEAM_SUBTEAM_MENTION} Paid refund request has a ${ratingText}-star review. Please review.`;
+
+    await sendSlackMessage({
+      channel,
+      text: messageText,
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: [
+              `${RESOLUTIONS_TEAM_SUBTEAM_MENTION} *Paid refund request has a non-5-star review.*`,
+              `*Guest:* ${refundRequest.guestName || "-"}`,
+              `*Property:* ${refundRequest.listingName || "-"}`,
+              `*Review Rating:* ${ratingText} / 5`,
+              `*Refund Amount:* ${formatCurrency(Number(refundRequest.refundAmount || 0))}`,
+              `<${refundLink}|Open refund request>`,
+            ].join("\n"),
+          },
+        },
+      ],
+    }, threadTs);
+
+    return true;
+  }
+
   private async attachReservationContext(refundRequest: RefundRequestEntity) {
     if (!refundRequest.reservationId) return refundRequest;
 
@@ -538,9 +628,9 @@ export class RefundRequestService {
         newRefundRequest.issueId = body.issueId;
 	        newRefundRequest.explaination = body.explaination;
 	        newRefundRequest.refundCategory = body.refundCategory || null;
-	        this.applyRefundBreakdownToRequest(newRefundRequest, body);
-	        newRefundRequest.requestedBy = body.requestedBy;
-	        newRefundRequest.status = body.status;
+		        const breakdownItems = this.applyRefundBreakdownToRequest(newRefundRequest, body);
+		        newRefundRequest.requestedBy = body.requestedBy;
+		        newRefundRequest.status = this.getStatusFromRefundBreakdown(breakdownItems, newRefundRequest.status || body.status);
 	        newRefundRequest.approvedBy = body.approvedBy || null;
         newRefundRequest.paymentMethod = body.paymentMethod;
         newRefundRequest.paymentDetails = body.paymentDetails;
@@ -583,9 +673,9 @@ export class RefundRequestService {
         refundRequest.issueId = body.issueId;
 	        refundRequest.explaination = body.explaination;
 	        refundRequest.refundCategory = body.refundCategory || null;
-	        this.applyRefundBreakdownToRequest(refundRequest, body);
-	        refundRequest.requestedBy = body.requestedBy;
-        refundRequest.status = body.status;
+		        const breakdownItems = this.applyRefundBreakdownToRequest(refundRequest, body);
+		        refundRequest.requestedBy = body.requestedBy;
+	        refundRequest.status = this.getStatusFromRefundBreakdown(breakdownItems, refundRequest.status || body.status);
         refundRequest.approvedBy = body.approvedBy || autoApprovedBy || null;
         refundRequest.paymentMethod = body.paymentMethod;
         refundRequest.paymentDetails = body.paymentDetails;
@@ -736,6 +826,12 @@ export class RefundRequestService {
     }
 
     try {
+      await this.postPaidNonFiveStarReviewAlert(savedRefundRequest, previousStatus);
+    } catch (error) {
+      logger.error("Paid non-5-star review Slack alert failed", error);
+    }
+
+    try {
       await this.sendEmailForUpdatedRefundRequest(savedRefundRequest);
     } catch (error) {
       logger.error("Email notification failed (update)", error);
@@ -796,6 +892,12 @@ export class RefundRequestService {
       } catch (error) {
         logger.error("Slack creation failed", error);
       }
+    }
+
+    try {
+      await this.postPaidNonFiveStarReviewAlert(newRefundRequest, null);
+    } catch (error) {
+      logger.error("Paid non-5-star review Slack alert failed", error);
     }
 
     try {
@@ -904,9 +1006,16 @@ export class RefundRequestService {
 	      return;
 	    }
 
-	    const nextItems: RefundBreakdownItem[] = [];
-	    for (const item of items) {
-	      const lineStatus = String(item.status || status || request.status || "Pending");
+		    const nextItems: RefundBreakdownItem[] = [];
+		    const breakdownTotal = this.getRefundBreakdownTotal(items);
+		    for (const [index, item] of items.entries()) {
+		      const breakdownContext = {
+		        label: item.label || item.id || `Payment ${index + 1}`,
+		        index: index + 1,
+		        totalCount: items.length,
+		        totalAmount: breakdownTotal,
+		      };
+		      const lineStatus = String(item.status || status || request.status || "Pending");
 	      const lineRequest: Partial<RefundRequestEntity> = {
 	        ...request,
 	        refundAmount: item.amount,
@@ -935,26 +1044,31 @@ export class RefundRequestService {
 	        continue;
 	      }
 
-	      if (lineRequest.expenseId) {
-	        await this.updateExpenseForRefundRequest(lineRequest, userId, id, expenseStatus, item.label || item.id);
-	      } else {
-	        const expense = await this.createExpenseForRefundRequest(lineRequest, userId, id, expenseStatus, item.label || item.id);
-	        lineRequest.expenseId = expense.id;
-	      }
+		      if (lineRequest.expenseId) {
+		        await this.updateExpenseForRefundRequest(lineRequest, userId, id, expenseStatus, breakdownContext);
+		      } else {
+		        const expense = await this.createExpenseForRefundRequest(lineRequest, userId, id, expenseStatus, breakdownContext);
+		        lineRequest.expenseId = expense.id;
+		      }
 	      nextItems.push({ ...item, status: lineStatus, expenseId: Number(lineRequest.expenseId) || null });
 	    }
 
 	    request.refundBreakdown = JSON.stringify(nextItems);
 	    request.refundAmount = this.getRefundBreakdownTotal(nextItems);
+	    request.status = this.getStatusFromRefundBreakdown(nextItems, request.status);
 	    request.expenseId = nextItems.map((item) => Number(item.expenseId)).find((expenseId) => Number.isFinite(expenseId) && expenseId > 0) || null;
 	    await transactionalEntityManager.save(request);
 	  }
 
 
-	  private buildExpensePayload(body: Partial<RefundRequestEntity>, userId: string, id: number, status: ExpenseStatus, breakdownLabel?: string | null) {
-	        const today = getEasternDateString();
-	        const breakdownText = breakdownLabel ? ` · Breakdown: ${breakdownLabel}` : "";
-	        return {
+		  private buildExpensePayload(body: Partial<RefundRequestEntity>, userId: string, id: number, status: ExpenseStatus, breakdownContext?: RefundBreakdownExpenseContext | null) {
+		        const today = getEasternDateString();
+		        const breakdownText = breakdownContext ? ` · Breakdown: ${breakdownContext.label}` : "";
+		        const breakdownNote = breakdownContext
+		          ? `Broken down payment: total refund ${formatCurrency(breakdownContext.totalAmount)}; transaction ${breakdownContext.index} of ${breakdownContext.totalCount} for ${formatCurrency(Number(body.refundAmount || 0))}.`
+		          : "";
+		        const lineNotes = [breakdownNote, body.notes].map((note) => String(note || "").trim()).filter(Boolean).join("\n");
+		        return {
             listingMapId: body.listingId,
             expenseDate: today,
             concept: body.explaination,
@@ -966,9 +1080,10 @@ export class RefundRequestService {
 	            findings: `${body.guestName} - <a href="https://securestay.ai/luxury-lodging/refund-requests?id=${id}" target="_blank" style="color:blue;text-decoration:underline;">Refund Request Link</a>${breakdownText}`,
             status,
             datePaid: status === ExpenseStatus.PAID ? today : null,
-            paymentMethod: body.paymentMethod || null,
-            paymentDetails: body.paymentDetails || null,
-            reservationId: body.reservationId ? String(body.reservationId) : null,
+	            paymentMethod: body.paymentMethod || null,
+	            paymentDetails: body.paymentDetails || null,
+	            slackNotes: lineNotes || null,
+	            reservationId: body.reservationId ? String(body.reservationId) : null,
             guestName: body.guestName || null,
             comesFrom: "refund_request",
             createdBy: userId,
@@ -977,21 +1092,21 @@ export class RefundRequestService {
         };
     }
 
-	  private async updateExpenseForRefundRequest(body: Partial<RefundRequestEntity>, userId: string, id: number, status: ExpenseStatus, breakdownLabel?: string | null) {
-	        const expenseService = new ExpenseService();
-	        return await expenseService.updateExpense({
-	            body: {
-	                expenseId: body.expenseId,
-	                ...this.buildExpensePayload(body, userId, id, status, breakdownLabel)
-	            }
-	        }, userId);
-	    }
+		  private async updateExpenseForRefundRequest(body: Partial<RefundRequestEntity>, userId: string, id: number, status: ExpenseStatus, breakdownContext?: RefundBreakdownExpenseContext | null) {
+		        const expenseService = new ExpenseService();
+		        return await expenseService.updateExpense({
+		            body: {
+		                expenseId: body.expenseId,
+		                ...this.buildExpensePayload(body, userId, id, status, breakdownContext)
+		            }
+		        }, userId);
+		    }
 
-	  private async createExpenseForRefundRequest(body: Partial<RefundRequestEntity>, userId: string, id: number, status: ExpenseStatus, breakdownLabel?: string | null) {
-	        //create expense object
-	        const expenseObj = {
-	            body: this.buildExpensePayload(body, userId, id, status, breakdownLabel)
-	        };
+		  private async createExpenseForRefundRequest(body: Partial<RefundRequestEntity>, userId: string, id: number, status: ExpenseStatus, breakdownContext?: RefundBreakdownExpenseContext | null) {
+		        //create expense object
+		        const expenseObj = {
+		            body: this.buildExpensePayload(body, userId, id, status, breakdownContext)
+		        };
 
         //save the expense
         const expenseService = new ExpenseService();
@@ -1529,15 +1644,16 @@ export class RefundRequestService {
 	            if (this.shouldAutoAssignApprovedBy(status, refundRequest.approvedBy)) {
 	                refundRequest.approvedBy = user;
 	            }
-            refundRequest.updatedBy = userId;
-            await this.handleExpense(status, refundRequest, userId, appDatabase.manager, refundRequest.id);
-        }
+	            refundRequest.updatedBy = userId;
+	            await this.handleExpense(status, refundRequest, userId, appDatabase.manager, refundRequest.id);
+	        }
 
-      await this.refundRequestRepo.save(refundRequest);
-      if (isStatusChanged) {
-        const diff: ReservationHistoryDiff = {
-          refundStatus: { old: previousStatus, new: status },
-        };
+	      await this.refundRequestRepo.save(refundRequest);
+	      const finalStatus = refundRequest.status;
+	      if (isStatusChanged) {
+	        const diff: ReservationHistoryDiff = {
+	          refundStatus: { old: previousStatus, new: finalStatus },
+	        };
         if (previousApprovedBy !== refundRequest.approvedBy) {
           diff.refundApprovedBy = { old: previousApprovedBy, new: refundRequest.approvedBy ?? null };
         }
@@ -1550,16 +1666,16 @@ export class RefundRequestService {
           new SlackMessageService()
         );
 
-        if (mitigationThreadHandled) {
-          const description = isStatusChanged
-            ? this.buildRefundRequestUpdateDescription("status", previousStatus, status)
-            : "Refund request updated";
+	        if (mitigationThreadHandled) {
+	          const description = isStatusChanged
+	            ? this.buildRefundRequestUpdateDescription("status", previousStatus, finalStatus)
+	            : "Refund request updated";
           await this.postMitigationRefundUpdate(
             refundRequest,
             description,
             user,
-            isStatusChanged ? { oldStatus: previousStatus, newStatus: status } : undefined
-          );
+	            isStatusChanged ? { oldStatus: previousStatus, newStatus: finalStatus } : undefined
+	          );
         } else if (slackMessageInfo) {
           // 1. Update the original message to reflect the new status/buttons
           await updateSlackMessage(
@@ -1574,15 +1690,20 @@ export class RefundRequestService {
           await sendSlackMessage(replyMessage, slackMessageInfo.threadTs || slackMessageInfo.messageTs);
         }
       }
+      try {
+        await this.postPaidNonFiveStarReviewAlert(refundRequest, previousStatus);
+      } catch (error) {
+        logger.error("Paid non-5-star review Slack alert failed", error);
+      }
       await this.sendEmailForUpdatedRefundRequest(refundRequest);
       if (isStatusChanged) {
         await this.recordRefundRequestSystemUpdate(
           refundRequest,
-          `Refund request status changed from ${previousStatus || "blank"} to ${status || "blank"}.`,
+          `Refund request status changed from ${previousStatus || "blank"} to ${finalStatus || "blank"}.`,
           userId,
           {
             oldStatus: previousStatus,
-            newStatus: status,
+            newStatus: finalStatus,
           }
         );
       }
