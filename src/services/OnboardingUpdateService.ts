@@ -9,6 +9,7 @@ import sendSlackMessage from "../utils/sendSlackMsg";
 import logger from "../utils/logger.utils";
 
 const SLACK_VISIBLE_SYSTEM_EVENTS = new Set(["phase_changed", "hostify_exported", "email_sent", "sms_sent"]);
+const ONBOARDING_TEAM_SLACK_GROUP_ID = "S09AUTJ6TUG";
 const SNAPSHOT_METADATA_KEY = "trackedState";
 const IGNORED_SNAPSHOT_KEYS = new Set([
   "id", "createdAt", "createdBy", "updatedAt", "updatedBy", "deletedAt", "deletedBy",
@@ -216,7 +217,7 @@ export class OnboardingUpdateService {
     const propertyName = (property as any).propertyInfo?.internalListingName || property.address || `Property #${property.id}`;
     const response = await sendSlackMessage({
       channel: "#onboarding",
-      text: `📥 *Onboarding form received*\n*Client:* ${client.firstName || ""} ${client.lastName || ""}\n*Property:* ${propertyName}\n_Received by ${author}_`,
+      text: `📥 *Onboarding form received*\n<!subteam^${ONBOARDING_TEAM_SLACK_GROUP_ID}>\n*Client:* ${client.firstName || ""} ${client.lastName || ""}\n*Property:* ${propertyName}\n_Received by ${author}_`,
     });
     if (response?.ok) {
       return await this.slackRepo.save(this.slackRepo.create({
@@ -239,17 +240,14 @@ export class OnboardingUpdateService {
     try {
       const clientId = (property.client as any)?.id;
       if (!clientId) return;
-      const propertyRoot = await this.slackRepo.findOne({
+      let root = await this.slackRepo.findOne({
         where: {
           entityType: "client_onboarding",
           originalMessage: Like(`%"propertyId":"${property.id}"%`),
         },
         order: { createdAt: "DESC" },
       });
-      const root = propertyRoot || await this.slackRepo.findOne({
-        where: { entityType: "client_onboarding", originalMessage: Like(`%"clientId":"${clientId}"%`) },
-        order: { createdAt: "DESC" },
-      });
+      if (!root?.threadTs) root = await this.ensureSlackThread(property, userId);
       if (!root?.threadTs) return;
       const user = userId ? await this.userRepo.findOne({ where: { uid: userId } }) : null;
       const author = user ? `${user.firstName || ""} ${user.lastName || ""}`.trim() : "SecureStay";
