@@ -631,18 +631,21 @@ export class RentalAgreementSigningService {
 
     private activeApplicabilityRuleSql(reservationAlias = "reservation") {
         return `
-            EXISTS (
-                SELECT 1
-                FROM rental_agreement_template_rules applicabilityRule
-                INNER JOIN rental_agreement_templates applicabilityTemplate
-                    ON applicabilityTemplate.id = applicabilityRule.templateId
-                    AND applicabilityTemplate.isActive = 1
-                WHERE applicabilityRule.listingId = ${reservationAlias}.listingMapId
-                    AND applicabilityRule.isActive = 1
-                    AND (
-                        applicabilityRule.channelId IS NULL
-                        OR applicabilityRule.channelId = ${reservationAlias}.channelId
-                        OR LOWER(COALESCE(applicabilityRule.channelName, '') COLLATE utf8mb4_unicode_ci) = LOWER(COALESCE(${reservationAlias}.channelName, '') COLLATE utf8mb4_unicode_ci)
+            (
+                COALESCE(${reservationAlias}.source, '') = 'manual_rental_agreement'
+                OR EXISTS (
+                    SELECT 1
+                    FROM rental_agreement_template_rules applicabilityRule
+                    INNER JOIN rental_agreement_templates applicabilityTemplate
+                        ON applicabilityTemplate.id = applicabilityRule.templateId
+                        AND applicabilityTemplate.isActive = 1
+                    WHERE applicabilityRule.listingId = ${reservationAlias}.listingMapId
+                        AND applicabilityRule.isActive = 1
+                        AND (
+                            applicabilityRule.channelId IS NULL
+                            OR applicabilityRule.channelId = ${reservationAlias}.channelId
+                            OR LOWER(COALESCE(applicabilityRule.channelName, '') COLLATE utf8mb4_unicode_ci) = LOWER(COALESCE(${reservationAlias}.channelName, '') COLLATE utf8mb4_unicode_ci)
+                        )
                     )
             )
         `;
@@ -1750,9 +1753,6 @@ export class RentalAgreementSigningService {
             isEdited: false,
             isOverridden: false,
         });
-        const previousSignatureTimestampOverrideAt = nextDocument.signatureTimestampOverrideAt?.getTime() ?? null;
-        const previousSignatureTimezoneOverride = nextDocument.signatureTimezoneOverride || null;
-        let signatureTimestampOverrideChanged = false;
 
         nextDocument.headerHtml = payload.headerHtml ?? snapshot.headerHtml;
         nextDocument.bodyHtml = payload.bodyHtml ?? snapshot.bodyHtml;
@@ -1791,19 +1791,27 @@ export class RentalAgreementSigningService {
             nextDocument.signatureTimezoneOverride = timestampValue ? (timezoneValue || "America/New_York") : null;
             nextDocument.signatureTimestampOverrideUpdatedAt = timestampValue ? new Date() : null;
             nextDocument.signatureTimestampOverrideUpdatedBy = timestampValue ? (userId || null) : null;
-            signatureTimestampOverrideChanged =
-                previousSignatureTimestampOverrideAt !== (nextDocument.signatureTimestampOverrideAt?.getTime() ?? null)
-                || previousSignatureTimezoneOverride !== (nextDocument.signatureTimezoneOverride || null);
         }
 
         await reservationDocumentRepo().save(nextDocument);
-        if (signatureTimestampOverrideChanged) {
-            const signing = await signingRepo().findOne({ where: { hostifyReservationId } });
-            if (signing?.signedAt) {
-                signing.pdfStatus = "pending_pdf";
-                signing.fileInfoId = null;
-                await signingRepo().save(signing);
-            }
+        const signing = await signingRepo().findOne({ where: { hostifyReservationId } });
+        if (signing?.signedAt) {
+            const refreshedSnapshot: AgreementSnapshot = {
+                headerHtml: nextDocument.headerHtml || snapshot.headerHtml,
+                bodyHtml: nextDocument.bodyHtml || snapshot.bodyHtml,
+                footerHtml: nextDocument.footerHtml || snapshot.footerHtml,
+                emailSubject: nextDocument.emailSubject || snapshot.emailSubject,
+                emailBodyHtml: nextDocument.emailBodyHtml || snapshot.emailBodyHtml,
+                isEdited: Boolean(nextDocument.isEdited),
+                isOverridden: Boolean(nextDocument.isOverridden),
+                overrideReason: nextDocument.overrideReason || null,
+                sourceTemplateId: nextDocument.sourceTemplateId || snapshot.sourceTemplateId,
+            };
+            const { renderedHtml } = this.renderAgreementSnapshot(refreshedSnapshot, reservationInfo, listing);
+            signing.renderedHtml = renderedHtml;
+            signing.pdfStatus = "pending_pdf";
+            signing.fileInfoId = null;
+            await signingRepo().save(signing);
         }
         return this.getReservationDocumentForAdmin(hostifyReservationId);
     }
