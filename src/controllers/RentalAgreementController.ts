@@ -247,9 +247,9 @@ export class RentalAgreementController {
             return res.status(409).json({
                 success: false,
                 message: target.pdfStatus === "pdf_failed"
-                    ? "PDF generation failed. Please retry PDF generation."
+                    ? `PDF generation failed${target.pdfError ? `: ${target.pdfError}` : ". Please retry PDF generation."}`
                     : "PDF is still being prepared.",
-                data: { pdfStatus: target.pdfStatus },
+                data: { pdfStatus: target.pdfStatus, pdfError: target.pdfError },
             });
         } catch (err: any) {
             res.status(500).json({ success: false, message: err.message });
@@ -290,9 +290,9 @@ export class RentalAgreementController {
             return res.status(409).json({
                 success: false,
                 message: target.pdfStatus === "pdf_failed"
-                    ? "The signed agreement exists, but the PDF is not available yet."
+                    ? `The signed agreement exists, but PDF generation failed${target.pdfError ? `: ${target.pdfError}` : "."}`
                     : "PDF is still being prepared.",
-                data: { pdfStatus: target.pdfStatus },
+                data: { pdfStatus: target.pdfStatus, pdfError: target.pdfError },
             });
         } catch (err: any) {
             res.status(500).json({ success: false, message: err.message });

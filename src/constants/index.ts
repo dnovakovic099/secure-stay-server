@@ -1,3 +1,5 @@
+import fs from "fs";
+
 export const AIR_DNA_URL = "https://app.airdna.co/data/login";
 
 export const USER_AGENTS = [
@@ -10,9 +12,13 @@ export const USER_AGENTS = [
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.1 Safari/605.1.15",
 ];
 
+const configuredPuppeteerExecutablePath = process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/google-chrome-stable";
+
 export const PUPPETEER_LAUNCH_OPTIONS = {
   headless: true,
-  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/google-chrome-stable",
+  ...(configuredPuppeteerExecutablePath && fs.existsSync(configuredPuppeteerExecutablePath)
+    ? { executablePath: configuredPuppeteerExecutablePath }
+    : {}),
   args: [
     "--disable-setuid-sandbox",
     "--no-sandbox",

@@ -779,26 +779,45 @@ export class RentalAgreementSigningService {
         return false;
     }
 
-    private async regeneratePdfIfNeeded(signing: RentalAgreementSigning): Promise<{ signing: RentalAgreementSigning; fileInfo: FileInfo | null }> {
+    private getPdfGenerationErrorMessage(err: any): string {
+        const responseData = err?.response?.data;
+        if (responseData) {
+            if (typeof responseData === "string") return responseData;
+            try {
+                return JSON.stringify(responseData);
+            } catch (_) {
+                return String(responseData);
+            }
+        }
+        if (err?.message) return String(err.message);
+        return String(err || "Unknown PDF generation error");
+    }
+
+    private async regeneratePdfIfNeeded(signing: RentalAgreementSigning): Promise<{ signing: RentalAgreementSigning; fileInfo: FileInfo | null; errorMessage?: string | null }> {
         let fileInfo = await this.getFileInfoForSigning(signing);
         if (this.isDownloadArtifactAvailable(fileInfo)) {
             return { signing, fileInfo };
         }
 
         const reservationInfo = await reservationInfoRepo().findOne({ where: { id: signing.reservationInfoId } });
-        if (!reservationInfo) return { signing, fileInfo };
+        if (!reservationInfo) {
+            const errorMessage = `Reservation info not found for signing ${signing.id}`;
+            await signingRepo().update(signing.id, { pdfStatus: "pdf_failed" });
+            return { signing: { ...signing, pdfStatus: "pdf_failed" } as RentalAgreementSigning, fileInfo, errorMessage };
+        }
 
         await signingRepo().update(signing.id, { pdfStatus: "pending_pdf" });
+        let errorMessage: string | null = null;
         try {
             await this.generateAndUploadPdf(signing.id, reservationInfo);
-        } catch (_) {
-            // Keep signed state intact and leave retry available.
+        } catch (err: any) {
+            errorMessage = this.getPdfGenerationErrorMessage(err);
         }
 
         const refreshedSigning = await signingRepo().findOne({ where: { id: signing.id } });
-        if (!refreshedSigning) return { signing, fileInfo: null };
+        if (!refreshedSigning) return { signing, fileInfo: null, errorMessage };
         fileInfo = await this.getFileInfoForSigning(refreshedSigning);
-        return { signing: refreshedSigning, fileInfo };
+        return { signing: refreshedSigning, fileInfo, errorMessage };
     }
 
     private buildOverviewRow(
@@ -1883,11 +1902,14 @@ export class RentalAgreementSigningService {
         if (!reservationInfo) throw new Error("Reservation not found");
 
         await signingRepo().update(signingId, { pdfStatus: "pending_pdf" });
-        this.generateAndUploadPdf(signingId, reservationInfo).catch((err) => {
+        try {
+            await this.generateAndUploadPdf(signingId, reservationInfo);
+        } catch (err: any) {
             console.error(`[RentalAgreement] PDF retry failed for signing ${signingId}:`, err);
-        });
+            throw new Error(`PDF generation failed: ${this.getPdfGenerationErrorMessage(err)}`);
+        }
 
-        return { pdfStatus: "pending_pdf" };
+        return { pdfStatus: "pdf_ready" };
     }
 
     async getAdminDownloadTarget(signingId: number): Promise<{
@@ -1895,17 +1917,19 @@ export class RentalAgreementSigningService {
         localPath: string | null;
         driveFileId: string | null;
         pdfStatus: string;
+        pdfError: string | null;
     } | null> {
         const { signing } = await this.getSigningWithFile(signingId);
         if (!signing) return null;
 
-        const { signing: refreshedSigning, fileInfo } = await this.regeneratePdfIfNeeded(signing);
+        const { signing: refreshedSigning, fileInfo, errorMessage } = await this.regeneratePdfIfNeeded(signing);
 
         return {
             fileName: fileInfo?.fileName || `rental-agreement-${signingId}.pdf`,
             localPath: fileInfo?.localPath && fs.existsSync(fileInfo.localPath) ? fileInfo.localPath : null,
             driveFileId: fileInfo?.driveFileId || null,
             pdfStatus: refreshedSigning.pdfStatus,
+            pdfError: errorMessage || null,
         };
     }
 
@@ -1914,17 +1938,19 @@ export class RentalAgreementSigningService {
         localPath: string | null;
         driveFileId: string | null;
         pdfStatus: string;
+        pdfError: string | null;
     } | null> {
         const signing = await signingRepo().findOne({ where: { hostifyReservationId } });
         if (!signing) return null;
 
-        const { signing: refreshedSigning, fileInfo } = await this.regeneratePdfIfNeeded(signing);
+        const { signing: refreshedSigning, fileInfo, errorMessage } = await this.regeneratePdfIfNeeded(signing);
 
         return {
             fileName: fileInfo?.fileName || `rental-agreement-${hostifyReservationId}.pdf`,
             localPath: fileInfo?.localPath && fs.existsSync(fileInfo.localPath) ? fileInfo.localPath : null,
             driveFileId: fileInfo?.driveFileId || null,
             pdfStatus: refreshedSigning.pdfStatus,
+            pdfError: errorMessage || null,
         };
     }
 
