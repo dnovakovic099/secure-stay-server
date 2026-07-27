@@ -827,7 +827,7 @@ export class IssuesController {
       const issueId = Number(request.params.id);
       const note = String(request.body?.note || request.body?.body || "").trim();
       const userId = String(request.user?.id || "system");
-      const data = await new IssueAIService().logInternalNote(issueId, note, userId);
+      const data = await new IssueAIService().logInternalNote(issueId, note, userId, request.user);
       return response.status(201).json({ status: true, data });
     } catch (error) {
       next(error);
@@ -843,6 +843,7 @@ export class IssuesController {
         nextUpdateDate: request.body?.nextUpdateDate ?? null,
         note: request.body?.note ?? null,
         userId: String(request.user?.id || "system"),
+        user: request.user,
       });
       return response.status(200).json({ status: true, data });
     } catch (error) {

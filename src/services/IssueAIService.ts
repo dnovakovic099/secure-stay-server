@@ -12,6 +12,7 @@ import { InboxConversationEntity } from "../entity/InboxConversation";
 import { InboxMessageEntity } from "../entity/InboxMessage";
 import { IssueAISuggestionEntity } from "../entity/IssueAISuggestion";
 import { IssueAIFeedbackEntity } from "../entity/IssueAIFeedback";
+import { IssueAIActionEntity } from "../entity/IssueAIAction";
 import { IrVendorMemoryEntity } from "../entity/IrVendorMemory";
 
 const PROMPT_VERSION = "ir-copilot-v7";
@@ -246,6 +247,7 @@ export class IssueAIService {
     private messageRepo = appDatabase.getRepository(InboxMessageEntity);
     private suggestionRepo = appDatabase.getRepository(IssueAISuggestionEntity);
     private feedbackRepo = appDatabase.getRepository(IssueAIFeedbackEntity);
+    private actionRepo = appDatabase.getRepository(IssueAIActionEntity);
     private vendorMemoryRepo = appDatabase.getRepository(IrVendorMemoryEntity);
     private openai: OpenAI | null = process.env.OPENAI_API_KEY
         ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -660,6 +662,10 @@ export class IssueAIService {
             `IR Copilot taught vendor: ${name}${input.phone ? ` · ${input.phone}` : ""}${input.email ? ` · ${input.email}` : ""}`,
             "system"
         );
+        await this.logAction(issue, "vendor_taught", {
+            channel: "ticket",
+            detail: `${name}${input.phone ? ` · ${input.phone}` : ""}`,
+        });
 
         return this.suggest(issueId, { force: true });
     }
@@ -2529,6 +2535,7 @@ export class IssueAIService {
             `IR Copilot: guest message sent via Inbox (thread ${conv.threadId}).\n\n${text.slice(0, 1500)}`,
             user?.id || user?.secureStayUserId || "system"
         );
+        await this.logAction(issue, "guest_message", { channel: "inbox", user, detail: text });
         return { sent: true, channel: "inbox", threadId: Number(conv.threadId), messageId: saved?.id ?? null };
     }
 
@@ -2560,6 +2567,11 @@ export class IssueAIService {
                     `IR Copilot: guest SMS sent via Quo.\n\n${text.slice(0, 1500)}`,
                     opts.user?.id || "system"
                 );
+                await this.logAction(issue, "guest_sms", {
+                    channel: "quo",
+                    user: opts.user,
+                    detail: text,
+                });
                 return {
                     sent: true,
                     channel: "quo",
@@ -2575,6 +2587,13 @@ export class IssueAIService {
             null;
         if (phone) {
             const digits = phone.replace(/[^\d+]/g, "");
+            // Handed off to the device dialer — we can't confirm delivery.
+            await this.logAction(issue, opts.target === "vendor" ? "vendor_sms" : "guest_sms", {
+                channel: "deep_link",
+                user: opts.user,
+                status: "skipped",
+                detail: text,
+            });
             return {
                 sent: false,
                 channel: "deep_link",
@@ -2586,7 +2605,11 @@ export class IssueAIService {
         throw CustomErrorHandler.notFound("No Quo thread or phone number available for SMS");
     }
 
-    async logInternalNote(issueId: number, note: string, userId: string) {
+    /**
+     * `userId` is the Supabase uid used for the ticket-update author string;
+     * `user` carries the numeric SecureStay id that analytics attributes to.
+     */
+    async logInternalNote(issueId: number, note: string, userId: string, user?: any) {
         const text = String(note || "").trim();
         if (!text) throw CustomErrorHandler.validationError("Note is required");
         const issue = await this.issueRepo.findOne({ where: { id: issueId } });
@@ -2596,12 +2619,23 @@ export class IssueAIService {
             { issueId, updates: text, source: "securestay" },
             userId || "system"
         );
+        await this.logAction(issue, "internal_note", {
+            channel: "ticket",
+            user: user || { id: userId },
+            detail: text,
+        });
         return { logged: true, update };
     }
 
     async scheduleFollowUp(
         issueId: number,
-        opts: { hours?: number; nextUpdateDate?: string | null; note?: string | null; userId?: string }
+        opts: {
+            hours?: number;
+            nextUpdateDate?: string | null;
+            note?: string | null;
+            userId?: string;
+            user?: any;
+        }
     ) {
         const issue = await this.issueRepo.findOne({ where: { id: issueId } });
         if (!issue) throw CustomErrorHandler.notFound(`Issue ${issueId} not found`);
@@ -2618,7 +2652,50 @@ export class IssueAIService {
             String(opts.note || "").trim() ||
             `IR Copilot: follow-up scheduled for ${nextDate}.`;
         await this.logSystemUpdate(issue, note, opts.userId || "system");
+        await this.logAction(issue, "follow_up", {
+            channel: "ticket",
+            user: opts.user || { id: opts.userId },
+            detail: `Next update ${nextDate}`,
+        });
         return { scheduled: true, nextUpdateDate: nextDate };
+    }
+
+    /**
+     * Record an executed copilot action for Issue Resolution Analytics.
+     * Never throws — analytics must not be able to break an outbound send.
+     */
+    private async logAction(
+        issue: Issue,
+        actionType: string,
+        opts: {
+            channel?: string | null;
+            user?: any;
+            automated?: boolean;
+            detail?: string | null;
+            status?: string;
+        } = {}
+    ) {
+        try {
+            const suggestion = await this.suggestionRepo.findOne({
+                where: { issueId: issue.id },
+                order: { generatedAt: "DESC" },
+            });
+            await this.actionRepo.save(
+                this.actionRepo.create({
+                    issueId: issue.id,
+                    suggestionId: suggestion?.id ?? null,
+                    listingId: this.parsePositiveInt(issue.listing_id),
+                    userId: Number(opts.user?.secureStayUserId ?? opts.user?.id) || null,
+                    actionType,
+                    channel: opts.channel ?? null,
+                    status: opts.status || "executed",
+                    automated: !!opts.automated,
+                    detail: opts.detail ? String(opts.detail).slice(0, 1000) : null,
+                })
+            );
+        } catch (err: any) {
+            logger.warn(`[IssueAIService] failed to log action on issue ${issue.id}: ${err?.message}`);
+        }
     }
 
     private async logSystemUpdate(issue: Issue, text: string, userId: string) {
@@ -2707,6 +2784,11 @@ export class IssueAIService {
             `IR Copilot auto-assigned to ${pick.name || pick.uid} (least open IR load).`,
             "system"
         );
+        await this.logAction(issue, "auto_assign", {
+            channel: "ticket",
+            automated: true,
+            detail: `Assigned to ${pick.name || pick.uid}`,
+        });
         return pick;
     }
 
@@ -2740,6 +2822,11 @@ export class IssueAIService {
             `IR Copilot auto-ack sent to guest (opt-in access/lockout playbook).\n\n${holding}`,
             userId || "system"
         );
+        await this.logAction(issue, "auto_ack", {
+            channel: "inbox",
+            automated: true,
+            detail: holding,
+        });
         return { sent: true, threadId: Number(conv.threadId) };
     }
 
