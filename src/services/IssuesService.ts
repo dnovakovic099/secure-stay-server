@@ -38,6 +38,7 @@ import { buildIssueUpdateMessage, buildResolutionsActivityMessage, formatSecureS
 import sendSlackMessage from "../utils/sendSlackMsg";
 import { uploadFileToSlack } from "../utils/uploadFileToSlack";
 import { OpenPhoneService } from "./OpenPhoneService";
+import { ACTION_LABELS } from "./IssueAnalyticsService";
 
 // Module-level cache for the user directory (users + employees + avatars).
 // Avoids 3 DB queries per request; invalidates automatically after 2 minutes.
@@ -46,6 +47,40 @@ let _userDirectoryCache: { data: any[]; expiresAt: number } | null = null;
 type IssueStatusUpdateOptions = {
   activitySource?: "slack" | "securestay";
 };
+
+/**
+ * IR Copilot columns in the issues export, in sheet order. Tickets with no
+ * playbook still carry the blank keys so every row has the same shape.
+ */
+const ISSUE_EXPORT_AI_COLUMNS = [
+  "IR Copilot Summary",
+  "IR Copilot Severity",
+  "IR Copilot Confidence",
+  "IR Copilot Status",
+  "IR Copilot Primary Action",
+  "IR Copilot Playbook",
+  "IR Copilot Warnings",
+  "IR Copilot Recommended Contacts",
+  "IR Copilot Draft Guest Message",
+  "IR Copilot Draft Internal Note",
+  "IR Copilot Draft Vendor Message",
+  "IR Copilot Suggested On",
+  "IR Copilot Suggested At",
+  "IR Copilot Regenerations",
+  "IR Copilot Feedback Rating",
+  "IR Copilot Feedback Themes",
+  "IR Copilot Feedback Notes",
+  "IR Copilot Corrected Response",
+  "IR Copilot Feedback By",
+  "IR Copilot Feedback On",
+  "IR Copilot Actions Taken",
+] as const;
+
+type IssueExportAiColumns = Record<(typeof ISSUE_EXPORT_AI_COLUMNS)[number], string | number>;
+
+const EMPTY_ISSUE_EXPORT_AI_COLUMNS = Object.fromEntries(
+  ISSUE_EXPORT_AI_COLUMNS.map((key) => [key, ""])
+) as IssueExportAiColumns;
 
 export class IssuesService {
   private issueRepo = appDatabase.getRepository(Issue);
@@ -1885,6 +1920,222 @@ export class IssuesService {
       .trim();
   }
 
+  /**
+   * IR Copilot columns for the issues export, keyed by issue id.
+   *
+   * Reports the newest playbook that is still current: `regenerated` rows are
+   * superseded drafts, so exporting one would show advice the team never saw.
+   * How often a ticket was regenerated is itself a quality signal, so that gets
+   * its own count column.
+   */
+  private async buildIssueExportAiColumns(issueIds: number[]) {
+    const byIssue = new Map<number, IssueExportAiColumns>();
+    const ids = [...new Set(issueIds.map((id) => Number(id)).filter(Boolean))];
+    if (!ids.length) return byIssue;
+
+    const CHUNK = 1000;
+    const chunks: number[][] = [];
+    for (let i = 0; i < ids.length; i += CHUNK) chunks.push(ids.slice(i, i + CHUNK));
+    const gather = async (sql: (holes: string) => string, params: (chunk: number[]) => any[] = (c) => c) => {
+      const out: any[] = [];
+      for (const chunk of chunks) {
+        const holes = chunk.map(() => "?").join(",");
+        out.push(...(await appDatabase.query(sql(holes), params(chunk))));
+      }
+      return out;
+    };
+
+    try {
+      // Light scan first: suggestion rows carry several mediumtext blobs, so the
+      // winner per issue is picked before anything large is read.
+      const scan = await gather(
+        (holes) => `SELECT id, issueId, status, generatedAt
+                    FROM issue_ai_suggestions
+                    WHERE issueId IN (${holes})
+                    ORDER BY generatedAt ASC, id ASC`
+      );
+      if (!scan.length) return byIssue;
+
+      const currentByIssue = new Map<number, number>();
+      const regeneratedByIssue = new Map<number, number>();
+      for (const row of scan) {
+        const issueId = Number(row.issueId);
+        if (String(row.status) === "regenerated") {
+          regeneratedByIssue.set(issueId, (regeneratedByIssue.get(issueId) || 0) + 1);
+        } else {
+          currentByIssue.set(issueId, Number(row.id));
+        }
+      }
+
+      const suggestionIds = [...currentByIssue.values()];
+      if (!suggestionIds.length) return byIssue;
+
+      const sChunks: number[][] = [];
+      for (let i = 0; i < suggestionIds.length; i += CHUNK) sChunks.push(suggestionIds.slice(i, i + CHUNK));
+      const gatherSuggestions = async (sql: (holes: string) => string) => {
+        const out: any[] = [];
+        for (const chunk of sChunks) {
+          out.push(...(await appDatabase.query(sql(chunk.map(() => "?").join(",")), chunk)));
+        }
+        return out;
+      };
+
+      const [rows, feedback, actions, users] = await Promise.all([
+        gatherSuggestions(
+          (holes) => `SELECT id, issueId, summary, severity, confidence, status, primaryAction,
+                             playbookJson, warningsJson, recommendedContactsJson,
+                             draftGuestMessage, draftInternalNote, draftVendorMessage, generatedAt
+                      FROM issue_ai_suggestions WHERE id IN (${holes})`
+        ),
+        gatherSuggestions(
+          (holes) => `SELECT suggestionId, userId, rating, categories, feedbackText,
+                             correctedResponse, createdAt
+                      FROM issue_ai_feedback WHERE suggestionId IN (${holes})
+                      ORDER BY createdAt ASC, id ASC`
+        ),
+        gather(
+          (holes) => `SELECT issueId, actionType, channel, status, automated, createdAt
+                      FROM issue_ai_actions WHERE issueId IN (${holes})
+                      ORDER BY createdAt ASC, id ASC`
+        ),
+        this.buildIssueExportAiUserNames(),
+      ]);
+
+      const fbBySuggestion = new Map<number, any[]>();
+      for (const f of feedback) {
+        const key = Number(f.suggestionId);
+        if (!fbBySuggestion.has(key)) fbBySuggestion.set(key, []);
+        fbBySuggestion.get(key)!.push(f);
+      }
+      const actionsByIssue = new Map<number, any[]>();
+      for (const a of actions) {
+        const key = Number(a.issueId);
+        if (!actionsByIssue.has(key)) actionsByIssue.set(key, []);
+        actionsByIssue.get(key)!.push(a);
+      }
+
+      for (const r of rows) {
+        const issueId = Number(r.issueId);
+        const fb = fbBySuggestion.get(Number(r.id)) || [];
+        const latest = fb[fb.length - 1] || null;
+        const rated = fb.filter((f) => f.rating === "up" || f.rating === "down");
+        const verdict = rated[rated.length - 1]?.rating || "";
+        const themes = [
+          ...new Set(fb.flatMap((f) => this.parseIssueExportJson<string[]>(f.categories, []))),
+        ];
+        const suggested = this.getIssueExportDateTimeParts(r.generatedAt);
+        const reviewed = latest ? this.getIssueExportDateTimeParts(latest.createdAt) : { date: "", time: "" };
+
+        byIssue.set(issueId, {
+          "IR Copilot Summary": this.formatIssueExportText(r.summary),
+          "IR Copilot Severity": r.severity || "",
+          "IR Copilot Confidence": r.confidence == null ? "" : Number(r.confidence),
+          "IR Copilot Status": r.status || "",
+          "IR Copilot Primary Action": this.formatIssueExportText(r.primaryAction),
+          "IR Copilot Playbook": this.formatIssueExportPlaybook(r.playbookJson),
+          "IR Copilot Warnings": this.parseIssueExportJson<string[]>(r.warningsJson, [])
+            .map((w) => this.formatIssueExportText(w))
+            .filter(Boolean)
+            .join(" | "),
+          "IR Copilot Recommended Contacts": this.formatIssueExportContacts(r.recommendedContactsJson),
+          "IR Copilot Draft Guest Message": this.formatIssueExportText(r.draftGuestMessage),
+          "IR Copilot Draft Internal Note": this.formatIssueExportText(r.draftInternalNote),
+          "IR Copilot Draft Vendor Message": this.formatIssueExportText(r.draftVendorMessage),
+          "IR Copilot Suggested On": suggested.date,
+          "IR Copilot Suggested At": suggested.time,
+          "IR Copilot Regenerations": regeneratedByIssue.get(issueId) || 0,
+          "IR Copilot Feedback Rating": verdict === "up" ? "Approved" : verdict === "down" ? "Needs work" : "",
+          "IR Copilot Feedback Themes": themes.join(", "),
+          "IR Copilot Feedback Notes": this.formatIssueExportText(latest?.feedbackText),
+          "IR Copilot Corrected Response": this.formatIssueExportText(latest?.correctedResponse),
+          "IR Copilot Feedback By":
+            latest?.userId != null ? users.get(Number(latest.userId)) || `User ${latest.userId}` : "",
+          "IR Copilot Feedback On": reviewed.date,
+          "IR Copilot Actions Taken": this.formatIssueExportActions(actionsByIssue.get(issueId) || []),
+        });
+      }
+    } catch (error: any) {
+      // A missing IR table or a bad row shouldn't cost someone their export.
+      logger.warn(`[IssuesService] IR Copilot export columns unavailable: ${error?.message}`);
+    }
+
+    return byIssue;
+  }
+
+  /** Numeric SecureStay user id → display name, for IR feedback attribution. */
+  private async buildIssueExportAiUserNames() {
+    const map = new Map<number, string>();
+    const rows: any[] = await appDatabase
+      .query("SELECT id, firstName, lastName, email FROM users WHERE deletedAt IS NULL")
+      .catch(() => []);
+    for (const u of rows) {
+      const name = [u.firstName, u.lastName].filter(Boolean).join(" ").trim();
+      map.set(Number(u.id), name || u.email || `User ${u.id}`);
+    }
+    return map;
+  }
+
+  private parseIssueExportJson<T>(raw: any, fallback: T): T {
+    if (!raw) return fallback;
+    try {
+      const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      return (parsed ?? fallback) as T;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private formatIssueExportPlaybook(raw: any) {
+    const steps = this.parseIssueExportJson<any[]>(raw, []);
+    if (!Array.isArray(steps)) return "";
+    return steps
+      .map((step, index) => {
+        const owner = step?.ownerLane ? `[${step.ownerLane}] ` : "";
+        const detail = this.formatIssueExportText(step?.detail);
+        const text = this.formatIssueExportText(step?.step);
+        if (!text && !detail) return "";
+        return `${index + 1}. ${owner}${text}${detail ? ` — ${detail}` : ""}`;
+      })
+      .filter(Boolean)
+      .join(" | ");
+  }
+
+  private formatIssueExportContacts(raw: any) {
+    const contacts = this.parseIssueExportJson<any[]>(raw, []);
+    if (!Array.isArray(contacts)) return "";
+    return contacts
+      .map((contact, index) => {
+        const name = this.formatIssueExportText(contact?.name);
+        if (!name) return "";
+        const role = this.formatIssueExportText(contact?.role);
+        const reach = [contact?.phone, contact?.email].filter(Boolean).join(" / ");
+        const reason = this.formatIssueExportText(contact?.reason);
+        return `${index + 1}. ${role ? `${role}: ` : ""}${name}${reach ? ` (${reach})` : ""}${
+          reason ? ` — ${reason}` : ""
+        }`;
+      })
+      .filter(Boolean)
+      .join(" | ");
+  }
+
+  private formatIssueExportActions(actions: any[]) {
+    return actions
+      .map((a) => {
+        const label = ACTION_LABELS[String(a.actionType)] || String(a.actionType || "");
+        if (!label) return "";
+        const when = this.getIssueExportDateTimeParts(a.createdAt);
+        const tags = [
+          Number(a.automated) === 1 ? "automated" : null,
+          String(a.status) === "skipped" ? "not sent" : null,
+        ].filter(Boolean);
+        return `${label}${tags.length ? ` (${tags.join(", ")})` : ""}${
+          when.date ? ` on ${when.date} ${when.time}` : ""
+        }`;
+      })
+      .filter(Boolean)
+      .join(" | ");
+  }
+
   private getIssueExportTime(value?: string | Date | null) {
     const time = value ? new Date(value).getTime() : 0;
     return Number.isFinite(time) ? time : 0;
@@ -2100,8 +2351,14 @@ export class IssuesService {
       filters.userId
     );
 
-    const formattedData = (result.issues || []).flatMap((issue: any) => {
+    const issues = result.issues || [];
+    const aiByIssue = await this.buildIssueExportAiColumns(issues.map((issue: any) => issue.id));
+
+    const formattedData = issues.flatMap((issue: any) => {
       const baseRow = this.getIssueExportBaseRow(issue);
+      // Spread on every row, present or not, so the sheet's column set (which
+      // XLSX derives from the row keys) stays the same shape for every export.
+      const aiRow = aiByIssue.get(Number(issue.id)) || EMPTY_ISSUE_EXPORT_AI_COLUMNS;
       const events = this.filterIssueExportEvents(
         issue,
         this.getIssueExportEvents(issue, filters.updateSource || "all"),
@@ -2150,6 +2407,7 @@ export class IssuesService {
           "Guest Sentiment Notes": baseRow["Guest Sentiment Notes"],
           "AI Generated Manager Notes": baseRow["AI Generated Manager Notes"],
           "Manager Feedback": baseRow["Manager Feedback"],
+          ...aiRow,
         };
       });
     });

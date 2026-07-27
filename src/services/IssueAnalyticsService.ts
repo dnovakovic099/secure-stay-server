@@ -51,7 +51,8 @@ const IR_CATEGORIES = new Set([
     "LANDSCAPING",
 ]);
 
-const ACTION_LABELS: Record<string, string> = {
+/** Human-readable names for `issue_ai_actions.actionType`. */
+export const ACTION_LABELS: Record<string, string> = {
     guest_message: "Guest message sent (Inbox)",
     guest_sms: "Guest SMS sent (Quo)",
     vendor_sms: "Vendor SMS",
