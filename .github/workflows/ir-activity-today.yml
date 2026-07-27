@@ -1,0 +1,120 @@
+name: IR Activity Today
+
+on:
+  workflow_dispatch:
+
+jobs:
+  query:
+    name: Read-only IR activity on prod
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query issue_ai_* activity for today (America/New_York)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT }}
+          command_timeout: 5m
+          script: |
+            set -e
+            cd /home/ec2-user/secure_stay/secure-stay-server
+            node <<'NODE'
+            require("dotenv").config();
+            const mysql = require("mysql2/promise");
+            (async () => {
+              const TZ = process.env.ISSUES_EXPORT_TIME_ZONE || "America/New_York";
+              const c = await mysql.createConnection({
+                host: process.env.DATABASE_URL,
+                port: Number(process.env.DATABASE_PORT),
+                user: process.env.DATABASE_USERNAME,
+                password: process.env.DATABASE_PASSWORD,
+                database: process.env.DATABASE_NAME,
+              });
+              const [[win]] = await c.query(
+                `SELECT CONVERT_TZ(CONCAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', ?)), ' 00:00:00'), ?, '+00:00') AS dayStart`,
+                [TZ, TZ]
+              );
+              let start = win && win.dayStart;
+              if (!start) {
+                const [[fb]] = await c.query(`SELECT DATE_SUB(UTC_DATE(), INTERVAL 4 HOUR) AS d`);
+                start = fb.d;
+              }
+              console.log(`Window start (UTC): ${new Date(start).toISOString()} [${TZ} midnight]`);
+
+              const [suggestions] = await c.query(
+                `SELECT COUNT(*) AS total,
+                        SUM(status = 'regenerated') AS regenerated,
+                        COUNT(DISTINCT issueId) AS tickets
+                 FROM issue_ai_suggestions WHERE generatedAt >= ?`,
+                [start]
+              );
+              const s = suggestions[0] || {};
+              console.log(
+                `Suggestions generated today: ${Number(s.total || 0)} across ${Number(s.tickets || 0)} tickets (${Number(s.regenerated || 0)} regenerated)`
+              );
+
+              const [actions] = await c.query(
+                `SELECT actionType, status, automated, COUNT(*) AS n
+                 FROM issue_ai_actions WHERE createdAt >= ?
+                 GROUP BY actionType, status, automated ORDER BY n DESC`,
+                [start]
+              );
+              const actionTotal = actions.reduce((a, r) => a + Number(r.n), 0);
+              console.log(`Action rows today: ${actionTotal}`);
+              for (const a of actions) {
+                console.log(
+                  `  ${a.actionType} x${a.n} (${a.status}${Number(a.automated) === 1 ? ", automated" : ""})`
+                );
+              }
+
+              const [feedback] = await c.query(
+                `SELECT f.id, f.issueId, f.suggestionId, f.userId, f.rating, f.categories,
+                        f.feedbackText, f.correctedResponse, f.createdAt,
+                        i.ai_short_title, i.issue_description, i.category, i.listing_name,
+                        CONCAT(COALESCE(u.firstName,''), ' ', COALESCE(u.lastName,'')) AS reviewer
+                 FROM issue_ai_feedback f
+                 LEFT JOIN issues i ON i.id = f.issueId
+                 LEFT JOIN users u ON u.id = f.userId
+                 WHERE f.createdAt >= ?
+                 ORDER BY f.createdAt ASC`,
+                [start]
+              );
+              console.log(`Feedback submitted today: ${feedback.length}`);
+              for (const f of feedback) {
+                const when = new Date(f.createdAt).toLocaleString("en-US", { timeZone: TZ });
+                const title = f.ai_short_title || f.issue_description || "";
+                console.log(`\n  [${when}] ticket ${f.issueId} — ${String(title).slice(0, 80)}`);
+                console.log(
+                  `    by: ${String(f.reviewer || "").trim() || "user " + f.userId}  rating: ${f.rating || "(none)"}`
+                );
+                if (f.categories) console.log(`    themes: ${f.categories}`);
+                if (f.feedbackText) console.log(`    note: ${String(f.feedbackText).slice(0, 300)}`);
+                if (f.correctedResponse)
+                  console.log(`    correction: ${String(f.correctedResponse).slice(0, 300)}`);
+              }
+
+              const [recent] = await c.query(
+                `SELECT DATE(createdAt) AS d, COUNT(*) AS n
+                 FROM issue_ai_feedback
+                 WHERE createdAt >= DATE_SUB(UTC_DATE(), INTERVAL 14 DAY)
+                 GROUP BY DATE(createdAt) ORDER BY d DESC`
+              );
+              console.log(`\nFeedback per day (last 14d, UTC dates):`);
+              if (!recent.length) console.log("  none");
+              for (const r of recent) {
+                console.log(`  ${new Date(r.d).toISOString().slice(0, 10)}  ${r.n}`);
+              }
+              const [totals] = await c.query(
+                `SELECT COUNT(*) AS n, MAX(createdAt) AS last FROM issue_ai_feedback`
+              );
+              console.log(
+                `\nAll-time feedback rows: ${totals[0].n}` +
+                  (totals[0].last ? `, most recent ${new Date(totals[0].last).toISOString()}` : "")
+              );
+              await c.end();
+            })().catch((e) => {
+              console.error(e);
+              process.exit(1);
+            });
+            NODE
