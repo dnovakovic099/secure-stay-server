@@ -798,7 +798,12 @@ export class IssuesController {
     try {
       const issueId = Number(request.params.id);
       const body = String(request.body?.body || request.body?.message || "").trim();
-      const data = await new IssueAIService().sendGuestDraft(issueId, body, request.user);
+      const data = await new IssueAIService().sendGuestDraft(
+        issueId,
+        body,
+        request.user,
+        Number(request.body?.suggestionId) || null
+      );
       return response.status(200).json({ status: true, data });
     } catch (error) {
       next(error);
@@ -814,6 +819,7 @@ export class IssuesController {
         phone: request.body?.phone ?? null,
         user: request.user,
         target: request.body?.target === "vendor" ? "vendor" : "guest",
+        suggestionId: Number(request.body?.suggestionId) || null,
       });
       return response.status(200).json({ status: true, data });
     } catch (error) {
@@ -827,7 +833,13 @@ export class IssuesController {
       const issueId = Number(request.params.id);
       const note = String(request.body?.note || request.body?.body || "").trim();
       const userId = String(request.user?.id || "system");
-      const data = await new IssueAIService().logInternalNote(issueId, note, userId, request.user);
+      const data = await new IssueAIService().logInternalNote(
+        issueId,
+        note,
+        userId,
+        request.user,
+        Number(request.body?.suggestionId) || null
+      );
       return response.status(201).json({ status: true, data });
     } catch (error) {
       next(error);
@@ -844,6 +856,7 @@ export class IssuesController {
         note: request.body?.note ?? null,
         userId: String(request.user?.id || "system"),
         user: request.user,
+        suggestionId: Number(request.body?.suggestionId) || null,
       });
       return response.status(200).json({ status: true, data });
     } catch (error) {

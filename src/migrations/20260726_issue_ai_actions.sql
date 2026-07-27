@@ -65,7 +65,10 @@ WHERE u.deletedAt IS NULL
     OR u.updates LIKE 'IR Copilot auto-ack sent%'
   );
 
--- Analytics groups feedback by reviewer and rating; the table only had
--- suggestion/issue/created indexes.
+-- Analytics groups feedback by reviewer; the table only had suggestion/issue/
+-- created indexes.
 CREATE INDEX `idx_issue_ai_feedback_user` ON `issue_ai_feedback` (`userId`);
-CREATE INDEX `idx_issue_ai_feedback_rating` ON `issue_ai_feedback` (`rating`);
+-- The review queue resolves each suggestion's latest verdict with a correlated
+-- "newest row for this suggestion" lookup, which needs createdAt alongside the
+-- suggestion key. A rating-only index is too low-cardinality to be worth it.
+CREATE INDEX `idx_issue_ai_feedback_verdict` ON `issue_ai_feedback` (`suggestionId`, `createdAt`);

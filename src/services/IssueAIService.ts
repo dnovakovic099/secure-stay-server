@@ -2512,7 +2512,7 @@ export class IssueAIService {
     // Phase 2 — human-gated execute helpers
     // -------------------------------------------------------------------------
 
-    async sendGuestDraft(issueId: number, body: string, user: any) {
+    async sendGuestDraft(issueId: number, body: string, user: any, suggestionId?: number | null) {
         const text = String(body || "").trim();
         if (!text) throw CustomErrorHandler.validationError("Message body is required");
         const issue = await this.issueRepo.findOne({ where: { id: issueId } });
@@ -2535,14 +2535,24 @@ export class IssueAIService {
             `IR Copilot: guest message sent via Inbox (thread ${conv.threadId}).\n\n${text.slice(0, 1500)}`,
             user?.id || user?.secureStayUserId || "system"
         );
-        await this.logAction(issue, "guest_message", { channel: "inbox", user, detail: text });
+        await this.logAction(issue, "guest_message", {
+            channel: "inbox",
+            user,
+            detail: text,
+            suggestionId,
+        });
         return { sent: true, channel: "inbox", threadId: Number(conv.threadId), messageId: saved?.id ?? null };
     }
 
     async sendSmsDraft(
         issueId: number,
         body: string,
-        opts: { phone?: string | null; user?: any; target?: "guest" | "vendor" } = {}
+        opts: {
+            phone?: string | null;
+            user?: any;
+            target?: "guest" | "vendor";
+            suggestionId?: number | null;
+        } = {}
     ) {
         const text = String(body || "").trim();
         if (!text) throw CustomErrorHandler.validationError("Message body is required");
@@ -2571,6 +2581,7 @@ export class IssueAIService {
                     channel: "quo",
                     user: opts.user,
                     detail: text,
+                    suggestionId: opts.suggestionId,
                 });
                 return {
                     sent: true,
@@ -2593,6 +2604,7 @@ export class IssueAIService {
                 user: opts.user,
                 status: "skipped",
                 detail: text,
+                suggestionId: opts.suggestionId,
             });
             return {
                 sent: false,
@@ -2609,7 +2621,13 @@ export class IssueAIService {
      * `userId` is the Supabase uid used for the ticket-update author string;
      * `user` carries the numeric SecureStay id that analytics attributes to.
      */
-    async logInternalNote(issueId: number, note: string, userId: string, user?: any) {
+    async logInternalNote(
+        issueId: number,
+        note: string,
+        userId: string,
+        user?: any,
+        suggestionId?: number | null
+    ) {
         const text = String(note || "").trim();
         if (!text) throw CustomErrorHandler.validationError("Note is required");
         const issue = await this.issueRepo.findOne({ where: { id: issueId } });
@@ -2623,6 +2641,7 @@ export class IssueAIService {
             channel: "ticket",
             user: user || { id: userId },
             detail: text,
+            suggestionId,
         });
         return { logged: true, update };
     }
@@ -2635,6 +2654,7 @@ export class IssueAIService {
             note?: string | null;
             userId?: string;
             user?: any;
+            suggestionId?: number | null;
         }
     ) {
         const issue = await this.issueRepo.findOne({ where: { id: issueId } });
@@ -2656,6 +2676,7 @@ export class IssueAIService {
             channel: "ticket",
             user: opts.user || { id: opts.userId },
             detail: `Next update ${nextDate}`,
+            suggestionId: opts.suggestionId,
         });
         return { scheduled: true, nextUpdateDate: nextDate };
     }
@@ -2673,17 +2694,26 @@ export class IssueAIService {
             automated?: boolean;
             detail?: string | null;
             status?: string;
+            /**
+             * The playbook the operator acted on. Falls back to the newest one,
+             * but callers should pass it: if the suggestion was regenerated
+             * between render and send, the newest row is not the one they saw.
+             */
+            suggestionId?: number | null;
         } = {}
     ) {
         try {
-            const suggestion = await this.suggestionRepo.findOne({
-                where: { issueId: issue.id },
-                order: { generatedAt: "DESC" },
-            });
+            const explicit = Number(opts.suggestionId) || null;
+            const suggestion = explicit
+                ? null
+                : await this.suggestionRepo.findOne({
+                      where: { issueId: issue.id },
+                      order: { generatedAt: "DESC" },
+                  });
             await this.actionRepo.save(
                 this.actionRepo.create({
                     issueId: issue.id,
-                    suggestionId: suggestion?.id ?? null,
+                    suggestionId: explicit ?? suggestion?.id ?? null,
                     listingId: this.parsePositiveInt(issue.listing_id),
                     userId: Number(opts.user?.secureStayUserId ?? opts.user?.id) || null,
                     actionType,

@@ -611,10 +611,10 @@ export class IssueAnalyticsService {
     /**
      * @param state "unrated" (default) | "down" | "up" | "all"
      *
-     * The rated/unrated split depends on the latest feedback per suggestion,
-     * which is cheaper to resolve in JS than as a correlated subquery — so a
-     * bounded page of suggestions is loaded and partitioned here. `truncated`
-     * tells the caller the tab counts only cover that page.
+     * The state filter runs in SQL rather than over a capped scan: filtering a
+     * truncated page in memory hides older unrated work whenever the newest
+     * suggestions happen to be reviewed already, which is exactly the backlog
+     * this queue exists to surface.
      */
     async queue(
         sinceDays: number,
@@ -624,7 +624,6 @@ export class IssueAnalyticsService {
     ) {
         const days = this.clampDays(sinceDays);
         const lim = Math.min(Math.max(Number(limit) || 40, 1), 200);
-        const SCAN_CAP = 1000;
         const issueWhere = this.issueClause(filters);
         const win = this.windowClause("s.generatedAt", days, filters);
         const reviewerId =
@@ -632,78 +631,76 @@ export class IssueAnalyticsService {
                 ? Number(filters.reviewerId)
                 : null;
 
-        // Pass 1 — identifiers only. Suggestion rows carry several mediumtext
-        // JSON blobs; pulling a thousand of those to compute three tab counts
-        // and then render forty of them wastes most of the transfer.
-        const scan = await this.q(
-            `SELECT s.id, s.issueId
-             FROM issue_ai_suggestions s
-             JOIN issues i ON i.id = s.issueId
-             WHERE i.deleted_at IS NULL AND s.status <> 'regenerated'
-               ${win.sql} ${issueWhere.sql}
-             ORDER BY s.generatedAt DESC
-             LIMIT ${SCAN_CAP}`,
-            [...win.params, ...issueWhere.params]
-        );
-        if (!scan.length) {
-            return {
-                sinceDays: days,
-                state,
-                total: 0,
-                truncated: false,
-                counts: { unrated: 0, up: 0, down: 0 },
-                items: [],
-            };
-        }
-
-        const scanIds = scan.map((r) => Number(r.id));
-        const ratingRows = await this.q(
-            `SELECT suggestionId, userId, rating
-             FROM issue_ai_feedback
-             WHERE rating IN ('up','down')
-               AND suggestionId IN (${scanIds.map(() => "?").join(",")})
-             ORDER BY createdAt ASC`,
-            scanIds
-        );
-
         // With a reviewer selected the queue answers "what's left for them to
-        // review", so only their verdict counts. Last write wins.
-        const verdicts = new Map<number, "up" | "down">();
-        for (const f of ratingRows) {
-            if (reviewerId && Number(f.userId) !== reviewerId) continue;
-            verdicts.set(Number(f.suggestionId), f.rating);
-        }
-        const latestRating = (suggestionId: number) => verdicts.get(suggestionId) ?? null;
+        // review", so only their verdict counts.
+        const reviewerClause = reviewerId ? "AND f.userId = ?" : "";
+        const reviewerParam = reviewerId ? [reviewerId] : [];
+        const latestVerdict = `(SELECT f.rating
+                                  FROM issue_ai_feedback f
+                                 WHERE f.suggestionId = s.id
+                                   AND f.rating IN ('up','down')
+                                   ${reviewerClause}
+                                 ORDER BY f.createdAt DESC, f.id DESC
+                                 LIMIT 1)`;
 
-        const counts = { unrated: 0, up: 0, down: 0 };
-        for (const r of scan) {
-            const rating = latestRating(Number(r.id));
-            if (rating === "up") counts.up++;
-            else if (rating === "down") counts.down++;
-            else counts.unrated++;
-        }
+        const base = `FROM issue_ai_suggestions s
+                      JOIN issues i ON i.id = s.issueId
+                      WHERE i.deleted_at IS NULL AND s.status <> 'regenerated'
+                        ${win.sql} ${issueWhere.sql}`;
+        const baseParams = [...win.params, ...issueWhere.params];
 
-        const wanted = scan.filter((r) => {
-            const rating = latestRating(Number(r.id));
-            if (state === "up") return rating === "up";
-            if (state === "down") return rating === "down";
-            if (state === "all") return true;
-            return rating === null;
-        });
+        const stateSql =
+            state === "up"
+                ? `AND ${latestVerdict} = 'up'`
+                : state === "down"
+                  ? `AND ${latestVerdict} = 'down'`
+                  : state === "all"
+                    ? ""
+                    : `AND ${latestVerdict} IS NULL`;
 
-        const page = wanted.slice(0, lim);
+        // The verdict subquery carries its own reviewer placeholder, and it sits
+        // before the window clause in the count query but after it in the page
+        // query — so the two bind lists are ordered independently.
+        const [countRows, page] = await Promise.all([
+            this.q(
+                `SELECT SUM(latest IS NULL) AS unrated,
+                        SUM(latest = 'up') AS up,
+                        SUM(latest = 'down') AS down
+                 FROM (SELECT ${latestVerdict} AS latest ${base}) t`,
+                [...reviewerParam, ...baseParams]
+            ),
+            this.q(
+                `SELECT s.id, s.issueId ${base} ${stateSql}
+                 ORDER BY s.generatedAt DESC
+                 LIMIT ?`,
+                [
+                    ...baseParams,
+                    ...(state === "all" ? [] : reviewerParam),
+                    lim,
+                ]
+            ),
+        ]);
+
+        const counts = {
+            unrated: Number(countRows[0]?.unrated || 0),
+            up: Number(countRows[0]?.up || 0),
+            down: Number(countRows[0]?.down || 0),
+        };
+        const total =
+            state === "up"
+                ? counts.up
+                : state === "down"
+                  ? counts.down
+                  : state === "all"
+                    ? counts.unrated + counts.up + counts.down
+                    : counts.unrated;
+
         if (!page.length) {
-            return {
-                sinceDays: days,
-                state,
-                total: wanted.length,
-                truncated: scan.length >= SCAN_CAP,
-                counts,
-                items: [],
-            };
+            return { sinceDays: days, state, total, counts, items: [] };
         }
 
-        // Pass 2 — hydrate only what is actually rendered.
+        // Hydrate only what is actually rendered — suggestion rows carry several
+        // mediumtext JSON blobs.
         const ids = page.map((r) => Number(r.id));
         const issueIds = [...new Set(page.map((r) => Number(r.issueId)))];
         const [rows, feedback, actions] = await Promise.all([
@@ -752,6 +749,16 @@ export class IssueAnalyticsService {
             actionsBy.get(key)!.push(a);
         }
 
+        // Mirrors the SQL verdict rule so a card's badge matches the tab it came from.
+        const latestRating = (suggestionId: number): "up" | "down" | null => {
+            const rated = (fbBy.get(suggestionId) || []).filter(
+                (f) =>
+                    (f.rating === "up" || f.rating === "down") &&
+                    (!reviewerId || Number(f.userId) === reviewerId)
+            );
+            return (rated[rated.length - 1]?.rating as "up" | "down") || null;
+        };
+
         const items = rows.map((r) => ({
             suggestionId: Number(r.id),
             issueId: Number(r.issueId),
@@ -798,14 +805,7 @@ export class IssueAnalyticsService {
             })),
         }));
 
-        return {
-            sinceDays: days,
-            state,
-            total: wanted.length,
-            truncated: scan.length >= SCAN_CAP,
-            counts,
-            items,
-        };
+        return { sinceDays: days, state, total, counts, items };
     }
 
     // -------------------------------------------------------------------------
