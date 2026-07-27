@@ -56,11 +56,12 @@ import {
     derivePaymentState,
     guestAsksAgreement,
     guestAsksWifi,
-    opsTextExplicitlyConfirmed,
     PaymentState,
     renderAssertPolicyBlock,
     renderEarlyLateCheckPolicy,
 } from "./InboxAIAssertPolicy";
+import { unsupportedOpsClaims } from "./InboxAIOpsEvidence";
+import { stripDashes } from "./InboxAIReplyFormat";
 
 /**
  * InboxAIService
@@ -85,8 +86,16 @@ import {
  * human via the escalation keyword safety net.
  */
 
-export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v7.9"; // v7.9: guest sentiment score 1–10
+export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v8.0"; // v8.0: ops-ledger completion gate
 const INBOX_AI_MODEL = process.env.AI_MESSAGING_MODEL || "gpt-4.1";
+
+// How long a finished ops item stays in the ledger. Long enough that the bot can
+// tell a guest their request was handled; short enough that a closed item from an
+// earlier stay never licenses a completion claim about something new.
+const OPS_DONE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Default calendar look-ahead. Extended per-conversation to reach past checkout.
+const AVAILABILITY_HORIZON_DAYS = 45;
 
 const textOrDefault = (value: string | null | undefined, fallback: string): string =>
     String(value || "").trim() || fallback;
@@ -717,17 +726,6 @@ export class InboxAIService {
             );
         }
 
-        // (b2) Completion-claim net: the reply asserts an action already happened
-        //      ("I've blocked…", "you're all set") with no confirmation in context.
-        const actionClaims = this.detectActionClaims(reply, contextHaystack);
-        if (actionClaims.length) {
-            warnings.push(
-                `Reply claims action(s) already completed with no confirmation in context: ${actionClaims
-                    .map((c) => `"${c}"`)
-                    .join("; ")}. Confirm it actually happened or rephrase as a commitment.`
-            );
-        }
-
         // (b3) Speech-act gate — codes, discretionary approvals, unconfirmed ops
         //      completions, Hostify-as-agreement — even when raw values exist in context.
         const stageLine = this.stayStageLine(conversation.checkin, conversation.checkout);
@@ -738,6 +736,31 @@ export class InboxAIService {
             targetMessage?.direction === "incoming" && !Number(targetMessage.isAutomatic)
                 ? targetMessage.body || ""
                 : "";
+
+        // (b2) Ops-ledger gate: the reply asserts an operational action is done,
+        //      under way, or approved. The ops ledger in the context is the only
+        //      authority; a request the guest just made cannot already be handled,
+        //      because ticket detection runs minutes behind this reply.
+        const actionClaims = unsupportedOpsClaims({
+            reply,
+            guestText: guestAskText,
+            evidence: {
+                hasCompleted: /\[ops_confirm_ok\]/i.test(context),
+                hasOpenWork: /\[ops_open_work\]/i.test(context),
+            },
+            approvalOnRecord: /\[ops_approved_on_record\]/i.test(context),
+        });
+        if (actionClaims.length) {
+            warnings.push(
+                `Reply states operational work is done/under way/approved with nothing in the ops ledger to support it: ${actionClaims
+                    .map((c) => `"${c.text}" (${c.kind})`)
+                    .join("; ")}. Rephrase as a commitment ("I'm getting this to the team") or confirm it actually happened.`
+            );
+            output.escalation_required = true;
+            output.escalation_reason = output.escalation_reason
+                ? `${output.escalation_reason}; unsupported_ops_claim`
+                : `unsupported_ops_claim:${actionClaims.map((c) => c.kind).join("|")}`;
+        }
         const codesAllowed = stayAllowsAccessCodes(stageLine) || guestReportsLockout(guestAskText || conversation.lastMessageText || "");
         const paymentStateMatch = context.match(/payment_state:\s*(paid|due|failed|auth_required|unknown)/i);
         const paymentState = (paymentStateMatch?.[1]?.toLowerCase() || "unknown") as PaymentState;
@@ -933,48 +956,6 @@ export class InboxAIService {
             }
         }
         return saved;
-    }
-
-    /**
-     * Completion-claim detector (July audit: #1 miss pattern in BOTH inboxes).
-     * The model asserts operational actions are already done — "I've blocked
-     * off 7/19", "You're all set for a 2 PM checkout", "your refund has been
-     * processed" — when nothing in the context confirms anyone did anything.
-     * The verifier misses these because they aren't contradicted by context,
-     * just unsupported by it. Returns the offending phrases; empty = clean.
-     */
-    private detectActionClaims(reply: string, contextHaystack: string): string[] {
-        const text = String(reply || "");
-        if (!text.trim()) return [];
-        const hay = contextHaystack.toLowerCase();
-        const claims: string[] = [];
-        const verbGroup =
-            "(blocked|booked|approved|confirmed|scheduled|arranged|processed|refunded|extended|updated|adjusted|added|removed|cancelled|canceled|waived|applied|activated|deactivated|reserved|set up|taken care of)";
-        const patterns: RegExp[] = [
-            // "I've blocked…", "we've already approved…", "we have gone ahead and scheduled…"
-            new RegExp(
-                `\\b(?:i|we)(?:['’]ve|\\s+have)\\s+(?:already\\s+|just\\s+|gone\\s+ahead\\s+and\\s+)?${verbGroup}\\b[^.!?\\n]{0,80}`,
-                "gi"
-            ),
-            // "…has been approved", "it's been refunded"
-            new RegExp(`\\b(?:has|have)\\s+(?:already\\s+)?been\\s+${verbGroup}\\b[^.!?\\n]{0,80}`, "gi"),
-            new RegExp(`\\b(?:it|that)['’]s\\s+(?:already\\s+)?been\\s+${verbGroup}\\b[^.!?\\n]{0,80}`, "gi"),
-            // "you're all set", "everything is set for…"
-            /\byou(?:['’]re| are)\s+all\s+set\b[^.!?\n]{0,60}/gi,
-        ];
-        for (const re of patterns) {
-            for (const match of text.match(re) || []) {
-                // Evidence check: only the completed form counts ("blocked" in a
-                // team message grounds "I've blocked"; the guest ASKING "can you
-                // block" does not). Exact-form match keeps this tight.
-                const m = match.toLowerCase();
-                const verb = (m.match(new RegExp(verbGroup, "i")) || [])[0]?.toLowerCase() || null;
-                if (verb && hay.includes(verb)) continue;
-                if (!verb && /all\s+set/.test(m) && hay.includes("all set")) continue;
-                claims.push(match.trim());
-            }
-        }
-        return [...new Set(claims)].slice(0, 5);
     }
 
     private get verifierModel(): string {
@@ -1924,19 +1905,32 @@ export class InboxAIService {
             warnings.push(`Reply may contain unverified value(s) not found in context: ${leaks.join(", ")}.`);
         }
 
-        // Completion-claim net — critical on PM threads, where "I've blocked off
-        // 7/19" to an owner (self-score AND verifier 100 in the July audit) would
-        // otherwise go out as fact when nobody has touched the calendar.
-        const actionClaims = this.detectActionClaims(reply, haystack);
-        if (actionClaims.length) {
-            warnings.push(
-                `Reply claims action(s) already completed with no confirmation in context: ${actionClaims
-                    .map((c) => `"${c}"`)
-                    .join("; ")}. Confirm it actually happened or rephrase as a commitment.`
-            );
-        }
         // Quo rows lack stay dates here — only allow codes on explicit lockout reports.
         const quoGuest = target.body || "";
+
+        // Ops-ledger gate — critical on PM threads, where "I've blocked off 7/19"
+        // to an owner (self-score AND verifier 100 in the July audit) would
+        // otherwise go out as fact when nobody has touched the calendar.
+        const actionClaims = unsupportedOpsClaims({
+            reply,
+            guestText: quoGuest,
+            evidence: {
+                hasCompleted: /\[ops_confirm_ok\]/i.test(context),
+                hasOpenWork: /\[ops_open_work\]/i.test(context),
+            },
+            approvalOnRecord: /\[ops_approved_on_record\]/i.test(context),
+        });
+        if (actionClaims.length) {
+            warnings.push(
+                `Reply states operational work is done/under way/approved with nothing in the ops ledger to support it: ${actionClaims
+                    .map((c) => `"${c.text}" (${c.kind})`)
+                    .join("; ")}. Rephrase as a commitment or confirm it actually happened.`
+            );
+            output.escalation_required = true;
+            output.escalation_reason = output.escalation_reason
+                ? `${output.escalation_reason}; unsupported_ops_claim`
+                : `unsupported_ops_claim:${actionClaims.map((c) => c.kind).join("|")}`;
+        }
         const quoPayMatch = context.match(/payment_state:\s*(paid|due|failed|auth_required|unknown)/i);
         const quoUnsafe = detectUnsafeAsserts(reply, {
             codesAllowed: guestReportsLockout(quoGuest),
@@ -3009,28 +3003,7 @@ export class InboxAIService {
      * suggested_reply only — never to internal fields.
      */
     private stripDashes(text: string): string {
-        if (!text) return text;
-        // Sentence dashes (en/em dash, or a spaced hyphen) read as punctuation —
-        // turn them into a comma so the sentence still flows ("out back — I've
-        // got a kayak" → "out back, I've got a kayak"), instead of the bare
-        // space that used to create run-ons.
-        const commaFixed = text
-            .replace(/(\d)\s*[\u2012-\u2015\u2212]\s*(?=[A-Za-z0-9])/g, "$1 to ")
-            .replace(/\s+-\s+/g, ", ")
-            .replace(/\s*[\u2012-\u2015\u2212]\s*/g, ", ");
-        // Remaining hyphen variants (compound words like check-in) become spaces.
-        const noDash = commaFixed.replace(/[\u2010-\u2011\uFE58\uFE63\uFF0D-]/g, " ");
-        return noDash
-            .split("\n")
-            .map((line) =>
-                line
-                    .replace(/[ \t]{2,}/g, " ")
-                    .replace(/\s+([,.!?;:])/g, "$1")
-                    .replace(/^ +| +$/g, "")
-            )
-            .join("\n")
-            .replace(/\n{3,}/g, "\n\n")
-            .trim();
+        return stripDashes(text);
     }
 
     private parseModelOutput(raw: string): ModelOutput {
@@ -3501,17 +3474,22 @@ export class InboxAIService {
         const hidePrices = Boolean(opts.hidePrices);
         const toKey = (d: Date) => d.toISOString().slice(0, 10);
         const today = new Date();
+        // `start` stays at today so "can we come earlier" cases are covered too.
         const start = new Date(today);
-        // If they already have a stay, anchor the window near it so extension math lines up.
+        const end = new Date(start);
+        end.setDate(end.getDate() + AVAILABILITY_HORIZON_DAYS);
+        // A long stay can end past the default horizon, which left extension asks
+        // with no calendar data for the exact nights in question — the block then
+        // said "no open nights", which reads as a refusal. Always reach past
+        // checkout so the nights an extension is about are actually in the window.
         if (conversation.checkout) {
             const co = new Date(conversation.checkout as any);
-            if (!isNaN(co.getTime()) && co > start) {
-                // keep `start` at today so we also cover "can we come earlier" cases
+            if (!isNaN(co.getTime())) {
+                const pastCheckout = new Date(co);
+                pastCheckout.setDate(pastCheckout.getDate() + 14);
+                if (pastCheckout > end) end.setTime(pastCheckout.getTime());
             }
         }
-        const end = new Date(start);
-        end.setDate(end.getDate() + 45);
-
         let days;
         try {
             days = await this.hostify.getCalendar(this.hostifyApiKey, Number(conversation.listingId), toKey(start), toKey(end));
@@ -3561,10 +3539,19 @@ export class InboxAIService {
                     "Acknowledge the extension ask, say a teammate will confirm availability and the exact price, set escalation_required=true."
             );
         }
+        // The window is explicit: a guest asking about dates beyond it must get a
+        // "let me check", not a confident "we're fully booked".
+        const windowLabel = `${toKey(start)} to ${toKey(end)}`;
         if (ranges.length === 0) {
-            out.push("No open nights in the next 45 days — the calendar is fully booked/blocked.");
+            out.push(
+                `No open nights between ${windowLabel} — the calendar is fully booked/blocked for that window. ` +
+                    `This says NOTHING about dates after ${toKey(end)}; for those, say you'll confirm with the team.`
+            );
         } else {
-            out.push(hidePrices ? "Open date ranges (next 45 days) — dates only, no prices:" : "Open date ranges (next 45 days):");
+            out.push(
+                `${hidePrices ? "Open date ranges — dates only, no prices" : "Open date ranges"} ` +
+                    `(calendar checked ${windowLabel}; nothing is known about dates after ${toKey(end)}):`
+            );
             for (const r of ranges.slice(0, 12)) {
                 const label = r.from === r.to ? r.from : `${r.from} → ${r.to}`;
                 out.push(`- ${label}${fmtRangePrice(r)}`);
@@ -4314,10 +4301,18 @@ export class InboxAIService {
             const m = String(d || "").match(/^\d{4}-\d{2}-\d{2}/);
             return m ? m[0] : "";
         };
-        const out: string[] = [];
-        let hasExplicitConfirmation = false;
+        const recentlyDone = (d: any): boolean => {
+            const t = new Date(String(d || "")).getTime();
+            return Number.isFinite(t) && Date.now() - t <= OPS_DONE_WINDOW_MS;
+        };
 
-        // Open action items for this reservation (or this guest on this property).
+        const openLines: string[] = [];
+        const doneLines: string[] = [];
+        const approvalLines: string[] = [];
+
+        // Internal tasks for this reservation (or this guest on this property).
+        // Completed tasks are kept for a short window: dropping them the moment
+        // they close is what left the bot unable to give a guest good news.
         try {
             const conds: string[] = [];
             const params: any[] = [];
@@ -4331,76 +4326,154 @@ export class InboxAIService {
             }
             if (conds.length) {
                 const rows: any[] = await appDatabase.query(
-                    `SELECT item, category, status, createdAt FROM action_items
-                     WHERE deletedAt IS NULL
-                       AND (completedOn IS NULL OR completedOn = '')
-                       AND (${conds.join(" OR ")})
-                     ORDER BY createdAt DESC LIMIT 5`,
+                    `SELECT item, category, status, createdAt, completedOn FROM action_items
+                     WHERE deletedAt IS NULL AND (${conds.join(" OR ")})
+                     ORDER BY createdAt DESC LIMIT 12`,
                     params
                 );
-                const items = rows
-                    .filter((r) => r.item && String(r.item).trim())
-                    .map((r) => {
-                        const raw = String(r.item).replace(/\s+/g, " ").trim();
-                        const confirmed = opsTextExplicitlyConfirmed(raw);
-                        if (confirmed) hasExplicitConfirmation = true;
-                        const meta = [r.category, r.status, fmtDate(r.createdAt)].filter(Boolean).join(", ");
-                        return `- ${raw.slice(0, 240)}${meta ? ` (${meta})` : ""}${
-                            confirmed ? " [ops_confirm_ok]" : " [open_work_only — do not claim done/ETA]"
-                        }`;
-                    });
-                if (items.length) {
-                    out.push("Open internal tasks for this guest/reservation:");
-                    out.push(...items);
+                for (const r of rows) {
+                    const raw = String(r.item || "").replace(/\s+/g, " ").trim();
+                    if (!raw) continue;
+                    const completedOn = String(r.completedOn || "").trim();
+                    const isDone = !!completedOn;
+                    if (isDone && !recentlyDone(completedOn)) continue;
+                    const meta = [r.category, r.status].filter(Boolean).join(", ");
+                    if (isDone) {
+                        if (doneLines.length >= 4) continue;
+                        doneLines.push(
+                            `- [DONE ${fmtDate(completedOn)}] ${raw.slice(0, 240)}${meta ? ` (${meta})` : ""} [ops_confirm_ok]`
+                        );
+                    } else {
+                        if (openLines.length >= 5) continue;
+                        openLines.push(
+                            `- [OPEN] ${raw.slice(0, 240)}${meta ? ` (${meta})` : ""}${
+                                fmtDate(r.createdAt) ? `, opened ${fmtDate(r.createdAt)}` : ""
+                            } [ops_open_work]`
+                        );
+                    }
                 }
             }
         } catch {
             /* non-fatal */
         }
 
-        // Open property issues tied to THIS reservation only.
+        // Guest Issues tied to THIS reservation. Status is the authority here —
+        // the previous version grepped `next_steps` for words like "done", so a
+        // stray phrase in a free-text field could authorise a completion claim.
         try {
             if (resvId) {
                 const rows: any[] = await appDatabase.query(
-                    `SELECT ai_short_title, issue_description, status, next_steps, created_at FROM issues
+                    `SELECT ai_short_title, issue_description, status, next_steps, created_at, completed_at
+                     FROM issues
                      WHERE deleted_at IS NULL
-                       AND status NOT IN ('Completed')
                        AND created_at >= (NOW() - INTERVAL 30 DAY)
                        AND reservation_id = ?
-                     ORDER BY created_at DESC LIMIT 4`,
+                     ORDER BY created_at DESC LIMIT 8`,
                     [String(resvId)]
                 );
-                const items = rows
-                    .map((r) => {
-                        const title = String(r.ai_short_title || r.issue_description || "").replace(/\s+/g, " ").trim();
-                        if (!title) return null;
+                for (const r of rows) {
+                    const title = String(r.ai_short_title || r.issue_description || "").replace(/\s+/g, " ").trim();
+                    if (!title) continue;
+                    const status = String(r.status || "").trim();
+                    const isDone = /^completed$/i.test(status);
+                    if (isDone) {
+                        if (!recentlyDone(r.completed_at) || doneLines.length >= 4) continue;
+                        doneLines.push(
+                            `- [DONE ${fmtDate(r.completed_at)}] ${title.slice(0, 200)} [ops_confirm_ok]`
+                        );
+                    } else {
+                        if (openLines.length >= 5) continue;
                         const next = String(r.next_steps || "").replace(/\s+/g, " ").trim();
-                        const blob = `${title} ${next}`;
-                        const confirmed = opsTextExplicitlyConfirmed(blob);
-                        if (confirmed) hasExplicitConfirmation = true;
-                        return `- ${title.slice(0, 200)} (status: ${r.status || "?"}${
-                            next ? `; next steps: ${next.slice(0, 160)}` : ""
-                        })${confirmed ? " [ops_confirm_ok]" : " [open_work_only — do not claim done/ETA]"}`;
-                    })
-                    .filter(Boolean) as string[];
-                if (items.length) {
-                    out.push("Open property issues the team is working on for this reservation:");
-                    out.push(...items);
+                        openLines.push(
+                            `- [OPEN] ${title.slice(0, 200)} (status: ${status || "?"}${
+                                next ? `; next steps: ${next.slice(0, 160)}` : ""
+                            }) [ops_open_work]`
+                        );
+                    }
                 }
             }
         } catch {
             /* non-fatal */
         }
 
-        if (!out.length) return { text: null, hasExplicitConfirmation: false };
+        // Paid add-ons that actually cleared. This is the only record that can
+        // support "your late checkout is confirmed" — the Upsells block above
+        // carries pricing policy, not approvals for this guest.
+        try {
+            if (resvId) {
+                const rows: any[] = await appDatabase.query(
+                    `SELECT type, description, cost, status FROM upsell_orders
+                     WHERE booking_id = ? AND status IN ('Approved','Paid')
+                       AND (archived = 0 OR archived IS NULL)
+                     ORDER BY id DESC LIMIT 5`,
+                    [String(resvId)]
+                );
+                for (const r of rows) {
+                    const label = String(r.type || r.description || "").replace(/\s+/g, " ").trim();
+                    if (!label) continue;
+                    const cost = Number(r.cost);
+                    approvalLines.push(
+                        `- [DONE] ${label.slice(0, 120)}${Number.isFinite(cost) && cost > 0 ? ` — $${cost.toFixed(2)}` : ""}` +
+                            ` — ${r.status} [ops_confirm_ok] [ops_approved_on_record]`
+                    );
+                }
+            }
+        } catch {
+            /* non-fatal */
+        }
+
+        // One-click actions a human actually executed from the inbox.
+        try {
+            if (resvId) {
+                const rows: any[] = await appDatabase.query(
+                    `SELECT actionType, title, executedAt, executedByName FROM ai_proposed_actions
+                     WHERE status = 'executed' AND reservationId = ?
+                     ORDER BY executedAt DESC LIMIT 4`,
+                    [resvId]
+                );
+                for (const r of rows) {
+                    if (!recentlyDone(r.executedAt)) continue;
+                    const title = String(r.title || r.actionType || "").replace(/\s+/g, " ").trim();
+                    if (!title) continue;
+                    approvalLines.push(
+                        `- [DONE ${fmtDate(r.executedAt)}] ${title.slice(0, 140)}` +
+                            `${r.executedByName ? ` — approved by ${r.executedByName}` : ""} [ops_confirm_ok] [ops_approved_on_record]`
+                    );
+                }
+            }
+        } catch {
+            /* non-fatal */
+        }
+
+        if (!openLines.length && !doneLines.length && !approvalLines.length) {
+            return { text: null, hasExplicitConfirmation: false };
+        }
+
+        const out: string[] = [
+            "## Internal operations ledger for THIS reservation (STAFF-ONLY)",
+            "This ledger is the ONLY authority on what has actually happened. Apply it literally:",
+            "- [DONE] line — you MAY tell the guest that item is complete.",
+            "- [OPEN] line — the team is on it. Say so, and give NO delivery time, window, or ETA.",
+            "- Nothing listed for what the guest is asking about — nothing has been logged yet. Say you are getting it to the team. Do NOT say it is arranged, scheduled, approved, or noted.",
+            "Ticket detection runs several minutes behind this reply, so a request the guest just made will NOT appear here yet. A brand-new ask is never already handled.",
+            "Never quote internal wording, staff names, or internal prices. Never invent on-site presence.",
+        ];
+        if (doneLines.length) {
+            out.push("Completed recently:");
+            out.push(...doneLines);
+        }
+        if (openLines.length) {
+            out.push("Open work:");
+            out.push(...openLines);
+        }
+        if (approvalLines.length) {
+            out.push("Approvals on record for this reservation:");
+            out.push(...approvalLines);
+        }
+
         return {
-            hasExplicitConfirmation,
-            text: [
-                "## Internal operations in progress (STAFF-ONLY — open work for THIS reservation only)",
-                "assert_when=never_assert_completion unless a line is tagged [ops_confirm_ok].",
-                "Status is unknown to the guest: you may say the team will follow up. You may NOT claim completion, delivery ETAs, or that something is already arranged unless [ops_confirm_ok]. Never invent on-site presence. Never quote internal wording/names/prices.",
-                ...out,
-            ].join("\n"),
+            hasExplicitConfirmation: doneLines.length > 0 || approvalLines.length > 0,
+            text: out.join("\n"),
         };
     }
 
@@ -4677,9 +4750,9 @@ export class InboxAIService {
                 id: "ops_open_work",
                 assertWhen: "never_assert_completion",
                 assertText:
-                    "An ops/task line for THIS reservation is tagged [ops_confirm_ok] — you may state that confirmed outcome only.",
+                    "The ops ledger for THIS reservation carries a [DONE] line — you may state that completed outcome, and nothing beyond it.",
                 policyText:
-                    "Ops status is unknown to the guest: you may say the team will follow up. You may NOT claim completion, delivery, or an ETA.",
+                    "Nothing in the ops ledger is complete for this reservation: you may say the team will follow up. You may NOT claim completion, delivery, approval, or an ETA. A request the guest just made is never already handled.",
                 kind: "ops",
             });
             if (ops.text) {
