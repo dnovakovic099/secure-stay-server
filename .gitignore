@@ -45,3 +45,7 @@ service-account.json
 
 apminsightdata
 apminsightnode.json
+
+# Local analysis scratch. Holds extracted production data (guest transcripts,
+# vendor contact dumps) that must not enter git history.
+tmp/
