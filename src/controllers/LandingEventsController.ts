@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { appDatabase } from "../utils/database.util";
 import { RedditConversionsService } from "../services/RedditConversionsService";
+import { GoogleAdsConversionsService } from "../services/GoogleAdsConversionsService";
 import sendEmail from "../utils/sendEmai";
 import logger from "../utils/logger.utils";
 
@@ -464,6 +465,15 @@ export class LandingEventsController {
         userAgent,
         rdtUuid: asString(body.rdt_uuid, 256),
         props,
+      });
+
+      // Google Ads click + enhanced conversions (optimize toward real leads).
+      GoogleAdsConversionsService.sendLeadConversion({
+        conversionId: asString(body.conversion_id, 128),
+        gclid: asString(attribution.gclid, 256),
+        email,
+        phone,
+        pageUrl: asString(body.page_url, 1024),
       });
 
       return res.json({ ok: true });

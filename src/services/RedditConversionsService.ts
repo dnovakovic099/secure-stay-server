@@ -112,10 +112,9 @@ function mapLandingEvent(eventName: string): {
       return { trackingType: "PageVisit" };
     case "lead_submit":
       return { trackingType: "Lead" };
-    case "cta_click":
-      return { trackingType: "Custom", customEventName: "cta_click" };
-    case "qualify_open":
-      return { trackingType: "Custom", customEventName: "qualify_open" };
+    // Intentional: do not send qualify_open / cta_click to Reddit.
+    // Reddit traffic auto-opens the modal, so qualify_open is not a real
+    // intent signal and would pollute optimization. Only Lead on submit.
     default:
       return null;
   }

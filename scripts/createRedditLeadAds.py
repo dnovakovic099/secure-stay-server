@@ -260,7 +260,8 @@ def create_ad_group(
     targeting: Dict[str, Any] = {
         "geolocations": ["US"],
         "keywords": keywords,
-        "expand_targeting": True,
+        # Keep delivery on keyword/community intent; expansion diluted quality.
+        "expand_targeting": False,
     }
     if communities:
         targeting["communities"] = communities
