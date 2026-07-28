@@ -1,4 +1,5 @@
-import { In, LessThan } from "typeorm";
+import { In, LessThan, Not } from "typeorm";
+import { RETIRED_ACTION_TYPE } from "./AIProposedActionService";
 import { appDatabase } from "../utils/database.util";
 import { InboxConversationEntity } from "../entity/InboxConversation";
 import { InboxMessageEntity } from "../entity/InboxMessage";
@@ -813,7 +814,7 @@ export class RescueCopilotService {
         });
 
         const actions = await this.actionRepo().find({
-            where: { threadId, status: "proposed" as any },
+            where: { threadId, status: "proposed" as any, actionType: Not(RETIRED_ACTION_TYPE) as any },
             order: { id: "DESC" as any },
             take: 6,
         });

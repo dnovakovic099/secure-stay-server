@@ -21,8 +21,9 @@ import {
  *                        check-in is open
  *  - "resend_access_code" guest is locked out / code not working and a live
  *                        code exists on the smart lock for this reservation
- *  - "create_ops_ticket" guest reported a problem (maintenance/cleaning/
- *                        supplies); approving creates a pre-filled action item
+ *  - "create_ops_ticket" RETIRED. Guest Issues tickets cover the same problem
+ *                        reports, so this duplicated them. Never proposed or
+ *                        executed; historical rows are filtered out of reads.
  */
 @Entity("ai_proposed_actions")
 export class AIProposedActionEntity {
@@ -52,7 +53,7 @@ export class AIProposedActionEntity {
     /** Guest-facing reply sent when the action is approved (staff-editable). */
     @Column({ type: "mediumtext", nullable: true }) proposedReply: string | null;
 
-    /** For create_ops_ticket: the pre-filled task text. */
+    /** Pre-filled task text for the schedule-change types. */
     @Column({ type: "text", nullable: true }) taskDescription: string | null;
 
     /** JSON blob with action-specific data (codes, dates, category…). */

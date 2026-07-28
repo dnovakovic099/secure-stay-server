@@ -1,4 +1,4 @@
-import { In } from "typeorm";
+import { In, Not } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { AIProposedActionEntity } from "../entity/AIProposedAction";
@@ -8,6 +8,7 @@ import { InboxMessageEntity } from "../entity/InboxMessage";
 import { ActionItems } from "../entity/ActionItems";
 import { Hostify } from "../client/Hostify";
 import { AIMessagingSettingsService } from "./AIMessagingSettingsService";
+import { AIMemoryService } from "./AIMemoryService";
 
 /**
  * AIProposedActionService
@@ -27,12 +28,17 @@ const EARLY_CHECKIN_RE =
     /\bearly[\s-]*check[\s-]*in\b|\bcheck[\s-]*in\s+(early|earlier)\b|\barrive\s+(early|earlier|before)\b|\bget\s+in\s+early\b|\bdrop\s+(our|my|the)\s+(bags|luggage)\b/i;
 const LOCKOUT_RE =
     /\block(ed)?\s*out\b|\b(code|keypad|lock|door)\b[^.!?\n]{0,40}\b(not|isn'?t|doesn'?t|won'?t|wont|stopped)\s*work|\bcan'?t\s+(get|figure)\s+(in|inside|the door)|\bunable\s+to\s+(get|enter)\b|\bdoor\s+(won'?t|wont|will not)\s+open\b|\bwrong\s+code\b|\bcode\s+(is\s+)?(invalid|incorrect|wrong)\b/i;
-const OPS_ISSUE_RE =
-    /\b(broken?|not working|doesn'?t work|stopped working|leak(ing|s)?|clog(ged)?|no hot water|no water|no power|no electricity|won'?t turn on|wifi.{0,20}(down|out|not)|internet.{0,20}(down|out|not)|a\/?c.{0,20}(not|broken|out)|heat(er|ing)?.{0,20}(not|broken|out)|dirty|wasn'?t clean|not clean|smell|stain(ed)?|bugs?|roach|mice|mold|out of (toilet paper|towels|soap|paper towels|coffee)|ran out of|missing)\b/i;
+// "create_ops_ticket" is fully retired: never proposed, never executed, and
+// filtered out of the read paths so pre-cutover rows in ai_proposed_actions stop
+// surfacing as cards. InboxItemDetectionService already opens a Guest Issues
+// ticket for the same problem reports, and this type carried no proposedReply,
+// so approving it only produced a duplicate work item. Rows are preserved for
+// history and dismissed by migration 20260727_retire_create_ops_ticket.sql.
+export const RETIRED_ACTION_TYPE = "create_ops_ticket";
 
 export const PROPOSED_ACTION_DEFAULTS = {
     proposedActionInstructions:
-        "Proposed Actions are generated after an AI suggestion is saved for an incoming guest message. The detector looks for early check-in, late checkout, access-code/lockout, and operational issue requests. Existing open proposals of the same action type on the thread block duplicates.",
+        "Proposed Actions are generated after an AI suggestion is saved for an incoming guest message. The detector looks for early check-in, late checkout, and access-code/lockout requests. Operational problem reports are handled by Guest Issues tickets instead. Existing open proposals of the same action type on the thread block duplicates.",
     proposedActionApproveInstructions:
         "Approve creates the internal task/action tied to the proposal and marks the proposal executed. It does not send the proposed guest reply.",
     proposedActionApproveSendInstructions:
@@ -89,10 +95,7 @@ export class AIProposedActionService {
 
             // Cheap regex screen first — only hit the DB when something matched.
             const matchedAny =
-                LATE_CHECKOUT_RE.test(text) ||
-                EARLY_CHECKIN_RE.test(text) ||
-                LOCKOUT_RE.test(text) ||
-                OPS_ISSUE_RE.test(text);
+                LATE_CHECKOUT_RE.test(text) || EARLY_CHECKIN_RE.test(text) || LOCKOUT_RE.test(text);
             if (!matchedAny) return created;
 
             const open = await this.repo.find({
@@ -110,10 +113,6 @@ export class AIProposedActionService {
             }
             if (LOCKOUT_RE.test(text) && !hasOpen("resend_access_code")) {
                 const a = await this.proposeAccessCodeResend(input, text, reference);
-                if (a) created.push(a);
-            }
-            if (OPS_ISSUE_RE.test(text) && !hasOpen("create_ops_ticket")) {
-                const a = await this.proposeOpsTicket(input, text, reference);
                 if (a) created.push(a);
             }
         } catch (err: any) {
@@ -345,60 +344,19 @@ export class AIProposedActionService {
         );
     }
 
-    /**
-     * Ops ticket: the guest reported a problem. Pre-fill an action item from
-     * the suggestion's own suggested_action_items when available, else from
-     * the guest's words.
-     */
-    private async proposeOpsTicket(
-        input: ProposedActionInput,
-        guestText: string,
-        settingsReference: string | null
-    ): Promise<AIProposedActionEntity | null> {
-        const conv = input.conversation;
-        let taskText: string | null = null;
-        try {
-            const items = JSON.parse(input.suggestion.suggestedActionItems || "[]");
-            if (Array.isArray(items) && items.length) taskText = items.map(String).join("; ").slice(0, 500);
-        } catch {
-            /* fall through */
-        }
-        if (!taskText) {
-            taskText = `Guest reported: "${guestText.slice(0, 300)}" — investigate and resolve.`;
-        }
-
-        return this.repo.save(
-            this.repo.create({
-                suggestionId: input.suggestion.id,
-                source: "hostify",
-                threadId: Number(conv.threadId),
-                messageId: input.guestMessage ? Number(input.guestMessage.externalId) : null,
-                reservationId: conv.reservationId ? Number(conv.reservationId) : null,
-                listingId: conv.listingId ? Number(conv.listingId) : null,
-                actionType: "create_ops_ticket",
-                title: "Guest reported a problem — create a maintenance/ops task?",
-                evidence: this.withSettingsReference(`Guest said: "${guestText.slice(0, 300)}"`, settingsReference),
-                proposedReply: null,
-                taskDescription: taskText,
-                payload: JSON.stringify({ guestQuote: guestText.slice(0, 500) }),
-                status: "proposed",
-            })
-        );
-    }
-
     // ------------------------------------------------------------------
     // Read / execute / dismiss
     // ------------------------------------------------------------------
 
     async listForThread(threadId: number, opts: { includeResolved?: boolean } = {}) {
-        const where: any = { threadId };
+        const where: any = { threadId, actionType: Not(RETIRED_ACTION_TYPE) };
         if (!opts.includeResolved) where.status = "proposed";
         return this.repo.find({ where, order: { createdAt: "DESC" } });
     }
 
     async listRecent(opts: { status?: string; limit?: number } = {}) {
         const limit = Math.min(Math.max(opts.limit || 50, 1), 200);
-        const where: any = {};
+        const where: any = { actionType: Not(RETIRED_ACTION_TYPE) };
         if (opts.status) where.status = opts.status;
         else where.status = In(["proposed", "executed", "dismissed"]);
         return this.repo.find({ where, order: { createdAt: "DESC" }, take: limit });
@@ -416,6 +374,13 @@ export class AIProposedActionService {
         const action = await this.repo.findOne({ where: { id } });
         if (!action) throw new Error(`Proposed action ${id} not found`);
         if (action.status !== "proposed") throw new Error(`Action ${id} is already ${action.status}`);
+        // Refuse rather than silently no-op: this type no longer has a reply or a
+        // task to create, so executing it would just mark the row done.
+        if (action.actionType === RETIRED_ACTION_TYPE) {
+            throw new Error(
+                `Action ${id} is a retired ${RETIRED_ACTION_TYPE} proposal — Guest Issues tickets cover these now. Dismiss it instead.`
+            );
+        }
 
         const results: string[] = [];
 
@@ -436,10 +401,10 @@ export class AIProposedActionService {
                 .catch(() => {});
         }
 
-        // 2) Internal task (ops ticket always; schedule changes create a
-        //    turnover-schedule task so cleaning is informed).
+        // 2) Internal task — schedule changes create a turnover-schedule task so
+        //    cleaning is informed.
         const taskText = (opts.taskOverride ?? action.taskDescription ?? "").trim();
-        if (taskText && (action.actionType === "create_ops_ticket" || action.actionType === "late_checkout" || action.actionType === "early_check_in")) {
+        if (taskText && (action.actionType === "late_checkout" || action.actionType === "early_check_in")) {
             const actionItemsRepo = appDatabase.getRepository(ActionItems);
             const conv = await appDatabase
                 .getRepository(InboxConversationEntity)
@@ -448,10 +413,9 @@ export class AIProposedActionService {
             const saved = await actionItemsRepo.save(
                 actionItemsRepo.create({
                     item: taskText,
-                    category:
-                        action.actionType === "create_ops_ticket" ? "Maintenance" : "Guest Request",
+                    category: "Guest Request",
                     status: "incomplete",
-                    urgency: action.actionType === "create_ops_ticket" ? 2 : 1,
+                    urgency: 1,
                     guestName: conv?.guestName || null,
                     listingId: action.listingId ? Number(action.listingId) : null,
                     listingName: conv?.listingName || null,
@@ -471,6 +435,19 @@ export class AIProposedActionService {
         action.executedAt = new Date();
         const saved = await this.repo.save(action);
         logger.info(`[AIProposedAction] executed ${saved.id} (${saved.actionType}): ${saved.resultNote}`);
+
+        // A human approving an action IS a decision. Record it as precedent so
+        // the next similar ask is answered consistently instead of from scratch.
+        await new AIMemoryService()
+            .recordDecision({
+                topic: saved.actionType,
+                decision: saved.title || saved.actionType,
+                rationale: [saved.evidence, saved.resultNote].filter(Boolean).join(" | "),
+                listingId: saved.listingId ?? null,
+                decidedByUserId: saved.executedByUserId ?? null,
+            })
+            .catch(() => null);
+
         return saved;
     }
 
