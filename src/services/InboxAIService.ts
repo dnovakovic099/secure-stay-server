@@ -62,6 +62,8 @@ import {
 } from "./InboxAIAssertPolicy";
 import { unsupportedOpsClaims } from "./InboxAIOpsEvidence";
 import { stripDashes } from "./InboxAIReplyFormat";
+import { selectRelevant } from "./AIMemoryPolicy";
+import { AIMemoryService } from "./AIMemoryService";
 
 /**
  * InboxAIService
@@ -4484,31 +4486,46 @@ export class InboxAIService {
      * mistake isn't repeated. General (no-listing) feedback applies everywhere;
      * listing-specific feedback is included for this property group only.
      */
-    private async buildFeedbackBlock(groupIds: number[]): Promise<string | null> {
+    private async buildFeedbackBlock(groupIds: number[], guestQuery?: string): Promise<string | null> {
         try {
             const listingIds = (groupIds || []).map((n) => Number(n)).filter((n) => Number.isFinite(n));
             const since = new Date();
             since.setDate(since.getDate() - 90);
 
+            // Scope to this property IN SQL. Previously the 40-row cut happened
+            // first and other properties' rows were dropped afterwards in JS, so
+            // across ~969 listings a note left on this property was pushed out of
+            // the window by unrelated notes long before it could ever be used.
             const qb = this.feedbackRepo
                 .createQueryBuilder("f")
                 .where("f.createdAt >= :since", { since })
                 .andWhere(
                     "((f.feedbackText IS NOT NULL AND f.feedbackText <> '') OR (f.correctedResponse IS NOT NULL AND f.correctedResponse <> ''))"
-                )
-                .orderBy("f.createdAt", "DESC")
-                .take(40);
-            const rows = await qb.getMany();
+                );
+            if (listingIds.length) {
+                qb.andWhere("(f.listingId IS NULL OR f.listingId IN (:...listingIds))", { listingIds });
+            } else {
+                qb.andWhere("f.listingId IS NULL");
+            }
+            const rows = await qb.orderBy("f.createdAt", "DESC").take(200).getMany();
             if (!rows.length) return null;
+
+            // Rank by relevance to what this guest actually asked, not recency.
+            // Ten slots spent on the newest notes meant a directly applicable
+            // correction from three weeks ago never surfaced.
+            const relevant = selectRelevant(rows, {
+                limit: 24,
+                query: guestQuery,
+                record: (f) => ({ lastSeenAt: f.createdAt, createdAt: f.createdAt }),
+                haystack: (f) =>
+                    `${f.feedbackText || ""} ${f.correctedResponse || ""} ${f.originalMessage || ""} ${f.categories || ""}`,
+            });
 
             const lidSet = new Set(listingIds);
             const picked: string[] = [];
             const seen = new Set<string>();
-            for (const f of rows) {
+            for (const f of relevant) {
                 const isForThisListing = f.listingId != null && lidSet.has(Number(f.listingId));
-                const isGeneral = f.listingId == null;
-                // Listing-specific feedback for OTHER properties doesn't apply here.
-                if (!isForThisListing && !isGeneral) continue;
                 let cats: string[] = [];
                 try {
                     cats = f.categories ? JSON.parse(f.categories) : [];
@@ -4763,6 +4780,20 @@ export class InboxAIService {
             /* non-fatal */
         }
 
+        // Precedent: what the team has already decided on this property, and
+        // patterns observed about the people involved. Staff-only — this steers
+        // behaviour so an exception request is answered consistently, and never
+        // becomes an answer the bot quotes.
+        if (includeKnowledge) try {
+            const precedent = await new AIMemoryService().renderMemoryContext(groupIds, guestQueryEarly);
+            if (precedent) {
+                lines.push("");
+                lines.push(precedent);
+            }
+        } catch {
+            /* non-fatal */
+        }
+
         // Paid add-on services from Upsells DB (SDTO + LOS-calculated fees).
         if (includeKnowledge) try {
             const ups = await this.buildUpsellsBlock(groupIds, conversation.listingId, {
@@ -4782,7 +4813,7 @@ export class InboxAIService {
 
         // Recent team feedback on AI replies — direct steering from staff.
         if (includeKnowledge) try {
-            const fb = await this.buildFeedbackBlock(groupIds);
+            const fb = await this.buildFeedbackBlock(groupIds, guestQueryEarly);
             if (fb) {
                 lines.push("");
                 lines.push(fb);

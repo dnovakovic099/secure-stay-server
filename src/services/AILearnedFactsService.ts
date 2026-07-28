@@ -4,6 +4,7 @@ import { AILearnedFactEntity } from "../entity/AILearnedFact";
 import { ListingKnowledgeEntryEntity } from "../entity/ListingKnowledgeEntry";
 import { IsNull, In } from "typeorm";
 import { allowPortfolioMemory, isPropertyScopedMemory } from "../utils/aiPortfolioGuards";
+import { freshnessFactor, isExpired, isGuestUsable } from "./AIMemoryPolicy";
 
 export type LearnedFactType = "qa" | "style_rule" | "topic_to_avoid";
 export type LearnedFactVisibility = "internal" | "external";
@@ -253,6 +254,11 @@ export class AILearnedFactsService {
             fact.scope === "property" &&
             fact.listingId != null &&
             (fact.factType || "qa") === "qa" &&
+            // Only durable, guest-shareable facts belong in the Knowledge Base.
+            // Temporary state would outlive its truth there, and patterns and
+            // decision rationale are staff reasoning, not property information.
+            isGuestUsable(fact as any) &&
+            !isExpired(fact as any) &&
             !!(fact.answer && String(fact.answer).trim());
 
         // If the fact no longer qualifies (rejected, promoted to portfolio,
@@ -666,12 +672,18 @@ export class AILearnedFactsService {
 
             if (!property.length && !portfolio.length) return null;
 
+            // Expired and superseded memory is dropped before anything is ranked:
+            // a resolved leak must never be quoted back at a guest, however
+            // relevant it still looks on a keyword match.
+            const notExpired = (f: AILearnedFactEntity) => !isExpired(f as any);
             const score = (f: AILearnedFactEntity) => {
                 const hay = `${f.question || ""} ${f.topic || ""} ${f.answer || ""}`.toLowerCase();
                 let rel = 0;
                 for (const t of qTokens) if (hay.includes(t)) rel += 1;
                 const freqBonus = Math.min(3, Number(f.frequency) || 1);
-                return rel * 10 + freqBonus;
+                // Decay by how long ago reality last confirmed this fact, so a
+                // stale answer loses to a fresher one of equal relevance.
+                return (rel * 10 + freqBonus) * freshnessFactor(f as any);
             };
             // Dedup near-identical facts by normalized answer prefix.
             const dedup = (list: AILearnedFactEntity[]) => {
@@ -693,11 +705,14 @@ export class AILearnedFactsService {
             // surfaced separately from Q&A facts so the prompt can apply them
             // as rules rather than answers.
             const isQa = (f: AILearnedFactEntity) => !f.factType || f.factType === "qa";
-            // Guest-reply context: EXTERNAL QA only. Internal facts remain in
-            // the Learned tab for staff, but never enter guest-facing prompts.
-            const qaExternal = (f: AILearnedFactEntity) => isQa(f) && f.visibility !== "internal";
-            const isStyle = (f: AILearnedFactEntity) => f.factType === "style_rule";
-            const isAvoid = (f: AILearnedFactEntity) => f.factType === "topic_to_avoid";
+            // Guest-reply context: EXTERNAL QA only, and only permanent facts.
+            // Internal facts stay in the Learned tab; inferred patterns and
+            // decision rationale steer behaviour but are never quotable answers.
+            const qaExternal = (f: AILearnedFactEntity) => isQa(f) && notExpired(f) && isGuestUsable(f as any);
+            // Style and avoid rules are applied, not quoted, so they only need to
+            // still be in force.
+            const isStyle = (f: AILearnedFactEntity) => f.factType === "style_rule" && notExpired(f);
+            const isAvoid = (f: AILearnedFactEntity) => f.factType === "topic_to_avoid" && notExpired(f);
 
             const rankedPropertyExternal = rank(property.filter(qaExternal));
             const rankedPortfolioExternal = rank(

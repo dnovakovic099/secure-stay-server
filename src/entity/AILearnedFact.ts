@@ -51,6 +51,33 @@ export class AILearnedFactEntity {
     @Column({ length: 24, default: "qa" })
     factType: string;
 
+    /**
+     * How this memory behaves in time — see AIMemoryPolicy for the rules:
+     *  - 'permanent_fact'  : parking, house rules. No clock expiry; decays slowly.
+     *  - 'temporary_state' : an active leak, a late cleaner. Hard 7-day TTL.
+     *  - 'learned_pattern' : "this owner rejects discounts". Fades fastest.
+     *  - 'decision'        : why a refund/override was granted. Kept as precedent.
+     *
+     * Only permanent facts can be quoted to a guest; the rest steer behaviour.
+     */
+    @Index()
+    @Column({ length: 24, default: "permanent_fact" })
+    memoryType: string;
+
+    /**
+     * What this memory is ABOUT: property | owner | guest | employee | vendor.
+     * Before this existed, memory could only be keyed to a listing, so anything
+     * learned about an owner or a cleaner had nowhere to live.
+     */
+    @Index()
+    @Column({ length: 24, default: "property" })
+    subjectType: string;
+
+    /** Identifier within `subjectType`. Null for portfolio-wide memory. */
+    @Index()
+    @Column({ length: 128, nullable: true })
+    subjectId: string | null;
+
     // Visibility for QA facts: 'external' is guest-shareable; 'internal' is
     // staff-only and never fed into guest-facing AI replies. Only external
     // facts sync to Knowledge Base entries.
@@ -68,6 +95,14 @@ export class AILearnedFactEntity {
 
     @Column({ type: "mediumtext", nullable: true })
     answer: string | null;
+
+    /**
+     * For `memoryType = 'decision'`: WHY the call was made. Staff-only — this is
+     * the part that lets the assistant stay consistent with a past refund or
+     * exception instead of re-deciding from scratch. Never quoted to a guest.
+     */
+    @Column({ type: "text", nullable: true })
+    decisionRationale: string | null;
 
     @Index()
     @Column({ type: "int", default: 1 })
@@ -92,8 +127,18 @@ export class AILearnedFactEntity {
     @Column({ type: "int", nullable: true })
     createdByUserId: number | null;
 
+    /** Last time reality confirmed this memory. Drives ranking decay. */
     @Column({ type: "datetime", nullable: true })
     lastSeenAt: Date | null;
+
+    /** Explicit expiry. Overrides the per-type default TTL when set. */
+    @Column({ type: "datetime", nullable: true })
+    validUntil: Date | null;
+
+    /** Set when a newer memory replaces this one; superseded memory is never used. */
+    @Index()
+    @Column({ type: "int", nullable: true })
+    supersededByFactId: number | null;
 
     @CreateDateColumn({ type: "timestamp" })
     createdAt: Date;

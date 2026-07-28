@@ -6,6 +6,7 @@ import { ListingKnowledgeEntryEntity } from "../entity/ListingKnowledgeEntry";
 import { EmbeddingService } from "./EmbeddingService";
 import { ExemplarService, focusQuery } from "./ExemplarService";
 import { ListingGroupService } from "./ListingGroupService";
+import { isExpired, isGuestUsable } from "./AIMemoryPolicy";
 import { allowPortfolioMemory } from "../utils/aiPortfolioGuards";
 
 export interface RetrievedFact {
@@ -41,9 +42,18 @@ export class RetrievalService {
     /** Index all approved EXTERNAL learned facts into the embedding store (idempotent). */
     async embedFacts(): Promise<number> {
         // Internal facts are staff-only and must never be retrieved into guest
-        // reply context — skip embedding them entirely.
+        // reply context — skip embedding them entirely. The same applies to
+        // inferred patterns, decision rationale, and expired temporary state:
+        // embedding them would let semantic retrieval bypass the memory policy
+        // that the keyword path enforces.
         const facts = await this.factRepo.find({ where: { status: "approved" } });
-        const externalFacts = facts.filter((f) => f.visibility !== "internal" && (!f.factType || f.factType === "qa"));
+        const externalFacts = facts.filter(
+            (f) =>
+                f.visibility !== "internal" &&
+                (!f.factType || f.factType === "qa") &&
+                isGuestUsable(f as any) &&
+                !isExpired(f as any)
+        );
         const existing = new Set(
             (await this.repo.find({ select: ["dedupKey"], where: { kind: "fact" } })).map((e) => e.dedupKey).filter(Boolean) as string[]
         );
