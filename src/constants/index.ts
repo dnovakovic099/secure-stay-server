@@ -12,12 +12,30 @@ export const USER_AGENTS = [
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.1 Safari/605.1.15",
 ];
 
-const configuredPuppeteerExecutablePath = process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/google-chrome-stable";
+const puppeteerExecutableCandidates = [
+  process.env.PUPPETEER_EXECUTABLE_PATH,
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/google-chrome",
+  "/opt/google/chrome/chrome",
+  "/usr/bin/chromium-browser",
+  "/usr/bin/chromium",
+  "/snap/bin/chromium",
+].filter(Boolean) as string[];
+
+export const PUPPETEER_EXECUTABLE_PATH = puppeteerExecutableCandidates.find((candidate) => fs.existsSync(candidate)) || "";
+
+export const PUPPETEER_BROWSER_SETUP_MESSAGE = PUPPETEER_EXECUTABLE_PATH
+  ? ""
+  : [
+      "No system Chrome/Chromium executable was found for server-side PDF generation.",
+      "Install Google Chrome or Chromium on the server, or set PUPPETEER_EXECUTABLE_PATH to a working browser binary.",
+      "Puppeteer's bundled Chrome is not used by default because this EC2 host is missing required shared libraries such as libatk-1.0.so.0.",
+    ].join(" ");
 
 export const PUPPETEER_LAUNCH_OPTIONS = {
   headless: true,
-  ...(configuredPuppeteerExecutablePath && fs.existsSync(configuredPuppeteerExecutablePath)
-    ? { executablePath: configuredPuppeteerExecutablePath }
+  ...(PUPPETEER_EXECUTABLE_PATH
+    ? { executablePath: PUPPETEER_EXECUTABLE_PATH }
     : {}),
   args: [
     "--disable-setuid-sandbox",

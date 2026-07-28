@@ -134,7 +134,10 @@ export class RentalAgreementController {
     async getAgreementForGuest(req: Request, res: Response, next: NextFunction) {
         try {
             const { hostifyReservationId } = req.params;
-            const result = await rentalAgreementSigningService.getAgreementForGuest(hostifyReservationId);
+            const protocol = req.protocol;
+            const host = req.get("host");
+            const baseUrl = `${protocol}://${host}`;
+            const result = await rentalAgreementSigningService.getAgreementForGuest(hostifyReservationId, baseUrl);
             res.json({ success: true, data: result });
         } catch (err: any) {
             const status = err.message === "Reservation not found" || err.message.includes("template") ? 404 : 500;
@@ -259,11 +262,17 @@ export class RentalAgreementController {
     async downloadGuestSigningFile(req: Request, res: Response) {
         try {
             const { hostifyReservationId } = req.params;
+            const disposition = req.query.disposition === "inline" ? "inline" : "attachment";
             const target = await rentalAgreementSigningService.getGuestDownloadTarget(hostifyReservationId);
             if (!target) {
                 return res.status(404).json({ success: false, message: "Agreement not found" });
             }
             if (target.localPath) {
+                if (disposition === "inline") {
+                    res.setHeader("Content-Type", "application/pdf");
+                    res.setHeader("Content-Disposition", `inline; filename="${target.fileName}"`);
+                    return res.sendFile(target.localPath);
+                }
                 return res.download(target.localPath, target.fileName);
             }
             if (target.driveFileId) {
@@ -276,7 +285,7 @@ export class RentalAgreementController {
 
                     const buffer = Buffer.from(driveRes.data as ArrayBuffer);
                     res.setHeader("Content-Type", "application/pdf");
-                    res.setHeader("Content-Disposition", `attachment; filename="${target.fileName}"`);
+                    res.setHeader("Content-Disposition", `${disposition}; filename="${target.fileName}"`);
                     res.setHeader("Content-Length", buffer.length);
                     return res.send(buffer);
                 } catch (driveErr: any) {

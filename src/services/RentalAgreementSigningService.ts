@@ -10,7 +10,7 @@ import { RentalAgreementTemplate } from "../entity/RentalAgreementTemplate";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { FileInfo } from "../entity/FileInfo";
 import { Listing } from "../entity/Listing";
-import { PUPPETEER_LAUNCH_OPTIONS } from "../constants";
+import { PUPPETEER_BROWSER_SETUP_MESSAGE, PUPPETEER_EXECUTABLE_PATH, PUPPETEER_LAUNCH_OPTIONS } from "../constants";
 import { rentalAgreementTemplateService } from "./RentalAgreementTemplateService";
 import { sendSupportEmail } from "../utils/sendSupportEmail";
 import { RentalAgreementReservationDocument } from "../entity/RentalAgreementReservationDocument";
@@ -210,6 +210,78 @@ export class RentalAgreementSigningService {
         const [year, month, day] = today.split("-").map(Number);
         const targetNoonUtc = new Date(Date.UTC(year, month - 1, day + offsetDays, 12));
         return this.formatDateInRentalAgreementTimeZone(targetNoonUtc);
+    }
+
+    private getDateTimePartsInTimeZone(date: Date, timeZone: string) {
+        const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hourCycle: "h23",
+        }).formatToParts(date);
+        const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+        return {
+            year: Number(values.year),
+            month: Number(values.month),
+            day: Number(values.day),
+            hour: Number(values.hour),
+            minute: Number(values.minute),
+            second: Number(values.second),
+        };
+    }
+
+    private parseDateTimeInTimeZone(value: string, timeZone: string) {
+        const trimmed = String(value || "").trim();
+        if (!trimmed) return null;
+        const normalizedTimeZone = String(timeZone || RENTAL_AGREEMENT_TIME_ZONE).trim() || RENTAL_AGREEMENT_TIME_ZONE;
+        if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(trimmed)) {
+            const parsed = new Date(trimmed);
+            return Number.isNaN(parsed.getTime()) ? null : parsed;
+        }
+
+        const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?$/);
+        if (!match) {
+            const parsed = new Date(trimmed);
+            return Number.isNaN(parsed.getTime()) ? null : parsed;
+        }
+
+        const [, yearValue, monthValue, dayValue, hourValue, minuteValue, secondValue] = match;
+        const targetUtcMs = Date.UTC(
+            Number(yearValue),
+            Number(monthValue) - 1,
+            Number(dayValue),
+            Number(hourValue),
+            Number(minuteValue),
+            Number(secondValue || 0),
+        );
+
+        let result = new Date(targetUtcMs);
+        try {
+            const parts = this.getDateTimePartsInTimeZone(result, normalizedTimeZone);
+            const zonedUtcMs = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+            result = new Date(targetUtcMs - (zonedUtcMs - result.getTime()));
+
+            const adjustedParts = this.getDateTimePartsInTimeZone(result, normalizedTimeZone);
+            const adjustedUtcMs = Date.UTC(
+                adjustedParts.year,
+                adjustedParts.month - 1,
+                adjustedParts.day,
+                adjustedParts.hour,
+                adjustedParts.minute,
+                adjustedParts.second,
+            );
+            if (adjustedUtcMs !== targetUtcMs) {
+                result = new Date(result.getTime() - (adjustedUtcMs - targetUtcMs));
+            }
+        } catch {
+            return null;
+        }
+
+        return Number.isNaN(result.getTime()) ? null : result;
     }
 
     private getTransactionString(transaction: any, keys: string[]) {
@@ -660,6 +732,11 @@ export class RentalAgreementSigningService {
         return baseUrl ? `${baseUrl}${downloadPath}` : downloadPath;
     }
 
+    private buildGuestViewPath(hostifyReservationId: string, baseUrl?: string) {
+        const viewPath = `/rental-agreement/guest/${hostifyReservationId}/download?disposition=inline`;
+        return baseUrl ? `${baseUrl}${viewPath}` : viewPath;
+    }
+
     private async getReservationAndListing(hostifyReservationId: string): Promise<{ reservationInfo: ReservationInfoEntity; listing: Listing | null }> {
         const reservationInfo = await reservationInfoRepo().findOne({
             where: { id: Number(hostifyReservationId) },
@@ -887,7 +964,7 @@ export class RentalAgreementSigningService {
         };
     }
 
-    async getAgreementForGuest(hostifyReservationId: string): Promise<{
+    async getAgreementForGuest(hostifyReservationId: string, baseUrl?: string): Promise<{
         reservationInfo: ReservationInfoEntity;
         template: {
             id: number | null;
@@ -900,7 +977,12 @@ export class RentalAgreementSigningService {
         };
         idUploadRequired: boolean;
         alreadySigned: boolean;
-        signing?: Pick<RentalAgreementSigning, "pdfStatus" | "fileInfoId">;
+        signing?: Pick<RentalAgreementSigning, "pdfStatus" | "fileInfoId"> & {
+            signedAt: string | null;
+            signatureTimezone: string;
+            downloadUrl: string | null;
+            viewUrl: string | null;
+        };
     }> {
         const { reservationInfo, listing } = await this.getReservationAndListing(hostifyReservationId);
         const { template, reservationDocument, snapshot } = await this.buildAgreementSnapshot(hostifyReservationId, reservationInfo, listing);
@@ -911,6 +993,12 @@ export class RentalAgreementSigningService {
         const existingSigning = await signingRepo().findOne({
             where: { hostifyReservationId },
         });
+        const fileInfo = existingSigning ? await this.getFileInfoForSigning(existingSigning) : null;
+        const pdfAvailable = this.isDownloadArtifactAvailable(fileInfo);
+        const displayedSignedAt = existingSigning
+            ? (reservationDocument?.signatureTimestampOverrideAt || existingSigning.signedAt || null)
+            : null;
+        const signatureTimezone = reservationDocument?.signatureTimezoneOverride || "America/New_York";
 
         return {
             reservationInfo: {
@@ -932,7 +1020,14 @@ export class RentalAgreementSigningService {
             idUploadRequired,
             alreadySigned: !!existingSigning,
             ...(existingSigning && {
-                signing: { pdfStatus: existingSigning.pdfStatus, fileInfoId: existingSigning.fileInfoId },
+                signing: {
+                    pdfStatus: existingSigning.pdfStatus,
+                    fileInfoId: existingSigning.fileInfoId,
+                    signedAt: displayedSignedAt ? displayedSignedAt.toISOString() : null,
+                    signatureTimezone,
+                    downloadUrl: pdfAvailable ? this.buildGuestDownloadPath(hostifyReservationId, baseUrl) : null,
+                    viewUrl: pdfAvailable ? this.buildGuestViewPath(hostifyReservationId, baseUrl) : null,
+                },
             }),
         };
     }
@@ -1045,18 +1140,33 @@ export class RentalAgreementSigningService {
     async getSigningStatus(hostifyReservationId: string, baseUrl?: string): Promise<{
         pdfStatus: string;
         downloadUrl: string | null;
+        viewUrl: string | null;
+        signedAt: string | null;
+        signatureTimezone: string;
     }> {
         const signing = await signingRepo().findOne({
             where: { hostifyReservationId },
         });
-        if (!signing) return { pdfStatus: "not_found", downloadUrl: null };
+        if (!signing) return { pdfStatus: "not_found", downloadUrl: null, viewUrl: null, signedAt: null, signatureTimezone: "America/New_York" };
 
         const fileInfo = await this.getFileInfoForSigning(signing);
+        const reservationDocument = await this.getReservationDocument(hostifyReservationId);
+        const displayedSignedAt = reservationDocument?.signatureTimestampOverrideAt || signing.signedAt || null;
+        const signatureTimezone = reservationDocument?.signatureTimezoneOverride || "America/New_York";
         const downloadUrl = this.isDownloadArtifactAvailable(fileInfo)
             ? this.buildGuestDownloadPath(hostifyReservationId, baseUrl)
             : null;
+        const viewUrl = this.isDownloadArtifactAvailable(fileInfo)
+            ? this.buildGuestViewPath(hostifyReservationId, baseUrl)
+            : null;
 
-        return { pdfStatus: signing.pdfStatus, downloadUrl };
+        return {
+            pdfStatus: signing.pdfStatus,
+            downloadUrl,
+            viewUrl,
+            signedAt: displayedSignedAt ? displayedSignedAt.toISOString() : null,
+            signatureTimezone,
+        };
     }
 
     async getSigningsByReservation(hostifyReservationId: string): Promise<{
@@ -1622,9 +1732,9 @@ export class RentalAgreementSigningService {
                 hostifyReservationId: String(reservationInfo.id),
                 reservationCode: reservationInfo.reservationId || "",
                 confirmationCode: reservationInfo.confirmation_code || "",
-                hostifyReservationUrl: reservationInfo.reservationId
-                    ? `https://us.hostify.com/reservations/view/${reservationInfo.reservationId}`
-                    : `https://us.hostify.com/reservations/view/${hostifyReservationId}`,
+                hostifyReservationUrl: Number(reservationInfo.id) > 0
+                    ? `https://us.hostify.com/reservations/view/${reservationInfo.id}`
+                    : "",
                 guestName: reservationInfo.guestName || "",
                 guestEmail: reservationInfo.guestEmail || "",
                 guestPhone: formatPhoneForDisplay(reservationInfo.phone) || reservationInfo.phone || "",
@@ -1806,8 +1916,12 @@ export class RentalAgreementSigningService {
         if (payload.signatureTimestampOverrideAt !== undefined || payload.signatureTimezoneOverride !== undefined) {
             const timestampValue = String(payload.signatureTimestampOverrideAt || "").trim();
             const timezoneValue = String(payload.signatureTimezoneOverride || "").trim();
-            nextDocument.signatureTimestampOverrideAt = timestampValue ? new Date(timestampValue) : null;
-            nextDocument.signatureTimezoneOverride = timestampValue ? (timezoneValue || "America/New_York") : null;
+            const parsedTimestamp = timestampValue ? this.parseDateTimeInTimeZone(timestampValue, timezoneValue || RENTAL_AGREEMENT_TIME_ZONE) : null;
+            if (timestampValue && !parsedTimestamp) {
+                throw new Error("Invalid signature timestamp override");
+            }
+            nextDocument.signatureTimestampOverrideAt = parsedTimestamp;
+            nextDocument.signatureTimezoneOverride = timestampValue ? (timezoneValue || RENTAL_AGREEMENT_TIME_ZONE) : null;
             nextDocument.signatureTimestampOverrideUpdatedAt = timestampValue ? new Date() : null;
             nextDocument.signatureTimestampOverrideUpdatedBy = timestampValue ? (userId || null) : null;
         }
@@ -1996,6 +2110,10 @@ export class RentalAgreementSigningService {
 
         let browser: any;
         try {
+            if (!PUPPETEER_EXECUTABLE_PATH && process.env.PUPPETEER_ALLOW_BUNDLED_BROWSER !== "true") {
+                throw new Error(PUPPETEER_BROWSER_SETUP_MESSAGE);
+            }
+
             const reservationDocument = await this.getReservationDocument(signing.hostifyReservationId);
             const includeIdDocuments = !(reservationDocument?.skipIdUpload ?? false);
             const includeSignature = !(reservationDocument?.isOverridden ?? false);
