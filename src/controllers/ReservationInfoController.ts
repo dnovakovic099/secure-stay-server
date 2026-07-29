@@ -117,7 +117,8 @@ export class ReservationInfoController {
             }
 
             const loadAll = request.query.loadAll === 'true';
-            const result = await reservationInfoService.getReservationsByListingId(listingId, loadAll);
+            const includeCancelled = request.query.includeCancelled === 'true';
+            const result = await reservationInfoService.getReservationsByListingId(listingId, loadAll, includeCancelled);
             return response.status(200).json({
                 status: true,
                 data: result

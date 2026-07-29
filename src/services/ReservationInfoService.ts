@@ -1069,12 +1069,13 @@ export class ReservationInfoService {
    * loadAll=true: all reservations (no date filter)
    * Used for refund request form guest name dropdown
    */
-  async getReservationsByListingId(listingId: number, loadAll: boolean = false): Promise<{
+  async getReservationsByListingId(listingId: number, loadAll: boolean = false, includeCancelled: boolean = false): Promise<{
     id: number;
     listingMapId: number;
     listingName: string;
     channelId: number;
     channelName: string;
+    status: string;
     guestName: string;
     arrivalDate: Date;
     departureDate: Date;
@@ -1083,8 +1084,15 @@ export class ReservationInfoService {
   }[]> {
     const qb = this.reservationInfoRepository
       .createQueryBuilder('reservation')
-      .where('reservation.listingMapId = :listingId', { listingId })
-      .andWhere('reservation.status IN (:...validStatuses)', { validStatuses: this.validStatus });
+      .where('reservation.listingMapId = :listingId', { listingId });
+
+    if (includeCancelled) {
+      qb.andWhere('reservation.status NOT IN (:...excludedStatuses)', {
+        excludedStatuses: this.getExcludedStatuses(true),
+      });
+    } else {
+      qb.andWhere('reservation.status IN (:...validStatuses)', { validStatuses: this.validStatus });
+    }
 
     if (!loadAll) {
       const today = format(new Date(), 'yyyy-MM-dd');
@@ -1099,6 +1107,7 @@ export class ReservationInfoService {
       listingName: r.listingName,
       channelId: r.channelId,
       channelName: r.channelName,
+      status: r.status,
       guestName: r.guestName || `${r.guestFirstName || ''} ${r.guestLastName || ''}`.trim(),
       arrivalDate: r.arrivalDate,
       departureDate: r.departureDate,
