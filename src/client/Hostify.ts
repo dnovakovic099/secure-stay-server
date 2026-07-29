@@ -875,25 +875,39 @@ export class Hostify {
     }
 
     /**
-     * Airbnb inquiry actions (same payloads Hostify inbox uses).
-     * Required: listing_id, start_date, end_date, total_price, guests, source, name, email, phone.
+     * Airbnb inquiry actions. Hostify exposes these as flat endpoints under
+     * /reservations with `reservation_id` in the body (not a REST-style
+     * /reservations/{id}/action path).
+     *   POST /reservations/pre_approve   { reservation_id }
+     *   POST /reservations/special_offer { reservation_id, start_date, end_date, guests, price? }
      */
-    async postReservationPreapprove(apiKey: string, reservationId: number | string, payload: Record<string, any>): Promise<any> {
-        return this.postReservationInquiryAction(apiKey, reservationId, "preapprove", payload);
+    async postReservationPreapprove(apiKey: string, reservationId: number | string, payload: Record<string, any> = {}): Promise<any> {
+        return this.postReservationInquiryAction(apiKey, reservationId, "pre_approve", {
+            reservation_id: Number(reservationId),
+        });
     }
 
     async postReservationSpecialOffer(apiKey: string, reservationId: number | string, payload: Record<string, any>): Promise<any> {
-        return this.postReservationInquiryAction(apiKey, reservationId, "special-offer", payload);
+        const body: Record<string, any> = {
+            reservation_id: Number(reservationId),
+            start_date: payload.start_date,
+            end_date: payload.end_date,
+            guests: payload.guests,
+        };
+        // Hostify calls this field `price` (not `total_price`).
+        const price = payload.price ?? payload.total_price;
+        if (price != null) body.price = price;
+        return this.postReservationInquiryAction(apiKey, reservationId, "special_offer", body);
     }
 
     private async postReservationInquiryAction(
         apiKey: string,
         reservationId: number | string,
-        action: "preapprove" | "special-offer",
+        action: "pre_approve" | "special_offer",
         payload: Record<string, any>
     ): Promise<any> {
         try {
-            const url = `https://api-rms.hostify.com/reservations/${reservationId}/${action}`;
+            const url = `https://api-rms.hostify.com/reservations/${action}`;
             const response = await axios.post(url, payload, {
                 headers: { "x-api-key": apiKey },
             });

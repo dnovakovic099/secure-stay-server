@@ -2212,7 +2212,7 @@ export class InboxService {
             throw new CustomErrorHandler(400, "This thread has no linked reservation to pre-approve or offer.");
         }
 
-        const payload = await this.buildInquiryActionPayload(conversation, opts);
+        const payload = await this.buildInquiryActionPayload(conversation, opts, action);
         const reservationId = Number(conversation.reservationId);
 
         logger.info(
@@ -2255,7 +2255,8 @@ export class InboxService {
 
     private async buildInquiryActionPayload(
         conversation: InboxConversationEntity,
-        opts: { totalPrice?: number | null } = {}
+        opts: { totalPrice?: number | null } = {},
+        action: "preapprove" | "special-offer" = "special-offer"
     ): Promise<Record<string, any>> {
         const reservationId = Number(conversation.reservationId);
         const liveResp = await this.hostify.getReservationInfo(this.apiKey, reservationId);
@@ -2290,7 +2291,9 @@ export class InboxService {
         if (!startDate || !endDate) {
             throw new CustomErrorHandler(400, "Inquiry is missing check-in / check-out dates.");
         }
-        if (totalPrice == null || !(totalPrice > 0)) {
+        // Hostify pre_approve only needs reservation_id — no price required.
+        // special_offer must include a positive price.
+        if (action === "special-offer" && (totalPrice == null || !(totalPrice > 0))) {
             throw new CustomErrorHandler(400, "Inquiry is missing a total price. Enter a price for the special offer.");
         }
 
