@@ -1631,6 +1631,15 @@ const formatExpenseSlackRichText = (value?: unknown, fallback = "—") => {
     return normalizeSlackField(formatted, fallback);
 };
 
+const EXPENSE_SLACK_STATUS_OPTIONS = [
+    ExpenseStatus.PENDING,
+    ExpenseStatus.APPROVED,
+    ExpenseStatus.PAID,
+    ExpenseStatus.OVERDUE,
+    ExpenseStatus.CANCELLED,
+    ExpenseStatus.NA,
+];
+
 // Expense Slack Message Builders
 export const buildExpenseSlackMessage = (
     expense: ExpenseEntity,
@@ -1720,36 +1729,13 @@ export const buildExpenseSlackMessage = (
                         text: "Select status..."
                     },
                     action_id: slackInteractivityEventNames.UPDATE_EXPENSE_STATUS,
-                    options: [
-                        {
-                            text: {
-                                type: "plain_text",
-                                text: "Pending Approval"
-                            },
-                            value: JSON.stringify({ id: expense.id, status: ExpenseStatus.PENDING })
+                    options: EXPENSE_SLACK_STATUS_OPTIONS.map((status) => ({
+                        text: {
+                            type: "plain_text",
+                            text: status,
                         },
-                        {
-                            text: {
-                                type: "plain_text",
-                                text: "Approved"
-                            },
-                            value: JSON.stringify({ id: expense.id, status: ExpenseStatus.APPROVED })
-                        },
-                        {
-                            text: {
-                                type: "plain_text",
-                                text: "Paid"
-                            },
-                            value: JSON.stringify({ id: expense.id, status: ExpenseStatus.PAID })
-                        },
-                        {
-                            text: {
-                                type: "plain_text",
-                                text: "Overdue"
-                            },
-                            value: JSON.stringify({ id: expense.id, status: ExpenseStatus.OVERDUE })
-                        }
-                    ]
+                        value: JSON.stringify({ id: expense.id, status }),
+                    }))
                 }
             }
         ]
