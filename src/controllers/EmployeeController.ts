@@ -116,7 +116,7 @@ export class EmployeeController {
             console.log('Body:', JSON.stringify(req.body));
             console.log('User:', req.user?.id);
             
-            const { userId, department, departmentNames, jobTitle, jobType, hiredFrom, hiredFromOther, hourlyRate, startDate, slackUserId,
+            const { userId, department, departmentNames, jobTitle, jobType, hiredFrom, hiredFromOther, hourlyRate, startDate, endDate, slackUserId,
                 preferredName,
                 phone, birthday, country, schedule, paymentMethod, paymentMethodOther, paymentSchedule, paymentDay, paymentStartDate, paymentInfo, payrollNotes } = req.body;
 
@@ -137,6 +137,7 @@ export class EmployeeController {
                 hiredFromOther: hiredFromOther || undefined,
                 hourlyRate: hourlyRate || 0,
                 startDate: new Date(startDate),
+                endDate: endDate ? new Date(endDate) : undefined,
                 slackUserId: slackUserId || undefined,
                 preferredName: preferredName || undefined,
                 phone: phone || undefined,
@@ -173,7 +174,7 @@ export class EmployeeController {
     updateEmployee = async (req: CustomRequest, res: Response, next: NextFunction) => {
         try {
             const { id } = req.params;
-            const { firstName, lastName, department, departmentNames, jobTitle, jobType, hiredFrom, hiredFromOther, hourlyRate, startDate, overtimeHours, bonuses, slackUserId, profilePhoto, isActive,
+            const { firstName, lastName, department, departmentNames, jobTitle, jobType, hiredFrom, hiredFromOther, hourlyRate, startDate, endDate, overtimeHours, bonuses, slackUserId, profilePhoto, isActive,
                 preferredName,
                 phone, birthday, country, schedule, slackId, paymentMethod, paymentMethodOther, paymentSchedule, paymentInfo, payrollNotes, paymentDay, paymentStartDate } = req.body;
 
@@ -190,6 +191,7 @@ export class EmployeeController {
                 hiredFromOther,
                 hourlyRate,
                 startDate: startDate ? new Date(startDate) : undefined,
+                endDate: endDate === null ? null : endDate ? new Date(endDate) : undefined,
                 overtimeHours,
                 bonuses,
                 slackUserId,
@@ -214,6 +216,9 @@ export class EmployeeController {
         } catch (error: any) {
             if (error.message === 'Employee not found') {
                 return res.status(404).json({ error: error.message });
+            }
+            if (error.message === 'Termination Date is required when making an employee inactive') {
+                return res.status(400).json({ error: error.message });
             }
             next(error);
         }

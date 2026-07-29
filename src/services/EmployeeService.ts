@@ -10,7 +10,7 @@ import { UserDepartmentEntity } from "../entity/UserDepartment";
 import { LeaveRequestEntity } from "../entity/LeaveRequest";
 import { SlackMessageEntity } from "../entity/SlackMessageInfo";
 import { LeaveRequestStatus, PaymentType } from "../constant";
-import { Between, IsNull } from "typeorm";
+import { Between, In, IsNull, MoreThan } from "typeorm";
 import sendSlackMessage from "../utils/sendSlackMsg";
 import logger from "../utils/logger.utils";
 
@@ -28,6 +28,7 @@ interface CreateEmployeeDto {
     hiredFromOther?: string | null;
     hourlyRate: number;
     startDate: Date;
+    endDate?: Date | null;
     slackUserId?: string;
     createdBy?: number;
     phone?: string | null;
@@ -56,6 +57,7 @@ interface UpdateEmployeeDto {
     employeeType?: string | null;
     hourlyRate?: number;
     startDate?: Date;
+    endDate?: Date | null;
     overtimeHours?: number;
     bonuses?: number;
     slackUserId?: string | null;
@@ -189,6 +191,7 @@ export class EmployeeService {
             await addColumnIfNotExists('payment_method', 'VARCHAR(50) NULL');
             await addColumnIfNotExists('payment_method_other', 'VARCHAR(100) NULL');
             await addColumnIfNotExists('payment_schedule', 'VARCHAR(50) NULL');
+            await addColumnIfNotExists('end_date', 'DATE NULL');
             await addColumnIfNotExists('payment_info', 'TEXT NULL');
             await addColumnIfNotExists('payroll_notes', 'TEXT NULL');
             await addColumnIfNotExists('profile_photo', 'VARCHAR(500) NULL');
@@ -298,6 +301,7 @@ export class EmployeeService {
                         job_title VARCHAR(100) NOT NULL,
                         hourly_rate DECIMAL(10, 2) DEFAULT 0,
                         start_date DATE NOT NULL,
+                        end_date DATE NULL,
                         overtime_hours DECIMAL(10, 2) DEFAULT 0,
                         bonuses DECIMAL(10, 2) DEFAULT 0,
                         slack_user_id VARCHAR(50) NULL,
@@ -462,12 +466,31 @@ export class EmployeeService {
             .take(limit)
             .getManyAndCount();
 
+        const employeeIds = employees.map((employee) => employee.id);
+        const scheduleChangeLogs = employeeIds.length
+            ? await this.changeLogRepo.find({
+                where: {
+                    employeeId: In(employeeIds),
+                    fieldName: 'Schedule',
+                },
+                relations: ['changedByUser'],
+                order: { createdAt: 'DESC' },
+            })
+            : [];
+        const scheduleChangeLogsByEmployeeId = new Map<number, EmployeeChangeLog[]>();
+        scheduleChangeLogs.forEach((log) => {
+            const rows = scheduleChangeLogsByEmployeeId.get(log.employeeId) || [];
+            rows.push(log);
+            scheduleChangeLogsByEmployeeId.set(log.employeeId, rows);
+        });
+
         // Attach profile photo FileInfo
         const fileInfoRepo = appDatabase.getRepository(FileInfo);
         employees = await Promise.all(employees.map(async (emp: any) => {
             if (emp.user) {
                 emp.isActive = !!emp.user.isActive;
             }
+            emp.changeLogs = scheduleChangeLogsByEmployeeId.get(emp.id) || [];
             if (emp.profilePhoto && !isNaN(Number(emp.profilePhoto))) {
                 const fileInfo = await fileInfoRepo.findOne({ where: { id: Number(emp.profilePhoto) } });
                 if (fileInfo) {
@@ -599,12 +622,13 @@ export class EmployeeService {
             hiredFromOther: dto.hiredFromOther || null,
             hourlyRate: dto.hourlyRate || 0,
             startDate: dto.startDate,
+            endDate: dto.endDate || null,
             slackUserId: dto.slackUserId || null,
             phone: dto.phone || null,
             birthday: dto.birthday || null,
             country: dto.country || null,
             preferredName: dto.preferredName || null,
-            schedule: dto.schedule || null,
+            schedule: this.normalizeRegularSchedule(dto.schedule, dto.startDate),
             paymentMethod: dto.paymentMethod || null,
             paymentMethodOther: dto.paymentMethodOther || null,
             paymentSchedule: dto.paymentSchedule || null,
@@ -624,8 +648,8 @@ export class EmployeeService {
             const employee = this.employeeRepo.create(employeeData);
             const saved = await this.employeeRepo.save(employee);
             await this.setUserDepartments(dto.userId, departmentNames, dto.createdBy);
-            if (dto.schedule) {
-                await this.logEmployeeChange(saved.id, 'Schedule', null, dto.schedule, dto.createdBy);
+            if (saved.schedule) {
+                await this.logEmployeeChange(saved.id, 'Schedule', null, saved.schedule, dto.createdBy);
             }
             console.log('Employee saved with id:', saved.id);
 
@@ -648,6 +672,37 @@ export class EmployeeService {
         if (value === undefined || value === null || value === '') return null;
         if (value instanceof Date) return value.toISOString();
         return String(value);
+    }
+
+    private formatDateKey(value?: Date | string | null): string | null {
+        if (!value) return null;
+        if (typeof value === 'string') return value.slice(0, 10);
+        return value.toISOString().slice(0, 10);
+    }
+
+    private normalizeRegularSchedule(value: string | null | undefined, fallbackEffectiveDate?: Date | string | null): string | null {
+        if (!value) return null;
+        try {
+            const parsed = JSON.parse(value);
+            if (!parsed || !Array.isArray(parsed.days)) return value;
+            if (!parsed.effectiveStartDate) {
+                const fallback = this.formatDateKey(fallbackEffectiveDate);
+                if (fallback) parsed.effectiveStartDate = fallback;
+            }
+            return JSON.stringify(parsed);
+        } catch {
+            return value;
+        }
+    }
+
+    private async removeScheduleOverridesAfter(employeeId: number, endDate: Date | string | null) {
+        const endDateKey = this.formatDateKey(endDate);
+        if (!endDateKey) return;
+
+        await this.scheduleRepo.delete({
+            employeeId,
+            date: MoreThan(endDateKey),
+        });
     }
 
     async logEmployeeChange(employeeId: number, fieldName: string, oldValue: any, newValue: any, changedBy?: number | null) {
@@ -1075,6 +1130,8 @@ export class EmployeeService {
     }
 
     async updateEmployee(id: number, dto: UpdateEmployeeDto, changedBy?: number) {
+        await this.ensureTables();
+
         const employee = await this.employeeRepo.findOne({
             where: { id, deletedAt: IsNull() },
         });
@@ -1087,6 +1144,10 @@ export class EmployeeService {
         let pendingDepartmentNames: string[] | null = null;
         const previousSchedule = employee.schedule;
         let nextSchedule: string | null | undefined;
+        const requestedEndDate = dto.endDate !== undefined ? dto.endDate : employee.endDate;
+        if (dto.isActive === false && !requestedEndDate) {
+            throw new Error('Termination Date is required when making an employee inactive');
+        }
         const queue = (fieldName: string, oldValue: any, newValue: any) => {
             logTasks.push(this.logEmployeeChange(id, fieldName, oldValue, newValue, changedBy));
         };
@@ -1125,12 +1186,13 @@ export class EmployeeService {
         if (dto.slackUserId !== undefined) { queue('Slack User', employee.slackUserId, dto.slackUserId || null); employee.slackUserId = dto.slackUserId || null; }
         if (dto.profilePhoto !== undefined) { queue('Profile Photo', employee.profilePhoto, dto.profilePhoto || null); employee.profilePhoto = dto.profilePhoto || null; }
         if (dto.isActive !== undefined) { queue('Status', employee.isActive, dto.isActive); employee.isActive = dto.isActive; }
+        if (dto.endDate !== undefined) { queue('Termination Date', employee.endDate, dto.endDate || null); employee.endDate = dto.endDate || null; }
         if (dto.phone !== undefined) { queue('Phone', employee.phone, dto.phone || null); employee.phone = dto.phone || null; }
         if (dto.birthday !== undefined) { queue('Birthday', employee.birthday, dto.birthday || null); employee.birthday = dto.birthday || null; }
         if (dto.country !== undefined) { queue('Country', employee.country, dto.country || null); employee.country = dto.country || null; }
         if (dto.preferredName !== undefined) { queue('Preferred Name', employee.preferredName, dto.preferredName || null); employee.preferredName = dto.preferredName || null; }
         if (dto.schedule !== undefined) {
-            nextSchedule = dto.schedule || null;
+            nextSchedule = this.normalizeRegularSchedule(dto.schedule, dto.startDate || employee.startDate);
             queue('Schedule', employee.schedule, nextSchedule);
             employee.schedule = nextSchedule;
         }
@@ -1161,6 +1223,10 @@ export class EmployeeService {
         // If start date changed, regenerate all employee numbers
         if (startDateChanged) {
             await this.regenerateEmployeeNumbers();
+        }
+
+        if (dto.isActive === false) {
+            await this.removeScheduleOverridesAfter(id, employee.endDate);
         }
 
         if (

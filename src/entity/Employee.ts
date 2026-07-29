@@ -53,6 +53,9 @@ export class Employee {
     @Column({ name: 'start_date', type: 'date' })
     startDate: Date;
 
+    @Column({ name: 'end_date', type: 'date', nullable: true })
+    endDate: Date | null;
+
     @Column({ name: 'overtime_hours', type: 'decimal', precision: 10, scale: 2, default: 0 })
     overtimeHours: number;
 
