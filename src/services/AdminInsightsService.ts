@@ -170,12 +170,17 @@ export class AdminInsightsService {
             quoCalls,
             replyQuality,
         ] = await Promise.all([
+            // AI-training thumbs only. Manager ratings of teammate replies
+            // (targetType='sent_reply') are credited under Per-rep performance
+            // via subjectUserId — counting them here by giver (often Anj)
+            // inflated "Who trains the AI" and disagreed with Per-rep.
             q(
                 `SELECT userId, rating, COUNT(*) c,
                         SUM(feedbackText IS NOT NULL AND feedbackText <> '') withText,
                         SUM(correctedResponse IS NOT NULL AND correctedResponse <> '') withCorrection
                  FROM ai_message_feedback
                  WHERE userId IS NOT NULL AND createdAt >= ? AND createdAt < ?
+                   AND (targetType IS NULL OR targetType IN ('suggestion', 'general'))
                    ${listingId != null ? "AND listingId = ?" : ""}
                  GROUP BY userId, rating`,
                 listingId != null ? [start, end, listingId] : [start, end]
@@ -241,6 +246,7 @@ export class AdminInsightsService {
                  JOIN users u ON u.id = m.sentByUserId AND u.deletedAt IS NULL
                  WHERE m.direction = 'outgoing'
                    AND m.sentVia = 'inbox_v2'
+                   AND COALESCE(m.isAutomatic, 0) = 0
                    AND m.sentByUserId IS NOT NULL
                    AND m.sentAt >= ? AND m.sentAt < ?
                    ${listingId != null ? "AND m.listingId = ?" : ""}
@@ -377,12 +383,21 @@ export class AdminInsightsService {
             ensure(uid).itemsDiscarded += Number(r.c);
         }
 
+        // textFeedback / corrections are subsets of the same thumb rows — do
+        // not add them into `total` or rankings double-count Anj-style heavy
+        // feedback days.
         const trainingRows = [...training.values()]
             .map((t) => ({
                 ...t,
                 total:
-                    t.thumbsUp + t.thumbsDown + t.textFeedback + t.promptsAnswered + t.promptsDismissed +
-                    t.factsTaught + t.factsReviewed + t.missesResolved + t.itemsDiscarded,
+                    t.thumbsUp +
+                    t.thumbsDown +
+                    t.promptsAnswered +
+                    t.promptsDismissed +
+                    t.factsTaught +
+                    t.factsReviewed +
+                    t.missesResolved +
+                    t.itemsDiscarded,
             }))
             .filter((t) => t.total > 0 || t.suggestionsAccepted + t.suggestionsEdited + t.suggestionsIgnored > 0)
             .sort((a, b) => b.total - a.total);
@@ -547,7 +562,7 @@ export class AdminInsightsService {
         const q = (sql: string, params: any[]): Promise<any[]> => appDatabase.query(sql, params).catch(() => []);
 
         const [feedback, facts, prompts, misses, counts] = await Promise.all([
-            wantKind("feedback")
+            wantKind("feedback") || wantKind("manager_rating")
                 ? q(
                       `SELECT f.id, f.userId, f.rating, f.categories, f.feedbackText, f.correctedResponse,
                               f.targetType, f.subjectUserId,
@@ -621,17 +636,20 @@ export class AdminInsightsService {
         for (const r of feedback) {
             const uid = r.userId != null ? Number(r.userId) : null;
             if (!passUser(uid)) continue;
+            const targetType = r.targetType || (r.suggestionId != null ? "suggestion" : "general");
+            const kind = targetType === "sent_reply" ? "manager_rating" : "feedback";
+            if (!wantKind(kind) && kinds.size > 0) continue;
             items.push({
                 id: `fb-${r.id}`,
                 rawId: Number(r.id),
-                kind: "feedback",
+                kind,
                 userId: uid,
                 userName: nameOf(uid),
                 rating: r.rating,
                 categories: safeParse(r.categories),
                 feedbackText: r.feedbackText,
                 correctedResponse: r.correctedResponse,
-                targetType: r.targetType || (r.suggestionId != null ? "suggestion" : "general"),
+                targetType,
                 originalMessage: r.originalMessage || null,
                 subjectUserId: r.subjectUserId != null ? Number(r.subjectUserId) : null,
                 subjectUserName: r.subjectUserId != null ? nameOf(Number(r.subjectUserId)) : null,
@@ -743,9 +761,12 @@ export class AdminInsightsService {
             case "thumbsUp":
             case "thumbsDown": {
                 const rating = metric === "thumbsUp" ? "up" : "down";
+                const aiFb =
+                    "(targetType IS NULL OR targetType IN ('suggestion', 'general'))";
                 const cnt = await q(
                     `SELECT COUNT(*) c FROM ai_message_feedback
-                       WHERE userId = ? AND rating = ? AND createdAt >= ? AND createdAt < ?`,
+                       WHERE userId = ? AND rating = ? AND createdAt >= ? AND createdAt < ?
+                         AND ${aiFb}`,
                     [user.id, rating, start, end]
                 );
                 total = Number(cnt[0]?.c || 0);
@@ -756,6 +777,7 @@ export class AdminInsightsService {
                      FROM ai_message_feedback f
                      LEFT JOIN ai_message_suggestions s ON s.id = f.suggestionId
                      WHERE f.userId = ? AND f.rating = ? AND f.createdAt >= ? AND f.createdAt < ?
+                       AND ${aiFb}
                      ORDER BY f.createdAt DESC LIMIT ? OFFSET ?`,
                     [user.id, rating, start, end, lim, off]
                 );
@@ -783,10 +805,13 @@ export class AdminInsightsService {
             case "textFeedback":
             case "corrections": {
                 const col = metric === "textFeedback" ? "feedbackText" : "correctedResponse";
+                const aiFb =
+                    "(targetType IS NULL OR targetType IN ('suggestion', 'general'))";
                 const cnt = await q(
                     `SELECT COUNT(*) c FROM ai_message_feedback
                        WHERE userId = ? AND ${col} IS NOT NULL AND ${col} <> ''
-                         AND createdAt >= ? AND createdAt < ?`,
+                         AND createdAt >= ? AND createdAt < ?
+                         AND ${aiFb}`,
                     [user.id, start, end]
                 );
                 total = Number(cnt[0]?.c || 0);
@@ -798,6 +823,7 @@ export class AdminInsightsService {
                      LEFT JOIN ai_message_suggestions s ON s.id = f.suggestionId
                      WHERE f.userId = ? AND f.${col} IS NOT NULL AND f.${col} <> ''
                        AND f.createdAt >= ? AND f.createdAt < ?
+                       AND ${aiFb}
                      ORDER BY f.createdAt DESC LIMIT ? OFFSET ?`,
                     [user.id, start, end, lim, off]
                 );

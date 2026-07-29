@@ -578,6 +578,20 @@ export class InboxV2Controller {
         }
     }
 
+    /** Clear the "AI Needs Team" pin after a human owns the thread. */
+    async resolveAiNeedsHuman(request: Request, response: Response, next: NextFunction) {
+        try {
+            const threadId = Number(request.params.threadId);
+            if (!Number.isFinite(threadId)) {
+                return response.status(400).json({ status: false, message: "Invalid threadId" });
+            }
+            const cleared = await new InboxAIService().clearAiNeedsHuman(threadId);
+            return response.status(200).json({ status: true, data: { cleared } });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     /** Update a suggestion's lifecycle status (ignored/rejected from the UI). */
     async aiUpdateSuggestionStatus(request: CustomRequest, response: Response, next: NextFunction) {
         try {

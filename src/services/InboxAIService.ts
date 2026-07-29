@@ -64,6 +64,8 @@ import { unsupportedOpsClaims } from "./InboxAIOpsEvidence";
 import { stripDashes } from "./InboxAIReplyFormat";
 import { selectRelevant } from "./AIMemoryPolicy";
 import { AIMemoryService } from "./AIMemoryService";
+import { isInquirySupersededByAcceptedStay } from "./InboxInquirySuperseded";
+import { hasActiveNoResponseNeededNote } from "./InboxNoResponseNeeded";
 
 /**
  * InboxAIService
@@ -591,6 +593,21 @@ export class InboxAIService {
         const conversation = await this.conversationRepo.findOne({ where: { threadId } });
         if (!conversation) throw new Error(`Conversation ${threadId} not found`);
 
+        // Leftover Hostify inquiry next to an accepted stay for the same guest /
+        // property / check-in day — never draft or autosend on the dead thread.
+        if (await isInquirySupersededByAcceptedStay(conversation)) {
+            logger.info(
+                `[InboxAI] skip suggestion thread=${threadId}: inquiry_superseded_by_accepted`
+            );
+            return null;
+        }
+
+        // Staff Hostify note "No response needed" still in force — don't draft.
+        if (await hasActiveNoResponseNeededNote(threadId)) {
+            logger.info(`[InboxAI] skip suggestion thread=${threadId}: no_response_needed_note`);
+            return null;
+        }
+
         const messages = await this.messageRepo.find({
             where: { threadId },
             order: { sentAt: "ASC", id: "ASC" },
@@ -914,6 +931,29 @@ export class InboxAIService {
         // Guest mood for inbox list / open conversation (best-effort).
         try {
             await this.persistGuestSentiment(conversation, output, guestAskText);
+        } catch {
+            /* non-fatal */
+        }
+
+        // Pin "AI Needs Team" when we deferred, or guest mood is frustrated.
+        try {
+            if (Number(saved.escalationRequired) === 1) {
+                await this.raiseAiNeedsHuman(
+                    conversation,
+                    "escalation",
+                    saved.escalationReason || "AI deferred — needs a human reply"
+                );
+            } else if (
+                conversation.guestSentimentScore != null &&
+                Number(conversation.guestSentimentScore) <= 4
+            ) {
+                await this.raiseAiNeedsHuman(
+                    conversation,
+                    "frustration",
+                    conversation.guestSentimentNote ||
+                        `Guest mood ${conversation.guestSentimentLabel || conversation.guestSentimentScore}/10 — may need a human`
+                );
+            }
         } catch {
             /* non-fatal */
         }
@@ -2354,6 +2394,28 @@ export class InboxAIService {
         logger.info(
             `[InboxAIService] feedback ${saved.id} recorded (type=${targetType}, suggestion ${input.suggestionId ?? "n/a"}, rating ${rating ?? "n/a"})`
         );
+
+        // Downvotes with a correction are the highest-signal source of truth we
+        // get: extract stable property facts into the Verified Facts proposal
+        // queue so the fix lands in the fact sheet, not just in a comment.
+        // Fire-and-forget; never blocks or fails the feedback save.
+        const correction = (input.correctedResponse || input.feedbackText || "").trim();
+        if (rating === "down" && correction && input.listingId) {
+            (async () => {
+                try {
+                    const { PropertyFactsService } = require("./PropertyFactsService");
+                    await new PropertyFactsService().proposeFromCorrection({
+                        listingId: Number(input.listingId),
+                        aiText: originalMessage,
+                        correctionText: correction,
+                        sourceType: "feedback",
+                        sourceId: saved.id,
+                    });
+                } catch (err: any) {
+                    logger.warn(`[InboxAIService] fact proposal from feedback ${saved.id} failed: ${err.message}`);
+                }
+            })();
+        }
         return saved;
     }
 
@@ -2664,6 +2726,47 @@ export class InboxAIService {
             if (suggestion.escalationRequired) return this.autosendSkip(threadId, suggestion.id, "escalation_required");
             if (!reply) return this.autosendSkip(threadId, suggestion.id, "empty_reply");
             if (warnings.length > 0) return this.autosendSkip(threadId, suggestion.id, "model_warnings");
+
+            // Burst / wrong-bubble race (Steffy Jul 28): a high-confidence draft
+            // for an older vibe message autosent while a sibling draft correctly
+            // escalated the oven safety report. Never send if the target is no
+            // longer the latest guest message, or a recent sibling escalated.
+            try {
+                const msgs = await this.messageRepo.find({
+                    where: { threadId },
+                    order: { sentAt: "ASC", id: "ASC" },
+                });
+                const latestGuestMsg = [...msgs]
+                    .reverse()
+                    .find(
+                        (m) =>
+                            m.direction === "incoming" &&
+                            !Number(m.isAutomatic) &&
+                            String(m.body || "").trim()
+                    );
+                if (
+                    suggestion.messageId != null &&
+                    latestGuestMsg &&
+                    Number(latestGuestMsg.externalId) !== Number(suggestion.messageId)
+                ) {
+                    return this.autosendSkip(threadId, suggestion.id, "stale_target_message");
+                }
+                const since = new Date(Date.now() - 3 * 60 * 1000);
+                const siblingEsc = await this.suggestionRepo
+                    .createQueryBuilder("s")
+                    .where("s.threadId = :threadId", { threadId })
+                    .andWhere("s.id != :id", { id: suggestion.id })
+                    .andWhere("s.escalationRequired = 1")
+                    .andWhere("s.generatedAt >= :since", { since })
+                    .getOne();
+                if (siblingEsc) {
+                    return this.autosendSkip(threadId, suggestion.id, "sibling_escalation");
+                }
+            } catch (err: any) {
+                logger.warn(
+                    `[InboxAIService] stale/sibling autosend guard failed (thread ${threadId}): ${err?.message}`
+                );
+            }
 
             // Inquiry (pre-booking) threads are sales conversations — auto-send
             // needs its own opt-in on top of the general auto-respond toggle.
@@ -3114,6 +3217,52 @@ export class InboxAIService {
                 `[InboxAIService] persist guest sentiment failed (thread ${conversation.threadId}): ${err?.message}`
             );
         }
+
+        // Recovered mood can clear a frustration pin (not escalation pins).
+        if (score >= 7 && Number(conversation.aiNeedsHuman) === 1 && conversation.aiNeedsHumanKind === "frustration") {
+            await this.clearAiNeedsHuman(Number(conversation.threadId)).catch(() => undefined);
+        }
+    }
+
+    /**
+     * Flag a thread for the Inbox "AI Needs Team" section — AI deferred or
+     * guest is frustrated. Does not overwrite a newer pin of equal/higher kind.
+     */
+    async raiseAiNeedsHuman(
+        conversation: InboxConversationEntity,
+        kind: "escalation" | "frustration",
+        reason: string
+    ): Promise<void> {
+        if (!conversation?.threadId) return;
+        const nextReason = String(reason || "").trim().slice(0, 500) || null;
+        const kindRank = kind === "escalation" ? 2 : 1;
+        const existingRank =
+            Number(conversation.aiNeedsHuman) === 1
+                ? conversation.aiNeedsHumanKind === "escalation"
+                    ? 2
+                    : 1
+                : 0;
+        if (existingRank > kindRank) return;
+
+        conversation.aiNeedsHuman = 1;
+        conversation.aiNeedsHumanKind = kind;
+        conversation.aiNeedsHumanReason = nextReason;
+        conversation.aiNeedsHumanAt = new Date();
+        await this.conversationRepo.save(conversation);
+        logger.info(
+            `[InboxAIService] AI Needs Team pin raised thread=${conversation.threadId} kind=${kind}`
+        );
+    }
+
+    async clearAiNeedsHuman(threadId: number): Promise<boolean> {
+        const conversation = await this.conversationRepo.findOne({ where: { threadId: Number(threadId) } });
+        if (!conversation || Number(conversation.aiNeedsHuman) !== 1) return false;
+        conversation.aiNeedsHuman = 0;
+        conversation.aiNeedsHumanKind = null;
+        conversation.aiNeedsHumanReason = null;
+        conversation.aiNeedsHumanAt = null;
+        await this.conversationRepo.save(conversation);
+        return true;
     }
 
     /**
@@ -3190,6 +3339,15 @@ export class InboxAIService {
         conversation.guestSentimentNote = note;
         conversation.guestSentimentAt = new Date();
         await this.conversationRepo.save(conversation);
+        if (score <= 4) {
+            await this.raiseAiNeedsHuman(
+                conversation,
+                "frustration",
+                note || `Guest mood ${finalLabel || score}/10 — may need a human`
+            ).catch(() => undefined);
+        } else if (score >= 7 && conversation.aiNeedsHumanKind === "frustration") {
+            await this.clearAiNeedsHuman(Number(threadId)).catch(() => undefined);
+        }
         return { score, label: finalLabel, note };
     }
 
@@ -3332,7 +3490,9 @@ export class InboxAIService {
             "- AMENITIES: A platform 'Amenities' checklist is marketing/listed-on-site data, NOT confirmed on-site inventory. You may say an item is listed for the property, but NEVER invent where it is stored/located (cabinet, drawer, under sink, etc.). If the guest needs to find something and location isn't in a staff-written KB entry, say the team will confirm. Prefer house rules / staff-written KB over amenity checklists when they conflict.",
             "- DEPOSITS & MONEY: Prefer live 'Reservation billing' fields (security_price / deposit_paid) over any learned/portfolio answer. Never assert 'no deposit was collected' from a portfolio/Airbnb rule when this booking's channel or billing block does not clearly support it — if unclear, say the team will check the deposit status and escalate.",
             "- RENTAL AGREEMENT / DEPOSIT AUTHORIZATION LINKS: Only send a ChargeAutomation securelink or a SecureStay rental-agreement link that appears in context (or an earlier TEAM message in THIS thread). NEVER send a Hostify pre-check-in / us.hostify.com/checkin URL as the rental agreement — that is a different form. If the guest needs the agreement and no correct link is in context, say the team will send the secure link.",
-            "- AUTHORITY ORDER when sources conflict: (1) TEAM messages in THIS thread, (2) live reservation billing + listing times/capacity/house rules, (3) property-specific KB/learned facts, (4) proven replies for this property, (5) portfolio answers last and only for generic ops. Never let portfolio override house rules, capacity, checkout time, or deposit facts.",
+            "- VERIFIED PROPERTY FACTS: when a 'VERIFIED PROPERTY FACTS' section is present, those lines are human-confirmed and OUTRANK EVERYTHING except TEAM messages in this thread — including the listing description, platform amenity lists, KB entries, and learned answers. If a verified fact contradicts another source, use the verified fact and never mention the discrepancy to the guest.",
+            "- LISTING DESCRIPTIONS ARE MARKETING TEXT: fee amounts, deposit amounts, and capacities that appear ONLY in the listing description snippet are not reliable. Only quote a deposit or fee as certain when it comes from VERIFIED PROPERTY FACTS, Reservation billing, Upsells, or a TEAM message. A deposit mentioned in the description but absent from those sources may not exist — say the team will confirm rather than confirming it yourself.",
+            "- AUTHORITY ORDER when sources conflict: (1) TEAM messages in THIS thread, (2) VERIFIED PROPERTY FACTS, (3) live reservation billing + listing times/capacity/house rules, (4) property-specific KB/learned facts, (5) proven replies for this property, (6) portfolio answers last and only for generic ops. Never let portfolio override house rules, capacity, checkout time, or deposit facts.",
             "- Earlier TEAM messages in this same thread are authoritative: prefer them, reuse their facts, and NEVER contradict something the team already told this guest.",
             "- The 'proven replies' section shows how our team answered similar questions for THIS property before. Strongly prefer their facts, specifics, and tone; adapt to the current guest. If they conflict with listing context (especially house rules / max guests / checkout time), trust listing context and the current thread.",
             "- Answer DIRECTLY and confidently when the context (proven replies, learned answers, listing knowledge, availability, reservation details) already contains the answer. Do NOT default to 'the team will confirm' for information you already have — only defer for things genuinely not in context.",
@@ -4727,6 +4887,22 @@ export class InboxAIService {
             if (canon) canonicalListingId = canon;
         } catch {
             /* non-fatal — fall back to the raw listingId */
+        }
+
+        // Verified Property Facts — the top of the knowledge hierarchy. Human-
+        // confirmed preset fields that override listing descriptions, KB and
+        // learned facts. Unverified prefills are intentionally NOT included.
+        if (includeKnowledge && groupIds.length) {
+            try {
+                const { PropertyFactsService } = require("./PropertyFactsService");
+                const block = await new PropertyFactsService().buildPromptBlock(groupIds);
+                if (block) {
+                    lines.push("");
+                    lines.push(block);
+                }
+            } catch {
+                /* non-fatal */
+            }
         }
 
         // Conflicts page (AI Assistant → Conflicts): open contradictions between

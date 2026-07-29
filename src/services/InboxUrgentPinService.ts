@@ -37,6 +37,14 @@ const ACCESS_RESOLVED_RE =
 const SAFETY_RE =
     /\b(fire|flood(?:ing)?|gas\s+leak|carbon\s+monoxide|\bco\s+alarm|smoke\s+alarm|ambulanc|police|911|bleeding|broke(?:n)?\s+(my|his|her|our)\s+(arm|leg|bone)|injur(?:y|ed)|unconscious|overdose|assault|weapon|gunshot)\b/i;
 
+/**
+ * Unexpected appliance heat / possible electrical or gas hazard mid-stay.
+ * Steffy (El Caloso, Jul 2026): oven super hot with knobs off — AI raced a
+ * celebration reply instead of safety handling. Pin Urgent so humans see it.
+ */
+const APPLIANCE_HAZARD_RE =
+    /\b(?:oven|stove|estufa|horno|cooktop|range)\b.{0,80}\b(?:(?:super|muy|really|burning|extreme(?:ly)?)\s+)?(?:hot|caliente|heating|heat(?:ing)?\s+up|prendid[oa]|encendid[oa])\b|\b(?:knobs?|perillas?|dials?)\b.{0,40}\b(?:off|apagad|all\s+(?:are\s+)?off)\b/i;
+
 const EARLY_CHECKIN_RE =
     /\bearly[\s-]*check[\s-]*in\b|\bcheck[\s-]*in\s+(early|earlier)\b|\barrive\s+(early|earlier|before\s+check[\s-]*in)\b|\bget\s+in\s+early\b|\bdrop\s+(our|my|the)\s+(bags|luggage)\s+early\b/i;
 
@@ -77,7 +85,8 @@ export class InboxUrgentPinService {
     }
 
     static detectsSafety(text: string): boolean {
-        return SAFETY_RE.test(String(text || ""));
+        const body = String(text || "");
+        return SAFETY_RE.test(body) || APPLIANCE_HAZARD_RE.test(body);
     }
 
     static detectsEarlyCheckin(text: string): boolean {
@@ -124,10 +133,12 @@ export class InboxUrgentPinService {
         if (!body) return null;
 
         if (InboxUrgentPinService.detectsSafety(body)) {
+            const appliance = APPLIANCE_HAZARD_RE.test(body);
             return {
                 type: "safety",
-                reason:
-                    "Guest reported a safety emergency (fire/flood/injury/police/etc.). Contact them immediately and escalate as needed.",
+                reason: appliance
+                    ? "Guest reported an appliance heating unexpectedly (possible safety hazard). Contact them immediately and arrange an on-site check."
+                    : "Guest reported a safety emergency (fire/flood/injury/police/etc.). Contact them immediately and escalate as needed.",
             };
         }
         if (InboxUrgentPinService.detectsAccess(body)) {

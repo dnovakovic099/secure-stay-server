@@ -13,6 +13,11 @@ import { ListingGroupMapEntity } from "../entity/ListingGroupMap";
 import { ListingService } from "./ListingService";
 import { ListingGroupService } from "./ListingGroupService";
 import { OverduePaymentService } from "./OverduePaymentService";
+import {
+    isInquirySupersededByAcceptedStay,
+    NOT_SUPERSEDED_INQUIRY_SQL,
+} from "./InboxInquirySuperseded";
+import { HAS_NRN_NOTE_SQL } from "./InboxNoResponseNeeded";
 import CustomErrorHandler from "../middleware/customError.middleware";
 
 /**
@@ -1118,6 +1123,10 @@ export class InboxService {
             .createQueryBuilder("c")
             .addSelect(latestRealMessageDirectionSubquery, "latestRealMessageDirection")
             .addSelect(latestRealMessageAtSubquery, "latestRealMessageAt")
+            // Staff Hostify notes like "No response needed" — exposed so the
+            // client can drop the thread from Awaiting reply until the guest
+            // writes again after that note.
+            .addSelect(`(CASE WHEN ${HAS_NRN_NOTE_SQL} THEN 1 ELSE 0 END)`, "noResponseNeeded")
             .leftJoin(ReservationInfoEntity, "r", "r.id = c.reservationId")
             .leftJoin(Listing, "l", "l.id = c.listingId")
             // listing_info only stores a subset of listings (mostly parents);
@@ -1166,7 +1175,12 @@ export class InboxService {
                         )
                     )
                 )`
-            );
+            )
+            // Hide leftover inquiry threads once the same guest has an accepted
+            // reservation for the same property + check-in day. Hostify often
+            // keeps both threads (Anj / Stephanie, Jul 2026), which inflated
+            // CI Today and New inquiries and sent the AI down the dead path.
+            .andWhere(NOT_SUPERSEDED_INQUIRY_SQL);
 
         const channelBuckets = parseListParam(options.channel);
         if (channelBuckets.length) {
@@ -1481,6 +1495,7 @@ export class InboxService {
         // activity. All joins are many-to-one so offset/limit is safe (no row
         // fan-out) and avoids TypeORM's two-pass skip/take id subquery.
         qb.orderBy("c.emergency", "DESC")
+            .addOrderBy("c.aiNeedsHuman", "DESC")
             // Only recent inquiries get pinned — months-old expired inquiries
             // shouldn't sit above today's conversations forever.
             .addOrderBy(
@@ -1491,6 +1506,7 @@ export class InboxService {
                     AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%denied%'
                     AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%timedout%'
                     AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%notpossible%'
+                    AND NOT (${HAS_NRN_NOTE_SQL})
                     AND c.lastMessageAt >= NOW() - INTERVAL 14 DAY THEN 1 ELSE 0 END)`,
                 "DESC"
             )
@@ -1575,6 +1591,7 @@ export class InboxService {
                     rawRows[index]?.latestRealMessageDirection === "outgoing"
                         ? rawRows[index].latestRealMessageDirection
                         : null,
+                noResponseNeeded: Number(rawRows[index]?.noResponseNeeded) === 1 ? 1 : 0,
                 propertyType: this.normalizePropertyTypeValue(classificationListing),
                 serviceType: this.normalizeServiceTypeValue(classificationListing, normalizedListing),
             };
@@ -1696,6 +1713,12 @@ export class InboxService {
                     .getRawOne();
                 if (pmsSibling) return null;
             }
+        }
+
+        // Same rule as listConversations: don't open a leftover inquiry when
+        // the accepted stay thread is the real one for this guest/day/property.
+        if (await isInquirySupersededByAcceptedStay(conversation)) {
+            return null;
         }
 
         // Backfill guest identity on open for older threads created before we
@@ -1900,6 +1923,13 @@ export class InboxService {
         conversation.lastMessageAt = saved.sentAt;
         conversation.answered = 1;
         conversation.unread = 0;
+        // Human took the thread — clear AI Needs Team pin.
+        if (Number(conversation.aiNeedsHuman) === 1) {
+            conversation.aiNeedsHuman = 0;
+            conversation.aiNeedsHumanKind = null;
+            conversation.aiNeedsHumanReason = null;
+            conversation.aiNeedsHumanAt = null;
+        }
         await this.conversationRepo.save(conversation);
 
         // Best-effort: reconcile the real Hostify message id/history shortly after.

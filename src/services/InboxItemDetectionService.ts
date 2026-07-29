@@ -206,6 +206,18 @@ export class InboxItemDetectionService {
                 return { detected: 0, reason: "no_reservation" };
             }
 
+            // Same guest already has an accepted stay for this property +
+            // check-in day — the leftover inquiry must not spawn tickets.
+            const { isInquirySupersededByAcceptedStay } = await import("./InboxInquirySuperseded");
+            if (await isInquirySupersededByAcceptedStay(conversation)) {
+                return { detected: 0, reason: "inquiry_superseded_by_accepted" };
+            }
+
+            const { hasActiveNoResponseNeededNote } = await import("./InboxNoResponseNeeded");
+            if (await hasActiveNoResponseNeededNote(threadId)) {
+                return { detected: 0, reason: "no_response_needed_note" };
+            }
+
             const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
 
             // Team discards are the strongest negative signal: each row is an

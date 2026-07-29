@@ -90,6 +90,11 @@ export class AIProposedActionService {
             if (settings && settings.proposedActionsEnabled === 0) return created;
             const reference = this.settingsReference(settings);
 
+            const { isInquirySupersededByAcceptedStay } = await import("./InboxInquirySuperseded");
+            if (await isInquirySupersededByAcceptedStay(input.conversation)) return created;
+            const { hasNoResponseNeededNote } = await import("./InboxNoResponseNeeded");
+            if (await hasNoResponseNeededNote(Number(input.conversation.threadId))) return created;
+
             const text = String(input.guestMessage?.body || "").trim();
             if (!text) return created;
 

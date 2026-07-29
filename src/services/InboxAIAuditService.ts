@@ -292,6 +292,10 @@ export class InboxAIAuditService {
             "  * ignored ask: the AI skipped an explicit question or request IN THE GUEST'S MESSAGE SHOWN (including PART of a multi-part message) that the team addressed. Asks visible only in the team reply do NOT count.",
             '- "addressed" (acceptable) when the reply was safe and reasonable to send as-is. Differences that are ONLY: shorter/longer wording, extra warmth, missing internal-ops details the AI could not know, the team answering additional questions the guest asked elsewhere, or the team volunteering unrelated extras — are acceptable, NOT mistakes.',
             '- "unknown": you cannot tell.',
+            "SANITY CHECKS (apply before returning \"missed\"):",
+            "- If the GUEST message reads like it was written by staff, platform support, an owner, or a vendor rather than the actual guest (shift handovers, internal updates, survey scheduling), return unknown for both verdicts — the pair is not scoreable.",
+            '- If your verdict for the team reply is "off_topic", the pair proves nothing about the AI: ai_verdict must NOT be "missed".',
+            '- For "wrong_info" specifically: you must be able to point to the SPECIFIC, UNCONDITIONAL statement in the TEAM reply that contradicts the AI. If the team merely answered differently, deferred, hedged, or acted on live operational status, it is NOT wrong_info.',
             'For "missed" ALSO include:',
             '- ai_note: one short sentence (max 20 words) saying exactly what the AI failed to provide or got wrong.',
             "- ai_category: the failure type —",
@@ -335,7 +339,11 @@ export class InboxAIAuditService {
                     it.row.replyRelevance = v === "relevant" || v === "off_topic" ? v : "unknown";
                     it.row.replyRelevanceNote =
                         v === "off_topic" && r?.note ? String(r.note).slice(0, 255) : null;
-                    const av = String(r?.ai_verdict || "").toLowerCase();
+                    let av = String(r?.ai_verdict || "").toLowerCase();
+                    // Enforce the scope rule mechanically: a team reply the judge
+                    // itself called off-topic cannot convict the AI. The July 2026
+                    // hand-review found ~30% of "missed" labels were exactly this.
+                    if (av === "missed" && it.row.replyRelevance === "off_topic") av = "unknown";
                     it.row.aiReplyQuality = av === "addressed" || av === "missed" ? av : "unknown";
                     if (av === "missed") {
                         it.row.aiReplyQualityNote = r?.ai_note ? String(r.ai_note).slice(0, 255) : null;
@@ -363,11 +371,35 @@ export class InboxAIAuditService {
 
         // Freshness loop: every wrong_info miss is evidence a stored fact may be
         // stale — check and demote contradicted facts. Best-effort, never blocks.
-        await this.flagContradictedFacts(
-            items.filter(
-                (it) => it.row.aiReplyQuality === "missed" && it.row.aiReplyQualityCategory === "wrong_info"
-            )
-        ).catch((e) => logger.warn(`[InboxAIAudit] fact freshness check failed: ${e.message}`));
+        const wrongInfoMisses = items.filter(
+            (it) => it.row.aiReplyQuality === "missed" && it.row.aiReplyQualityCategory === "wrong_info"
+        );
+        await this.flagContradictedFacts(wrongInfoMisses).catch((e) =>
+            logger.warn(`[InboxAIAudit] fact freshness check failed: ${e.message}`)
+        );
+
+        // Verified Facts loop: the team reply that convicted the AI is ground
+        // truth — turn it into a preset-field proposal so the correction lands
+        // in the property fact sheet, not just in a metric.
+        try {
+            const { PropertyFactsService } = await import("./PropertyFactsService");
+            const pf = new PropertyFactsService();
+            for (const it of wrongInfoMisses.slice(0, 25)) {
+                if (it.row.listingId == null) continue;
+                await pf
+                    .proposeFromCorrection({
+                        listingId: Number(it.row.listingId),
+                        aiText: it.row.suggestedReply,
+                        correctionText: it.row.actualReplyText || "",
+                        guestText: it.guestMsg,
+                        sourceType: "audit_wrong_info",
+                        sourceId: it.row.id,
+                    })
+                    .catch(() => 0);
+            }
+        } catch (e: any) {
+            logger.warn(`[InboxAIAudit] fact proposal pass failed: ${e.message}`);
+        }
 
         return judged;
     }

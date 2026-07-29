@@ -141,6 +141,21 @@ export class InboxConversationEntity {
     @Column({ type: "datetime", nullable: true })
     guestSentimentAt: Date | null;
 
+    // AI handed off to humans (can't safely answer) or guest is frustrated with AI.
+    // Surfaces in Inbox V2 "AI Needs Team" — distinct from Urgent safety/access pins.
+    @Column({ type: "tinyint", default: 0 })
+    aiNeedsHuman: number;
+
+    /** escalation | frustration */
+    @Column({ length: 32, nullable: true })
+    aiNeedsHumanKind: string | null;
+
+    @Column({ length: 500, nullable: true })
+    aiNeedsHumanReason: string | null;
+
+    @Column({ type: "datetime", nullable: true })
+    aiNeedsHumanAt: Date | null;
+
     // Rescue Copilot state: watching | active | recovering | resolved | dismissed
     @Column({ length: 24, nullable: true })
     rescueStatus: string | null;

@@ -76,6 +76,11 @@ router.patch(
     verifySession,
     inboxV2Controller.setAiAutoRespondDisabled
 );
+router.post(
+    "/conversations/:threadId/ai-needs-human/resolve",
+    verifySession,
+    inboxV2Controller.resolveAiNeedsHuman
+);
 
 // -------------------------------------------------------------------------
 // Automated messages (rule-based scheduled sends: winback, reminders,
