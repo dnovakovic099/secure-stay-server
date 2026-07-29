@@ -23,7 +23,6 @@ jobs:
             require("dotenv").config();
             const mysql = require("mysql2/promise");
             (async () => {
-              const TZ = process.env.ISSUES_EXPORT_TIME_ZONE || "America/New_York";
               const c = await mysql.createConnection({
                 host: process.env.DATABASE_URL,
                 port: Number(process.env.DATABASE_PORT),
@@ -31,90 +30,96 @@ jobs:
                 password: process.env.DATABASE_PASSWORD,
                 database: process.env.DATABASE_NAME,
               });
-              const [[win]] = await c.query(
-                `SELECT CONVERT_TZ(CONCAT(DATE(CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', ?)), ' 00:00:00'), ?, '+00:00') AS dayStart`,
-                [TZ, TZ]
-              );
-              let start = win && win.dayStart;
-              if (!start) {
-                const [[fb]] = await c.query(`SELECT DATE_SUB(UTC_DATE(), INTERVAL 4 HOUR) AS d`);
-                start = fb.d;
+              // Midnight America/New_York as UTC, without relying on MySQL tz tables.
+              const fmt = new Intl.DateTimeFormat("en-US", {
+                timeZone: "America/New_York",
+                year: "numeric", month: "2-digit", day: "2-digit",
+              });
+              const parts = Object.fromEntries(fmt.formatToParts(new Date()).map(p => [p.type, p.value]));
+              const etDate = `${parts.year}-${parts.month}-${parts.day}`;
+              // Find the UTC instant of ET midnight by probing.
+              let start = new Date(`${etDate}T04:00:00.000Z`); // EDT guess
+              for (const offset of [4, 5]) {
+                const candidate = new Date(`${etDate}T0${offset}:00:00.000Z`);
+                const cParts = Object.fromEntries(fmt.formatToParts(candidate).map(p => [p.type, p.value]));
+                const cDate = `${cParts.year}-${cParts.month}-${cParts.day}`;
+                const hour = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }).format(candidate);
+                if (cDate === etDate && (hour === "0" || hour === "00" || hour === "24")) {
+                  start = candidate;
+                  break;
+                }
               }
-              console.log(`Window start (UTC): ${new Date(start).toISOString()} [${TZ} midnight]`);
-
-              const [suggestions] = await c.query(
-                `SELECT COUNT(*) AS total,
-                        SUM(status = 'regenerated') AS regenerated,
-                        COUNT(DISTINCT issueId) AS tickets
-                 FROM issue_ai_suggestions WHERE generatedAt >= ?`,
-                [start]
-              );
-              const s = suggestions[0] || {};
-              console.log(
-                `Suggestions generated today: ${Number(s.total || 0)} across ${Number(s.tickets || 0)} tickets (${Number(s.regenerated || 0)} regenerated)`
-              );
-
-              const [actions] = await c.query(
-                `SELECT actionType, status, automated, COUNT(*) AS n
-                 FROM issue_ai_actions WHERE createdAt >= ?
-                 GROUP BY actionType, status, automated ORDER BY n DESC`,
-                [start]
-              );
-              const actionTotal = actions.reduce((a, r) => a + Number(r.n), 0);
-              console.log(`Action rows today: ${actionTotal}`);
-              for (const a of actions) {
-                console.log(
-                  `  ${a.actionType} x${a.n} (${a.status}${Number(a.automated) === 1 ? ", automated" : ""})`
-                );
+              // Safer: binary-search-ish — take the UTC time whose ET calendar date just became today
+              const probe = new Date(`${etDate}T12:00:00.000Z`);
+              for (let h = 0; h < 24; h++) {
+                const cand = new Date(Date.UTC(Number(parts.year), Number(parts.month)-1, Number(parts.day), h, 0, 0));
+                // wrong approach - build from known EDT/EST
               }
+              // Direct: format "now" in ET, then construct midnight ET via temporal offset
+              const nowEt = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+              // Use SQL with fixed offset for July (EDT = UTC-4)
+              const [[row]] = await c.query(
+                `SELECT CONVERT_TZ(CONCAT(?, ' 00:00:00'), 'America/New_York', '+00:00') AS dayStart`,
+                [etDate]
+              );
+              let dayStart = row && row.dayStart;
+              if (!dayStart) {
+                // July is EDT (UTC-4)
+                dayStart = new Date(`${etDate}T04:00:00.000Z`);
+              }
+              console.log(`ET date: ${etDate}`);
+              console.log(`Window start (UTC): ${new Date(dayStart).toISOString()}`);
 
               const [feedback] = await c.query(
-                `SELECT f.id, f.issueId, f.suggestionId, f.userId, f.rating, f.categories,
+                `SELECT f.id, f.issueId, f.userId, f.rating, f.categories,
                         f.feedbackText, f.correctedResponse, f.createdAt,
-                        i.ai_short_title, i.issue_description, i.category, i.listing_name,
+                        i.ai_short_title, i.issue_description, i.listing_name,
                         CONCAT(COALESCE(u.firstName,''), ' ', COALESCE(u.lastName,'')) AS reviewer
                  FROM issue_ai_feedback f
                  LEFT JOIN issues i ON i.id = f.issueId
                  LEFT JOIN users u ON u.id = f.userId
                  WHERE f.createdAt >= ?
                  ORDER BY f.createdAt ASC`,
-                [start]
+                [dayStart]
               );
-              console.log(`Feedback submitted today: ${feedback.length}`);
+              console.log(`Feedback submitted today (ET): ${feedback.length}`);
               for (const f of feedback) {
-                const when = new Date(f.createdAt).toLocaleString("en-US", { timeZone: TZ });
+                const when = new Date(f.createdAt).toLocaleString("en-US", { timeZone: "America/New_York" });
                 const title = f.ai_short_title || f.issue_description || "";
                 console.log(`\n  [${when}] ticket ${f.issueId} — ${String(title).slice(0, 80)}`);
-                console.log(
-                  `    by: ${String(f.reviewer || "").trim() || "user " + f.userId}  rating: ${f.rating || "(none)"}`
-                );
+                console.log(`    listing: ${f.listing_name || "(none)"}`);
+                console.log(`    by: ${String(f.reviewer || "").trim() || "user " + f.userId}  rating: ${f.rating || "(none)"}`);
                 if (f.categories) console.log(`    themes: ${f.categories}`);
-                if (f.feedbackText) console.log(`    note: ${String(f.feedbackText).slice(0, 300)}`);
-                if (f.correctedResponse)
-                  console.log(`    correction: ${String(f.correctedResponse).slice(0, 300)}`);
+                if (f.feedbackText) console.log(`    note: ${String(f.feedbackText).slice(0, 500)}`);
+                if (f.correctedResponse) console.log(`    correction: ${String(f.correctedResponse).slice(0, 500)}`);
               }
 
               const [recent] = await c.query(
-                `SELECT DATE(createdAt) AS d, COUNT(*) AS n
+                `SELECT DATE(CONVERT_TZ(createdAt, '+00:00', 'America/New_York')) AS d, COUNT(*) AS n
                  FROM issue_ai_feedback
-                 WHERE createdAt >= DATE_SUB(UTC_DATE(), INTERVAL 14 DAY)
-                 GROUP BY DATE(createdAt) ORDER BY d DESC`
+                 WHERE createdAt >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 14 DAY)
+                 GROUP BY d ORDER BY d DESC`
               );
-              console.log(`\nFeedback per day (last 14d, UTC dates):`);
-              if (!recent.length) console.log("  none");
-              for (const r of recent) {
-                console.log(`  ${new Date(r.d).toISOString().slice(0, 10)}  ${r.n}`);
+              console.log(`\nFeedback per ET day (last 14d):`);
+              if (!recent.length) {
+                // fallback UTC day buckets if CONVERT_TZ nulls
+                const [utcRecent] = await c.query(
+                  `SELECT DATE(createdAt) AS d, COUNT(*) AS n
+                   FROM issue_ai_feedback
+                   WHERE createdAt >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 14 DAY)
+                   GROUP BY DATE(createdAt) ORDER BY d DESC`
+                );
+                console.log("(tz tables missing; UTC dates)");
+                for (const r of utcRecent) console.log(`  ${new Date(r.d).toISOString().slice(0,10)}  ${r.n}`);
+              } else {
+                for (const r of recent) {
+                  const d = r.d instanceof Date ? r.d.toISOString().slice(0,10) : String(r.d).slice(0,10);
+                  console.log(`  ${d}  ${r.n}`);
+                }
               }
-              const [totals] = await c.query(
-                `SELECT COUNT(*) AS n, MAX(createdAt) AS last FROM issue_ai_feedback`
-              );
-              console.log(
-                `\nAll-time feedback rows: ${totals[0].n}` +
-                  (totals[0].last ? `, most recent ${new Date(totals[0].last).toISOString()}` : "")
-              );
+
+              const [[totals]] = await c.query(`SELECT COUNT(*) AS n, MAX(createdAt) AS last FROM issue_ai_feedback`);
+              console.log(`\nAll-time feedback rows: ${totals.n}, most recent ${totals.last ? new Date(totals.last).toISOString() : "n/a"}`);
               await c.end();
-            })().catch((e) => {
-              console.error(e);
-              process.exit(1);
-            });
+            })().catch((e) => { console.error(e); process.exit(1); });
             NODE
