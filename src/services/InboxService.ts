@@ -13,6 +13,10 @@ import { ListingGroupMapEntity } from "../entity/ListingGroupMap";
 import { ListingService } from "./ListingService";
 import { ListingGroupService } from "./ListingGroupService";
 import { OverduePaymentService } from "./OverduePaymentService";
+import { ReservationInfoService } from "./ReservationInfoService";
+import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
+import { ReviewDiscussionService } from "./ReviewDiscussionService";
+import { ReviewService } from "./ReviewService";
 import {
     isInquirySupersededByAcceptedStay,
     NOT_SUPERSEDED_INQUIRY_SQL,
@@ -256,6 +260,9 @@ const buildLocalTodayDateFilter = (dateColumn: string, timeZoneColumn: string, p
 const easternDateExpression = (dateExpression: string) =>
     `DATE(COALESCE(CONVERT_TZ(${dateExpression}, '+00:00', 'America/New_York'), ${dateExpression}))`;
 
+const SUPPORT_INVOLVED_TAG = "Support Involved";
+const RESOLUTIONS_TEAM_GROUP_ID = "S0A79UGQG0H";
+
 export class InboxService {
     /** 5-minute cache for the filter dropdown options (see getFilterOptions). */
     private static filterOptionsCache: { at: number; channels: string[]; repliedByUsers: string[] } | null = null;
@@ -291,6 +298,136 @@ export class InboxService {
             return isIncoming === 1 ? "incoming" : "outgoing";
         }
         return fromKey === "guest" ? "incoming" : "outgoing";
+    }
+
+    private getDashboardBaseUrl() {
+        const configuredBaseUrl = String(process.env.BASE_URL || "").trim();
+        return (
+            configuredBaseUrl && !/localhost|127\.0\.0\.1/i.test(configuredBaseUrl)
+                ? configuredBaseUrl
+                : "https://securestay.ai"
+        ).replace(/\/$/, "");
+    }
+
+    private getInboxConversationUrl(threadId: number | string) {
+        return `${this.getDashboardBaseUrl()}/messages/inbox-v2?thread=${encodeURIComponent(String(threadId))}`;
+    }
+
+    private isAirbnbSupportConversation(
+        conversation: InboxConversationEntity | null | undefined,
+        messages: Array<Pick<InboxMessageEntity, "direction" | "senderName" | "body" | "note">>
+    ) {
+        if (/airbnb\s*support/i.test(conversation?.guestName || "")) return true;
+        return messages.some((message) => (
+            message.direction === "incoming" && /airbnb\s*support/i.test(message.senderName || "")
+        ));
+    }
+
+    private extractHostifyConfirmationCodes(text: string | null | undefined) {
+        const matches = String(text || "").match(/\bHM[A-Z0-9]+\b/gi) || [];
+        return Array.from(new Set(matches.map((match) => match.toUpperCase())));
+    }
+
+    private extractHostifyConfirmationCodesFromMessages(
+        conversation: InboxConversationEntity,
+        messages: Array<Pick<InboxMessageEntity, "body" | "note">>
+    ) {
+        const sourceText = [
+            conversation.lastMessageText || "",
+            ...messages.flatMap((message) => [message.body || "", message.note || ""]),
+        ].join("\n");
+        return this.extractHostifyConfirmationCodes(sourceText);
+    }
+
+    private parseReservationTags(value: any): string[] {
+        const source = (() => {
+            if (Array.isArray(value)) return value;
+            if (value == null || value === "") return [];
+            try {
+                const parsed = JSON.parse(String(value));
+                return Array.isArray(parsed) ? parsed : [value];
+            } catch {
+                return [value];
+            }
+        })();
+        const seen = new Set<string>();
+        return source
+            .map((tag: any) => String(tag || "").trim().replace(/\s+/g, " "))
+            .filter((tag: string) => {
+                if (!tag) return false;
+                const key = tag.toLowerCase();
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+    }
+
+    private hasReservationTag(tags: string[], tagName: string) {
+        const target = tagName.trim().toLowerCase();
+        return tags.some((tag) => tag.trim().toLowerCase() === target);
+    }
+
+    private async findReservationByConfirmationCode(confirmationCode: string) {
+        return this.reservationRepo
+            .createQueryBuilder("reservation")
+            .where("UPPER(reservation.confirmation_code) = :confirmationCode", { confirmationCode })
+            .orWhere("UPPER(reservation.channelReservationId) = :confirmationCode", { confirmationCode })
+            .getOne();
+    }
+
+    private async processAirbnbSupportConfirmationCodes(
+        conversation: InboxConversationEntity,
+        messages: InboxMessageEntity[]
+    ) {
+        if (!this.isAirbnbSupportConversation(conversation, messages)) return;
+
+        const confirmationCodes = this.extractHostifyConfirmationCodesFromMessages(conversation, messages);
+        if (!confirmationCodes.length) return;
+
+        for (const confirmationCode of confirmationCodes) {
+            try {
+                const reservation = await this.findReservationByConfirmationCode(confirmationCode);
+                if (!reservation?.id) {
+                    logger.info(`[InboxService] Airbnb Support confirmation ${confirmationCode} did not match a reservation`);
+                    continue;
+                }
+
+                const previousTags = this.parseReservationTags(reservation.tags);
+                if (this.hasReservationTag(previousTags, SUPPORT_INVOLVED_TAG)) continue;
+
+                const inboxUrl = this.getInboxConversationUrl(conversation.threadId);
+                const slackInboxLink = `<${inboxUrl}|Open Inbox V2 conversation>`;
+                const updateText = `<!subteam^${RESOLUTIONS_TEAM_GROUP_ID}> Airbnb Support case detected for confirmation code ${confirmationCode}. ${slackInboxLink}`;
+                const discussionText = `@resolutionsteam Airbnb Support case detected for confirmation code ${confirmationCode}. ${inboxUrl}`;
+
+                const slackService = new ResolutionsTeamSlackService();
+                const reviewCheckout = await slackService.ensureThreadForReservation(Number(reservation.id), "SecureStay");
+
+                await new ReservationInfoService().updateReservationTags(
+                    Number(reservation.id),
+                    [...previousTags, SUPPORT_INVOLVED_TAG],
+                    "SecureStay",
+                );
+
+                if (reviewCheckout?.id) {
+                    await new ReviewService().createReviewCheckoutUpdate(reviewCheckout.id, updateText, "SecureStay");
+                }
+
+                await new ReviewDiscussionService().createSystemMessageByReservation(
+                    Number(reservation.id),
+                    discussionText,
+                    {
+                        source: "inbox_v2",
+                        eventType: "airbnb_support_case",
+                        inboxThreadId: conversation.threadId,
+                        inboxUrl,
+                        confirmationCode,
+                    }
+                );
+            } catch (error) {
+                logger.error(`[InboxService] Airbnb Support confirmation processing failed for ${confirmationCode}:`, error);
+            }
+        }
     }
 
     private normalizePropertyTypeValue(listing: Listing | null | undefined) {
@@ -904,6 +1041,7 @@ export class InboxService {
         try {
             const saved = await this.messageRepo.save(message);
             logger.info(`[InboxService] webhook stored message ${externalId} (thread ${threadId}, ${message.direction})`);
+            await this.processAirbnbSupportConfirmationCodes(conversation, [saved]);
             await this.clearExtensionPriceIfAlterationAccepted(
                 conversation,
                 `${payload?.message || ""} ${payload?.notes || ""} ${message.body || ""} ${message.note || ""}`
@@ -991,6 +1129,7 @@ export class InboxService {
                         .filter((m): m is InboxMessageEntity => m !== null);
                     insertedMessages += await this.saveMessages(built);
                     await this.refreshConversationPreview(conversation);
+                    await this.processAirbnbSupportConfirmationCodes(conversation, built);
                 } catch (error: any) {
                     logger.error(`[InboxService] sync failed for thread ${summary?.id}: ${error.message}`);
                 }
@@ -1067,6 +1206,7 @@ export class InboxService {
 
         const inserted = await this.saveMessages(built);
         await this.refreshConversationPreview(conversation);
+        await this.processAirbnbSupportConfirmationCodes(conversation, built);
         // Alteration-accepted system messages often arrive via sync (not webhook).
         const alterationHint = rawMessages
             .map((m) => `${m?.message || m?.body || ""} ${m?.notes || ""}`)
