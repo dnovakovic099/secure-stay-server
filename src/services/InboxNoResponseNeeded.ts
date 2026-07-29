@@ -23,6 +23,9 @@ export function isNoResponseNeededNoteText(text?: string | null): boolean {
 }
 
 /** SQL predicate on an inbox_messages alias `nrn` matching NRN note text. */
+// MySQL 8 uses ICU regex, which rejects the older POSIX word-boundary tokens
+// `[[:<:]]` / `[[:>:]]` ("Illegal argument to a regular expression"). Use the
+// same char-class boundary pattern the rest of InboxService already relies on.
 export const NRN_NOTE_SQL = `
 (
     nrn.note IS NOT NULL
@@ -30,7 +33,7 @@ export const NRN_NOTE_SQL = `
     AND (
         LOWER(nrn.note) LIKE '%no response needed%'
         OR LOWER(nrn.note) LIKE '%no reply needed%'
-        OR LOWER(nrn.note) REGEXP '[[:<:]]nrn[[:>:]]'
+        OR LOWER(nrn.note) REGEXP '(^|[^a-z0-9])nrn([^a-z0-9]|$)'
     )
 )
 `;
@@ -62,7 +65,7 @@ export async function hasNoResponseNeededNote(threadId: number): Promise<boolean
           AND (
               LOWER(nrn.note) LIKE '%no response needed%'
               OR LOWER(nrn.note) LIKE '%no reply needed%'
-              OR LOWER(nrn.note) REGEXP '[[:<:]]nrn[[:>:]]'
+              OR LOWER(nrn.note) REGEXP '(^|[^a-z0-9])nrn([^a-z0-9]|$)'
           )
         LIMIT 1
         `,

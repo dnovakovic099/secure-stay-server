@@ -87,7 +87,11 @@ export const NOT_SUPERSEDED_INQUIRY_SQL = `
                   AND (c.reservationId IS NULL OR r.id <> c.reservationId)
                   AND r.guestName IS NOT NULL
                   AND TRIM(r.guestName) <> ''
-                  AND LOWER(TRIM(r.guestName)) = LOWER(TRIM(c.guestName))
+                  -- reservation_info and inbox_conversations were created with
+                  -- different default collations in prod (utf8mb4_general_ci vs
+                  -- utf8mb4_unicode_ci); force a common collation so equality
+                  -- doesn't raise "Illegal mix of collations".
+                  AND LOWER(TRIM(r.guestName)) COLLATE utf8mb4_unicode_ci = LOWER(TRIM(c.guestName)) COLLATE utf8mb4_unicode_ci
                   AND (
                       LOWER(COALESCE(r.status, '')) IN ('accepted', 'confirmed')
                       OR LOWER(COALESCE(r.status, '')) LIKE 'checked%'
@@ -185,7 +189,7 @@ export async function isInquirySupersededByAcceptedStay(
           AND (? IS NULL OR r.id <> ?)
           AND r.guestName IS NOT NULL
           AND TRIM(r.guestName) <> ''
-          AND LOWER(TRIM(r.guestName)) = ?
+          AND LOWER(TRIM(r.guestName)) COLLATE utf8mb4_unicode_ci = ?
           AND (
               LOWER(COALESCE(r.status, '')) IN ('accepted', 'confirmed')
               OR LOWER(COALESCE(r.status, '')) LIKE 'checked%'
