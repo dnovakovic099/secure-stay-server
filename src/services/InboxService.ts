@@ -582,7 +582,7 @@ export class InboxService {
             threadId: ctx.threadId,
             reservationId: ctx.reservationId,
             listingId: ctx.listingId,
-            body: raw?.message ?? null,
+            body: raw?.message ?? raw?.body ?? raw?.text ?? raw?.content ?? null,
             note: raw?.notes ?? raw?.note ?? raw?.internal_note ?? null,
             direction,
             senderType: from ? String(from).toLowerCase() : direction === "incoming" ? "guest" : "host",
@@ -679,23 +679,51 @@ export class InboxService {
     }
 
     /**
-     * Reconcile locally-sent replies with the canonical Hostify message.
-     *
-     * When we send from the v2 inbox (or the AI auto-responder) we insert an
-     * immediately-visible row with a synthetic negative externalId — Hostify's
-     * reply endpoint sometimes doesn't echo the real message id. On the next
-     * sync the same message comes back from Hostify with its real id; without
-     * reconciliation we'd store it twice, showing the guest the same reply as a
-     * duplicate bubble (see: automated welcome messages appearing twice in the
-     * thread). Here we adopt the real id onto our attributed local row so the
-     * later insert is skipped by `saveMessages`.
-     *
-     * We also match automated Hostify rows against our own ai_auto rows even
-     * when the local row already has a positive externalId — Hostify's message
-     * id for auto-sends can differ from the one returned by its reply endpoint,
-     * so we compare body + timestamp and adopt the sync-provided id.
+     * Adopt Hostify's canonical message id without letting a webhook race block
+     * the rest of the thread sync. The webhook may already have inserted the
+     * canonical row while the locally-attributed row still has a synthetic id.
      */
-    private async reconcileOutgoing(threadId: number, rawMessages: any[]) {
+    private async persistCanonicalOutgoing(
+        local: InboxMessageEntity,
+        realId: number | null,
+        sentVia: string
+    ): Promise<InboxMessageEntity> {
+        if (realId && realId > 0 && Number(local.externalId) !== realId) {
+            const canonical = await this.messageRepo.findOne({ where: { externalId: realId } });
+            if (canonical && Number(canonical.id) !== Number(local.id)) {
+                if (Number(canonical.threadId) !== Number(local.threadId)) {
+                    logger.error(
+                        `[InboxService] external message id collision realId=${realId} localThread=${local.threadId} canonicalThread=${canonical.threadId}`
+                    );
+                    local.sentVia = sentVia;
+                    return this.messageRepo.save(local);
+                }
+
+                canonical.sentByUserId = local.sentByUserId ?? canonical.sentByUserId;
+                canonical.sentByName = local.sentByName || canonical.sentByName;
+                canonical.senderName = local.senderName || canonical.senderName;
+                canonical.senderType = local.senderType || canonical.senderType;
+                canonical.body = canonical.body || local.body;
+                canonical.attachmentUrl = canonical.attachmentUrl || local.attachmentUrl;
+                canonical.isAutomatic = local.isAutomatic ?? canonical.isAutomatic;
+                canonical.sentVia = sentVia;
+                canonical.source = local.source || canonical.source;
+                const saved = await this.messageRepo.save(canonical);
+                await this.messageRepo.remove(local);
+                return saved;
+            }
+            local.externalId = realId;
+        }
+
+        local.sentVia = sentVia;
+        return this.messageRepo.save(local);
+    }
+
+    /**
+     * Reconcile locally-sent replies with the canonical Hostify message while
+     * preserving SecureStay sender attribution and avoiding duplicate bubbles.
+     */
+    private async reconcileOutgoing(threadId: number, rawMessages: any[], channel?: string | null) {
         const pending = await this.messageRepo.find({
             where: {
                 threadId,
@@ -731,7 +759,7 @@ export class InboxService {
             const matchByBody = rawMessages.find((raw) => {
                 const from = String(raw?.from || "").toLowerCase();
                 if (from === "guest") return false;
-                if (bodyKey(raw?.message) !== localKey) return false;
+                if (bodyKey(raw?.message ?? raw?.body ?? raw?.text ?? raw?.content) !== localKey) return false;
                 const realId = toNumberOrNull(raw?.id ?? raw?.message_id);
                 if (!realId || realId <= 0) return false;
                 if (localSentAt) {
@@ -743,7 +771,7 @@ export class InboxService {
             const match = matchById || matchByBody;
 
             // Flag SecureStay sends that Hostify never pushed to the OTA channel.
-            if (match && !this.isHostifyChannelDelivered(match)) {
+            if (match && !this.isHostifyChannelDelivered(match, channel)) {
                 const pendingVia =
                     isAuto ||
                     local.sentVia === "ai_auto" ||
@@ -751,30 +779,21 @@ export class InboxService {
                     local.sentVia === "ai_auto_failed"
                         ? "ai_auto_pending"
                         : "inbox_v2_pending";
-                if (local.sentVia !== pendingVia) {
-                    local.sentVia = pendingVia;
+                if (local.sentVia !== pendingVia || Number(local.externalId) < 0) {
                     const realId = toNumberOrNull(match.id ?? match.message_id);
-                    if (realId && realId > 0) local.externalId = realId;
-                    await this.messageRepo.save(local);
+                    const saved = await this.persistCanonicalOutgoing(local, realId, pendingVia);
                     logger.warn(
-                        `[InboxService] marked SecureStay send delivery-pending thread=${threadId} externalId=${local.externalId}`
+                        `[InboxService] marked SecureStay send delivery-pending thread=${threadId} externalId=${saved.externalId}`
                     );
                 }
                 continue;
             }
 
-            // Recover failed → delivered if Hostify eventually pushes to Airbnb.
-            if (match && this.isHostifyChannelDelivered(match)) {
+            // Recover pending/failed → delivered once the actual channel confirms it.
+            if (match && this.isHostifyChannelDelivered(match, channel)) {
                 const realId = toNumberOrNull(match.id ?? match.message_id);
-                if (realId && realId > 0 && Number(local.externalId) !== realId) {
-                    local.externalId = realId;
-                }
-                if (["inbox_v2_pending", "inbox_v2_failed"].includes(local.sentVia)) local.sentVia = "inbox_v2";
-                if (["ai_auto_pending", "ai_auto_failed"].includes(local.sentVia)) local.sentVia = "ai_auto";
-                // Original reconcile: adopt real Hostify id for synthetic/auto rows.
-                if (isSynthetic || isAuto || matchById) {
-                    await this.messageRepo.save(local);
-                }
+                const deliveredVia = isAuto ? "ai_auto" : "inbox_v2";
+                await this.persistCanonicalOutgoing(local, realId, deliveredVia);
                 continue;
             }
 
@@ -794,8 +813,7 @@ export class InboxService {
             }
             const realId = toNumberOrNull(matchByBody.id ?? matchByBody.message_id);
             if (!realId || realId <= 0 || Number(local.externalId) === realId) continue;
-            local.externalId = realId;
-            await this.messageRepo.save(local);
+            await this.persistCanonicalOutgoing(local, realId, local.sentVia);
         }
     }
 
@@ -960,7 +978,7 @@ export class InboxService {
 
                     const detail = await this.hostify.getInboxThread(this.apiKey, String(summary.id));
                     const rawMessages: any[] = (detail as any)?.messages || [];
-                    await this.reconcileOutgoing(conversation.threadId, rawMessages);
+                    await this.reconcileOutgoing(conversation.threadId, rawMessages, conversation.channel);
                     const built = rawMessages
                         .map((m) =>
                             this.buildMessageFromHostify(m, {
@@ -1022,7 +1040,7 @@ export class InboxService {
         }
 
         const rawMessages: any[] = (detail as any)?.messages || [];
-        await this.reconcileOutgoing(conversation.threadId, rawMessages);
+        await this.reconcileOutgoing(conversation.threadId, rawMessages, conversation.channel);
         const built = rawMessages
             .map((m) =>
                 this.buildMessageFromHostify(m, {
@@ -1919,6 +1937,7 @@ export class InboxService {
         if (body.trim()) {
             const delivered = await this.awaitHostifyChannelDelivery(threadId, body, {
                 preferredExternalId: externalId > 0 ? externalId : null,
+                channel: conversation.channel,
             });
             if (!delivered) {
                 saved.sentVia = "inbox_v2_pending";
@@ -1928,7 +1947,7 @@ export class InboxService {
                 );
                 throw new CustomErrorHandler(
                     502,
-                    "Hostify accepted the reply, but Airbnb delivery is not confirmed yet. Check Hostify before retrying to avoid a duplicate."
+                    `Hostify accepted the reply, but ${this.channelDeliveryLabel(conversation.channel)} delivery is not confirmed yet. Check Hostify before retrying to avoid a duplicate.`
                 );
             }
         }
@@ -2043,6 +2062,7 @@ export class InboxService {
 
         const delivered = await this.awaitHostifyChannelDelivery(threadId, body, {
             preferredExternalId: externalId > 0 ? externalId : null,
+            channel: conversation.channel,
         });
         if (!delivered) {
             saved.sentVia = "ai_auto_pending";
@@ -2052,7 +2072,7 @@ export class InboxService {
             );
             throw new CustomErrorHandler(
                 502,
-                "Hostify accepted the AI reply, but Airbnb delivery is not confirmed yet."
+                `Hostify accepted the AI reply, but ${this.channelDeliveryLabel(conversation.channel)} delivery is not confirmed yet.`
             );
         }
 
@@ -2072,12 +2092,17 @@ export class InboxService {
     /**
      * Hostify /inbox/reply can return success while leaving an undelivered stub:
      * channel_message_id=null and target_id=-<id> (seen on Airbnb inquiries).
-     * Poll the thread briefly until Airbnb channel delivery is confirmed.
+     * Poll the thread briefly until the reservation channel confirms delivery.
      */
     private async awaitHostifyChannelDelivery(
         threadId: number,
         body: string,
-        opts: { preferredExternalId?: number | null; attempts?: number; delayMs?: number } = {}
+        opts: {
+            preferredExternalId?: number | null;
+            attempts?: number;
+            delayMs?: number;
+            channel?: string | null;
+        } = {}
     ): Promise<boolean> {
         const attempts = opts.attempts ?? 4;
         const delayMs = opts.delayMs ?? 1500;
@@ -2105,7 +2130,7 @@ export class InboxService {
                         return bodyKey(m?.message ?? m?.body) === want;
                     });
                 if (!match) continue;
-                if (this.isHostifyChannelDelivered(match)) {
+                if (this.isHostifyChannelDelivered(match, opts.channel)) {
                     const realId = toNumberOrNull(match.id ?? match.message_id);
                     if (realId && realId > 0) {
                         // Reconcile synthetic / stale local externalId if needed.
@@ -2125,15 +2150,13 @@ export class InboxService {
                             take: 8,
                         });
                         const local = pending.find((m) => bodyKey(m.body) === want);
-                        if (local && Number(local.externalId) !== realId) {
-                            local.externalId = realId;
-                            if (["inbox_v2_pending", "inbox_v2_failed"].includes(local.sentVia)) {
-                                local.sentVia = "inbox_v2";
-                            }
-                            if (["ai_auto_pending", "ai_auto_failed"].includes(local.sentVia)) {
-                                local.sentVia = "ai_auto";
-                            }
-                            await this.messageRepo.save(local);
+                        if (local) {
+                            const deliveredVia =
+                                ["ai_auto", "ai_auto_pending", "ai_auto_failed"].includes(local.sentVia) ||
+                                Number(local.isAutomatic) === 1
+                                    ? "ai_auto"
+                                    : "inbox_v2";
+                            await this.persistCanonicalOutgoing(local, realId, deliveredVia);
                         }
                     }
                     return true;
@@ -2151,8 +2174,24 @@ export class InboxService {
         return false;
     }
 
-    /** True when Hostify has pushed the message to the OTA channel (Airbnb etc.). */
-    private isHostifyChannelDelivered(raw: any): boolean {
+    private channelDeliveryLabel(channel?: string | null): string {
+        const value = String(channel || "").trim();
+        if (!value) return "channel";
+        if (/booking/i.test(value)) return "Booking.com";
+        if (/airbnb/i.test(value)) return "Airbnb";
+        if (/vrbo|homeaway/i.test(value)) return "Vrbo";
+        return value;
+    }
+
+    /**
+     * True when Hostify has pushed the message to the OTA channel.
+     *
+     * Airbnb exposes channel_message_id/target_id delivery markers. Other
+     * channels do not consistently return those Airbnb-specific fields, so a
+     * canonical outgoing row with a real Hostify id is the strongest available
+     * confirmation for Booking.com/Vrbo/direct threads.
+     */
+    private isHostifyChannelDelivered(raw: any, channel?: string | null): boolean {
         const channelMsgId = toNumberOrNull(raw?.channel_message_id);
         if (channelMsgId != null && channelMsgId > 0) return true;
         const targetId = Number(raw?.target_id);
@@ -2160,6 +2199,13 @@ export class InboxService {
         if (Number.isFinite(targetId) && targetId < 0) return false;
         // Delivered host messages usually have from=host and a positive target_id.
         if (String(raw?.from || "").toLowerCase() === "host" && Number.isFinite(targetId) && targetId > 0) {
+            return true;
+        }
+        const isAirbnb = /airbnb/i.test(String(channel || ""));
+        const externalId = toNumberOrNull(raw?.id ?? raw?.message_id);
+        const from = String(raw?.from || "").toLowerCase();
+        const isOutgoing = from ? from !== "guest" : Number(raw?.is_incoming) === 0;
+        if (!isAirbnb && externalId != null && externalId > 0 && isOutgoing) {
             return true;
         }
         return false;
