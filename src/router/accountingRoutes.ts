@@ -51,6 +51,9 @@ router.route("/gettotalexpense").get(verifyMobileSession, expenseController.getT
 router.route('/getexpense/:id').get(verifySession, expenseController.getExpenseById);
 
 router.route('/getexpense/:id/history').get(verifySession, expenseController.getExpenseHistory);
+router.route('/activity/:entityType/:entityId')
+    .get(verifySession, expenseController.getAccountingActivity)
+    .post(verifySession, expenseController.createAccountingDiscussion);
 
 router.route('/claimsfeefunds').get(verifySession, expenseController.getClaimsFeeFunds);
 

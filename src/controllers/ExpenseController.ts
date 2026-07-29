@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import { ExpenseService } from "../services/ExpenseService";
+import { AccountingActivityService } from "../services/AccountingActivityService";
 
 interface CustomRequest extends Request {
     user?: any;
@@ -143,6 +144,37 @@ export class ExpenseController {
             const expenseService = new ExpenseService();
             const id = parseInt(request.params.id);
             return response.send(await expenseService.getExpenseHistory(id));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async getAccountingActivity(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const entityType = request.params.entityType as "expense" | "resolution";
+            const entityId = Number(request.params.entityId);
+            if (!["expense", "resolution"].includes(entityType) || !entityId) {
+                return response.status(400).send({ message: "Valid entity type and ID are required." });
+            }
+            return response.send(await new AccountingActivityService().getActivity(entityType, entityId));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async createAccountingDiscussion(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const entityType = request.params.entityType as "expense" | "resolution";
+            const entityId = Number(request.params.entityId);
+            if (!["expense", "resolution"].includes(entityType) || !entityId) {
+                return response.status(400).send({ message: "Valid entity type and ID are required." });
+            }
+            return response.send(await new AccountingActivityService().createDiscussion(
+                entityType,
+                entityId,
+                request.body?.message,
+                request.user.id
+            ));
         } catch (error) {
             return next(error);
         }
