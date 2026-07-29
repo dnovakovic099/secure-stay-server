@@ -301,12 +301,20 @@ export class InboxService {
     }
 
     private getDashboardBaseUrl() {
-        const configuredBaseUrl = String(process.env.BASE_URL || "").trim();
-        return (
+        const configuredBaseUrl = String(
+            process.env.DASHBOARD_BASE_URL ||
+            process.env.FRONTEND_URL ||
+            process.env.APP_URL ||
+            process.env.BASE_URL ||
+            ""
+        ).trim();
+        const baseUrl =
             configuredBaseUrl && !/localhost|127\.0\.0\.1/i.test(configuredBaseUrl)
                 ? configuredBaseUrl
-                : "https://securestay.ai"
-        ).replace(/\/$/, "");
+                : "https://securestay.ai";
+        return baseUrl
+            .replace(/\/$/, "")
+            .replace(/\/(?:securestay_)?api$/i, "");
     }
 
     private getInboxConversationUrl(threadId: number | string) {
