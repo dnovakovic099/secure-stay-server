@@ -697,7 +697,17 @@ export class InboxService {
      */
     private async reconcileOutgoing(threadId: number, rawMessages: any[]) {
         const pending = await this.messageRepo.find({
-            where: { threadId, sentVia: In(["inbox_v2", "ai_auto", "inbox_v2_failed", "ai_auto_failed"]) },
+            where: {
+                threadId,
+                sentVia: In([
+                    "inbox_v2",
+                    "ai_auto",
+                    "inbox_v2_pending",
+                    "ai_auto_pending",
+                    "inbox_v2_failed",
+                    "ai_auto_failed",
+                ]),
+            },
         });
         if (!pending.length) return;
 
@@ -710,6 +720,7 @@ export class InboxService {
             const isSynthetic = Number(local.externalId) < 0;
             const isAuto =
                 local.sentVia === "ai_auto" ||
+                local.sentVia === "ai_auto_pending" ||
                 local.sentVia === "ai_auto_failed" ||
                 Number(local.isAutomatic) === 1;
 
@@ -733,17 +744,20 @@ export class InboxService {
 
             // Flag SecureStay sends that Hostify never pushed to the OTA channel.
             if (match && !this.isHostifyChannelDelivered(match)) {
-                const failedVia =
-                    isAuto || local.sentVia === "ai_auto" || local.sentVia === "ai_auto_failed"
-                        ? "ai_auto_failed"
-                        : "inbox_v2_failed";
-                if (local.sentVia !== failedVia) {
-                    local.sentVia = failedVia;
+                const pendingVia =
+                    isAuto ||
+                    local.sentVia === "ai_auto" ||
+                    local.sentVia === "ai_auto_pending" ||
+                    local.sentVia === "ai_auto_failed"
+                        ? "ai_auto_pending"
+                        : "inbox_v2_pending";
+                if (local.sentVia !== pendingVia) {
+                    local.sentVia = pendingVia;
                     const realId = toNumberOrNull(match.id ?? match.message_id);
                     if (realId && realId > 0) local.externalId = realId;
                     await this.messageRepo.save(local);
                     logger.warn(
-                        `[InboxService] marked undelivered SecureStay send thread=${threadId} externalId=${local.externalId}`
+                        `[InboxService] marked SecureStay send delivery-pending thread=${threadId} externalId=${local.externalId}`
                     );
                 }
                 continue;
@@ -755,8 +769,8 @@ export class InboxService {
                 if (realId && realId > 0 && Number(local.externalId) !== realId) {
                     local.externalId = realId;
                 }
-                if (local.sentVia === "inbox_v2_failed") local.sentVia = "inbox_v2";
-                if (local.sentVia === "ai_auto_failed") local.sentVia = "ai_auto";
+                if (["inbox_v2_pending", "inbox_v2_failed"].includes(local.sentVia)) local.sentVia = "inbox_v2";
+                if (["ai_auto_pending", "ai_auto_failed"].includes(local.sentVia)) local.sentVia = "ai_auto";
                 // Original reconcile: adopt real Hostify id for synthetic/auto rows.
                 if (isSynthetic || isAuto || matchById) {
                     await this.messageRepo.save(local);
@@ -1907,14 +1921,14 @@ export class InboxService {
                 preferredExternalId: externalId > 0 ? externalId : null,
             });
             if (!delivered) {
-                saved.sentVia = "inbox_v2_failed";
+                saved.sentVia = "inbox_v2_pending";
                 await this.messageRepo.save(saved);
                 logger.error(
-                    `[InboxService] Hostify reply NOT channel-delivered thread=${threadId} externalId=${saved.externalId} sender=${userName}`
+                    `[InboxService] Hostify reply delivery still pending thread=${threadId} externalId=${saved.externalId} sender=${userName}`
                 );
                 throw new CustomErrorHandler(
                     502,
-                    "Hostify accepted the reply but it was not delivered to Airbnb. Resend from Hostify (or try again), then refresh this thread."
+                    "Hostify accepted the reply, but Airbnb delivery is not confirmed yet. Check Hostify before retrying to avoid a duplicate."
                 );
             }
         }
@@ -2031,14 +2045,14 @@ export class InboxService {
             preferredExternalId: externalId > 0 ? externalId : null,
         });
         if (!delivered) {
-            saved.sentVia = "ai_auto_failed";
+            saved.sentVia = "ai_auto_pending";
             await this.messageRepo.save(saved);
             logger.error(
-                `[InboxService] AI autosend NOT channel-delivered thread=${threadId} externalId=${saved.externalId}`
+                `[InboxService] AI autosend delivery still pending thread=${threadId} externalId=${saved.externalId}`
             );
             throw new CustomErrorHandler(
                 502,
-                "Hostify accepted the AI reply but it was not delivered to Airbnb."
+                "Hostify accepted the AI reply, but Airbnb delivery is not confirmed yet."
             );
         }
 
@@ -2096,15 +2110,29 @@ export class InboxService {
                     if (realId && realId > 0) {
                         // Reconcile synthetic / stale local externalId if needed.
                         const pending = await this.messageRepo.find({
-                            where: { threadId, sentVia: In(["inbox_v2", "ai_auto", "inbox_v2_failed", "ai_auto_failed"]) },
+                            where: {
+                                threadId,
+                                sentVia: In([
+                                    "inbox_v2",
+                                    "ai_auto",
+                                    "inbox_v2_pending",
+                                    "ai_auto_pending",
+                                    "inbox_v2_failed",
+                                    "ai_auto_failed",
+                                ]),
+                            },
                             order: { sentAt: "DESC" },
                             take: 8,
                         });
                         const local = pending.find((m) => bodyKey(m.body) === want);
                         if (local && Number(local.externalId) !== realId) {
                             local.externalId = realId;
-                            if (local.sentVia === "inbox_v2_failed") local.sentVia = "inbox_v2";
-                            if (local.sentVia === "ai_auto_failed") local.sentVia = "ai_auto";
+                            if (["inbox_v2_pending", "inbox_v2_failed"].includes(local.sentVia)) {
+                                local.sentVia = "inbox_v2";
+                            }
+                            if (["ai_auto_pending", "ai_auto_failed"].includes(local.sentVia)) {
+                                local.sentVia = "ai_auto";
+                            }
                             await this.messageRepo.save(local);
                         }
                     }

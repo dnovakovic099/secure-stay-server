@@ -87,6 +87,45 @@ export async function ensureUpsellPropertyConfigColumns() {
   }
 }
 
+let inboxConversationAiNeedsHumanSchemaEnsured = false;
+
+/**
+ * Inbox V2 reads every mapped inbox_conversations column, so deploying the
+ * AI Needs Team entity fields before its SQL migration makes the entire list
+ * endpoint fail with ER_BAD_FIELD_ERROR. Keep the startup path self-healing,
+ * consistent with the other runtime schema guards in this file.
+ */
+export async function ensureInboxConversationAiNeedsHumanColumns() {
+  if (!appDatabase.isInitialized || inboxConversationAiNeedsHumanSchemaEnsured) return;
+
+  try {
+    await addColumnIfMissing("inbox_conversations", "aiNeedsHuman", "TINYINT NOT NULL DEFAULT 0");
+    await addColumnIfMissing("inbox_conversations", "aiNeedsHumanKind", "VARCHAR(32) NULL");
+    await addColumnIfMissing("inbox_conversations", "aiNeedsHumanReason", "VARCHAR(500) NULL");
+    await addColumnIfMissing("inbox_conversations", "aiNeedsHumanAt", "DATETIME NULL");
+
+    const existingIndexes = await appDatabase.query(
+      "SHOW INDEX FROM inbox_conversations WHERE Key_name = ?",
+      ["idx_inbox_conversations_ai_needs_human"]
+    );
+    if (!Array.isArray(existingIndexes) || existingIndexes.length === 0) {
+      try {
+        await appDatabase.query(
+          "CREATE INDEX idx_inbox_conversations_ai_needs_human ON inbox_conversations (aiNeedsHuman, aiNeedsHumanAt)"
+        );
+        logger.info("Added missing idx_inbox_conversations_ai_needs_human index");
+      } catch (error: any) {
+        if (error?.code !== "ER_DUP_KEYNAME") throw error;
+      }
+    }
+
+    inboxConversationAiNeedsHumanSchemaEnsured = true;
+  } catch (error) {
+    logger.error("Failed to ensure Inbox AI Needs Team columns:", error);
+    throw error;
+  }
+}
+
 let turnoverSettingsSchemaEnsured = false;
 
 export async function ensureTurnoverSettingsColumns() {

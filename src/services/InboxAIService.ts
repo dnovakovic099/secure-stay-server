@@ -25,7 +25,8 @@ import {
     collectCategoryNames,
     resolveDetectorInstructions,
 } from "./AIDetectorInstructions";
-import { applyScheduleCriticalUrgency } from "./AITicketCreationHelpers";
+import { applyScheduleCriticalUrgency, ticketTextSimilar } from "./AITicketCreationHelpers";
+import { IssuesService } from "./IssuesService";
 import { AIMessagingSettingsEntity } from "../entity/AIMessagingSettings";
 import { AILearnedFactsService } from "./AILearnedFactsService";
 import { buildTeamCommunicationRulesText } from "./AIMessagingSettingsService";
@@ -709,6 +710,14 @@ export class InboxAIService {
                 ? `${output.escalation_reason}; ${keywordEscalation}`
                 : keywordEscalation;
         }
+
+        // Do not suggest creating/doing work that is already tracked by an
+        // active Guest Issues ticket for this reservation.
+        const activeGuestIssues = await this.loadActiveGuestIssues(conversation.reservationId);
+        output.suggested_action_items = this.removeGuestIssueDuplicates(
+            output.suggested_action_items,
+            activeGuestIssues
+        );
 
         // ---- Post-generation safety calibration ----
         // The model's self-reported confidence is optimistic; we harden it here so
@@ -2335,7 +2344,16 @@ export class InboxAIService {
         status: string,
         opts: { acceptedByUserId?: number | null; finalSentMessageId?: number | null } = {}
     ) {
-        const allowed = ["suggested", "accepted", "edited", "ignored", "rejected", "regenerated", "auto_sent"];
+        const allowed = [
+            "suggested",
+            "accepted",
+            "edited",
+            "ignored",
+            "rejected",
+            "regenerated",
+            "auto_sent",
+            "delivery_failed",
+        ];
         if (!allowed.includes(status)) throw new Error(`Invalid suggestion status: ${status}`);
         const suggestion = await this.suggestionRepo.findOne({ where: { id } });
         if (!suggestion) throw new Error(`Suggestion ${id} not found`);
@@ -2819,6 +2837,13 @@ export class InboxAIService {
                 return { sent: true, reason: "sent", suggestionId: suggestion.id, messageExternalId: sentExternalId };
             } catch (err: any) {
                 logger.error(`[InboxAIService] autosend delivery failed (thread ${threadId}): ${err.message}`);
+                // Terminal safety state: webhook retries must never submit this
+                // same suggestion again after a visible delivery failure.
+                await this.updateSuggestionStatus(suggestion.id, "delivery_failed").catch((statusErr: any) =>
+                    logger.error(
+                        `[InboxAIService] failed to lock suggestion ${suggestion.id} after delivery failure: ${statusErr.message}`
+                    )
+                );
                 return { sent: false, reason: "delivery_failed", suggestionId: suggestion.id };
             }
         } catch (err: any) {
@@ -2937,7 +2962,14 @@ export class InboxAIService {
                 );
             } catch (err: any) {
                 logger.error(`[InboxAIService] delayed autosend failed (suggestion ${suggestion.id}): ${err.message}`);
-                await cancel(`delivery_failed:${err.message}`).catch(() => {});
+                suggestion.autosendScheduledAt = null;
+                suggestion.status = "delivery_failed";
+                await this.suggestionRepo.save(suggestion).catch((statusErr: any) =>
+                    logger.error(
+                        `[InboxAIService] failed to lock delayed suggestion ${suggestion.id} after delivery failure: ${statusErr.message}`
+                    )
+                );
+                cancelled++;
             }
         }
         return { sent, cancelled };
@@ -3534,6 +3566,7 @@ export class InboxAIService {
             "INTERNAL OPERATIONS AWARENESS:",
             "- If an 'Internal operations in progress' section is present, it only includes work tied to THIS guest/reservation — treat it as in-progress for them.",
             "- Align with it: if the guest's message relates to an open item, say the team is already on it and reference the state naturally. Do NOT offer to 'look into' something already in motion, and do NOT restart a process the team has underway.",
+            "- Do NOT add `suggested_action_items` for work already represented by an open Guest Issues ticket in that section. Existing tickets are the source of truth; return an empty action-item list when the work is already tracked.",
             "- Never reveal internal wording, staff names, vendor names, or internal prices from that section. Never invent on-site presence (cleaner, vendor) unless the ops block or a TEAM message explicitly says someone is there.",
             "",
             "TEAM FEEDBACK:",
@@ -4519,20 +4552,17 @@ export class InboxAIService {
             /* non-fatal */
         }
 
-        // Guest Issues tied to THIS reservation. Status is the authority here —
-        // the previous version grepped `next_steps` for words like "done", so a
-        // stray phrase in a free-text field could authorise a completion claim.
+        // Guest Issues tied to THIS reservation, using the same resolver as the
+        // Guest Issues page and Inbox v2 right panel. Status is authoritative.
         try {
             if (resvId) {
-                const rows: any[] = await appDatabase.query(
-                    `SELECT ai_short_title, issue_description, status, next_steps, created_at, completed_at
-                     FROM issues
-                     WHERE deleted_at IS NULL
-                       AND created_at >= (NOW() - INTERVAL 30 DAY)
-                       AND reservation_id = ?
-                     ORDER BY created_at DESC LIMIT 8`,
-                    [String(resvId)]
-                );
+                const rows = (await this.loadActiveGuestIssues(resvId))
+                    .sort((a: any, b: any) => {
+                        const aTime = new Date(a.created_at || 0).getTime();
+                        const bTime = new Date(b.created_at || 0).getTime();
+                        return bTime - aTime;
+                    })
+                    .slice(0, 20);
                 for (const r of rows) {
                     const title = String(r.ai_short_title || r.issue_description || "").replace(/\s+/g, " ").trim();
                     if (!title) continue;
@@ -4637,6 +4667,57 @@ export class InboxAIService {
             hasExplicitConfirmation: doneLines.length > 0 || approvalLines.length > 0,
             text: out.join("\n"),
         };
+    }
+
+    private async loadActiveGuestIssues(
+        reservationId: number | string | null | undefined
+    ): Promise<any[]> {
+        if (!reservationId) return [];
+        try {
+            const issues = await new IssuesService().getReservationIssuesForAIContext(String(reservationId));
+            return issues.filter((issue: any) => {
+                if (issue.deleted_at) return false;
+                const statuses = [issue.status, issue.gr_status]
+                    .map((value) => String(value || "").trim().toLowerCase())
+                    .filter(Boolean);
+                return !statuses.some((status) =>
+                    ["completed", "cancelled", "canceled"].includes(status)
+                );
+            });
+        } catch (err: any) {
+            logger.warn(
+                `[InboxAIService] Guest Issues lookup failed for reservation ${reservationId}: ${err?.message}`
+            );
+            return [];
+        }
+    }
+
+    private removeGuestIssueDuplicates(items: unknown, issues: any[]): string[] {
+        const suggested = Array.isArray(items)
+            ? items.map((item) => String(item || "").trim()).filter(Boolean)
+            : [];
+        if (!suggested.length || !issues.length) return suggested;
+
+        const issueTexts = issues
+            .map((issue) =>
+                [issue.ai_short_title, issue.issue_description, issue.next_steps]
+                    .map((value) => String(value || "").replace(/\s+/g, " ").trim())
+                    .filter(Boolean)
+                    .join(" ")
+            )
+            .filter(Boolean);
+        if (!issueTexts.length) return suggested;
+
+        // One ticket-sized problem is often split into multiple short actions.
+        // If their combined meaning matches an existing issue, hide the whole
+        // duplicate group rather than leaving a fragment such as "confirm entry".
+        const combined = suggested.join(" ");
+        if (issueTexts.some((issueText) => ticketTextSimilar(combined, issueText, 0.35))) {
+            return [];
+        }
+        return suggested.filter(
+            (item) => !issueTexts.some((issueText) => ticketTextSimilar(item, issueText, 0.35))
+        );
     }
 
     /**

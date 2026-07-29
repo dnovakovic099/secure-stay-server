@@ -2520,6 +2520,16 @@ export class IssuesService {
     return { issues, issueReservationKeys };
   }
 
+  /**
+   * Lightweight issue lookup for AI context. This deliberately uses the same
+   * reservation resolver as the Guest Issues page and Inbox v2 right panel,
+   * including AI-created tickets linked through their Inbox source.
+   */
+  public async getReservationIssuesForAIContext(reservationId: string): Promise<Issue[]> {
+    const { issues } = await this.findIssuesForReservationIdsIncludingInboxSource([reservationId]);
+    return issues;
+  }
+
   public async getIssuesByReservationId(reservationId: string) {
     const { issues } = await this.findIssuesForReservationIdsIncludingInboxSource([reservationId]);
 
