@@ -323,12 +323,9 @@ export class InboxService {
 
     private isAirbnbSupportConversation(
         conversation: InboxConversationEntity | null | undefined,
-        messages: Array<Pick<InboxMessageEntity, "direction" | "senderName" | "body" | "note">>
+        _messages: Array<Pick<InboxMessageEntity, "direction" | "senderName" | "body" | "note">>
     ) {
-        if (/airbnb\s*support/i.test(conversation?.guestName || "")) return true;
-        return messages.some((message) => (
-            message.direction === "incoming" && /airbnb\s*support/i.test(message.senderName || "")
-        ));
+        return /\bairbnb\s*support\b/i.test(conversation?.guestName || "");
     }
 
     private extractHostifyConfirmationCodes(text: string | null | undefined) {
