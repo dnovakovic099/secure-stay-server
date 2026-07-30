@@ -8,6 +8,39 @@ import { LockProviderFactory } from "../providers/LockProviderFactory";
 import logger from "../utils/logger.utils";
 
 /**
+ * Convert a wall-clock (year, month, day, hour) in `timeZone` to the equivalent UTC Date.
+ * Uses Intl.DateTimeFormat to reverse-engineer the timezone offset for the given instant,
+ * which correctly handles DST transitions and does not depend on the Node process timezone.
+ */
+function zonedWallClockToUtc(year: number, month: number, day: number, hour: number, timeZone: string): Date {
+  const naiveUtc = Date.UTC(year, month - 1, day, hour, 0, 0);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(naiveUtc));
+  const lookup = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  const zonedYear = lookup("year");
+  const zonedMonth = lookup("month");
+  const zonedDay = lookup("day");
+  let zonedHour = lookup("hour");
+  if (zonedHour === 24) zonedHour = 0; // en-US with hour12:false returns "24" for midnight
+  const zonedMinute = lookup("minute");
+  const zonedAsUtc = Date.UTC(zonedYear, zonedMonth - 1, zonedDay, zonedHour, zonedMinute, 0);
+  const offset = zonedAsUtc - naiveUtc;
+  return new Date(naiveUtc - offset);
+}
+
+function addHours(date: Date, hours: number): Date {
+  return new Date(date.getTime() + hours * 3_600_000);
+}
+
+/**
  * Smart Lock Access Code Service
  * Manages access code generation, creation, and tracking
  */
@@ -157,25 +190,13 @@ export class SmartLockAccessCodeService {
     const listing = await this.listingRepository.findOne({ where: { id: propertyId } });
     const timezone = listing?.timeZoneName || "America/New_York";
 
-    // Helper to create a UTC date from a local date + hour in a specific timezone
-    const createUTCDateFromLocalTime = (date: Date, hour: number, tz: string): Date => {
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      const hourStr = String(hour).padStart(2, '0');
-
-      const dateTimeStr = `${year}-${month}-${day}T${hourStr}:00:00`;
-      const tempDate = new Date(dateTimeStr);
-
-      // Get timezone offset for this date
-      const propertyLocalStr = tempDate.toLocaleString('en-US', { timeZone: tz });
-      const propertyLocal = new Date(propertyLocalStr);
-      const utcStr = tempDate.toLocaleString('en-US', { timeZone: 'UTC' });
-      const utcDate = new Date(utcStr);
-
-      const tzOffsetMs = utcDate.getTime() - propertyLocal.getTime();
-      return new Date(tempDate.getTime() + tzOffsetMs);
-    };
+    const toZoned = (date: Date, hour: number) => zonedWallClockToUtc(
+      date.getUTCFullYear(),
+      date.getUTCMonth() + 1,
+      date.getUTCDate(),
+      hour,
+      timezone,
+    );
 
     // Get all devices for this property
     const propertyDevices = await this.propertyDeviceRepository.find({
@@ -205,8 +226,10 @@ export class SmartLockAccessCodeService {
     const actualCheckInHour = checkInTime ?? settingsWithTimezone.checkInTimeStart ?? 15;
 
     // Convert check-in time from listing timezone to UTC
-    const scheduledAt = createUTCDateFromLocalTime(new Date(checkInDate), actualCheckInHour, timezone);
-    scheduledAt.setHours(scheduledAt.getHours() - settings.hoursBeforeCheckin);
+    const scheduledAt = addHours(
+      toZoned(new Date(checkInDate), actualCheckInHour),
+      -settings.hoursBeforeCheckin,
+    );
 
     logger.info(`[AccessCode] Timezone conversion for reservation ${reservationId}: timezone=${timezone}, checkInHour=${actualCheckInHour}, scheduledAt=${scheduledAt.toISOString()}, hoursBeforeCheckin=${settings.hoursBeforeCheckin}`);
 
@@ -218,8 +241,10 @@ export class SmartLockAccessCodeService {
       const actualCheckOutHour = checkOutTime ?? settingsWithTimezone.checkOutTime ?? 11;
 
       // Convert check-out time from listing timezone to UTC
-      expiresAt = createUTCDateFromLocalTime(new Date(checkOutDate), actualCheckOutHour, timezone);
-      expiresAt.setHours(expiresAt.getHours() + settings.hoursAfterCheckout);
+      expiresAt = addHours(
+        toZoned(new Date(checkOutDate), actualCheckOutHour),
+        settings.hoursAfterCheckout,
+      );
 
       logger.info(`[AccessCode] Timezone conversion for reservation ${reservationId}: checkOutHour=${actualCheckOutHour}, expiresAt=${expiresAt.toISOString()}, hoursAfterCheckout=${settings.hoursAfterCheckout}`);
     }
@@ -428,59 +453,30 @@ export class SmartLockAccessCodeService {
     // Get timezone from listing or default to America/New_York
     const timezone = listing?.timeZoneName || "America/New_York";
 
-    // Get check-in and check-out times from listing, with fallbacks
-    // Fallback: current hour for check-in, 4 PM (16:00) for check-out
-    const currentHour = new Date().getHours();
-    const checkInHour = listing?.checkInTimeStart ?? currentHour;
-    const checkOutHour = listing?.checkOutTime ?? 16; // 4 PM fallback
+    // Get check-in and check-out times from listing, with sensible fallbacks
+    const checkInHour = listing?.checkInTimeStart ?? 15; // 3 PM default
+    const checkOutHour = listing?.checkOutTime ?? 11;   // 11 AM default
 
-    // Helper to create a date in the property's timezone and convert to UTC
-    const createDateInTimezone = (date: Date, hour: number, offsetHours: number): Date => {
-      // Format the date as YYYY-MM-DD
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      const hourStr = String(hour).padStart(2, '0');
-
-      // Create a date string in the property's timezone
-      const dateTimeStr = `${year}-${month}-${day}T${hourStr}:00:00`;
-
-      // Parse as local time in the property's timezone
-      // We use toLocaleString to get the timezone offset, then apply it
-      const tempDate = new Date(dateTimeStr);
-
-      // Get the timezone offset for this specific date in the property's timezone
-      const propertyLocalStr = tempDate.toLocaleString('en-US', { timeZone: timezone });
-      const propertyLocal = new Date(propertyLocalStr);
-      const utcStr = tempDate.toLocaleString('en-US', { timeZone: 'UTC' });
-      const utcDate = new Date(utcStr);
-
-      // Calculate the offset between property timezone and UTC
-      const tzOffsetMs = utcDate.getTime() - propertyLocal.getTime();
-
-      // Create the final date: take the date, set the hour in property timezone, convert to UTC
-      const result = new Date(tempDate.getTime() + tzOffsetMs);
-
-      // Apply the offset hours (hoursBeforeCheckin or hoursAfterCheckout)
-      result.setHours(result.getHours() + offsetHours);
-
-      return result;
-    };
-
-    // Calculate startsAt: checkInDate + checkInTime - hoursBeforeCheckin (in property timezone)
-    const startsAt = createDateInTimezone(
-      new Date(checkInDate),
-      checkInHour,
-      -(settings.hoursBeforeCheckin || 0)
+    const zonedForDate = (date: Date, hour: number): Date => zonedWallClockToUtc(
+      date.getUTCFullYear(),
+      date.getUTCMonth() + 1,
+      date.getUTCDate(),
+      hour,
+      timezone,
     );
 
-    // Calculate endsAt: checkOutDate + checkOutTime + hoursAfterCheckout (in property timezone)
+    // Calculate startsAt: checkInDate at checkInHour (local tz) minus hoursBeforeCheckin
+    const startsAt = addHours(
+      zonedForDate(new Date(checkInDate), checkInHour),
+      -(settings.hoursBeforeCheckin || 0),
+    );
+
+    // Calculate endsAt: checkOutDate at checkOutHour (local tz) plus hoursAfterCheckout
     let endsAt: Date | null = null;
     if (checkOutDate) {
-      endsAt = createDateInTimezone(
-        new Date(checkOutDate),
-        checkOutHour,
-        settings.hoursAfterCheckout || 0
+      endsAt = addHours(
+        zonedForDate(new Date(checkOutDate), checkOutHour),
+        settings.hoursAfterCheckout || 0,
       );
     }
 
@@ -511,15 +507,22 @@ export class SmartLockAccessCodeService {
       throw new Error(`Access code not found: ${accessCodeId}`);
     }
 
-    // If code was set on device, delete it from provider
+    // If the code was already set on the physical device, remove it upstream
+    // first. If that fails, leave the DB row in place and mark the failure —
+    // deleting locally would strand an active code on the lock.
     if (accessCode.externalCodeId && accessCode.status === AccessCodeStatus.SET) {
       const provider = LockProviderFactory.getProvider(accessCode.device.provider);
       try {
         await provider.deleteAccessCode(accessCode.externalCodeId);
         logger.info(`Deleted access code ${accessCodeId} from device`);
       } catch (error: any) {
-        logger.error(`Failed to delete access code from device:`, error);
-        // Continue to delete from database anyway
+        logger.error(`Failed to delete access code ${accessCodeId} from provider:`, error);
+        accessCode.errorMessage = `Provider delete failed: ${error?.message || "unknown error"}`;
+        await this.accessCodeRepository.save(accessCode);
+        throw new Error(
+          `Failed to remove code from device: ${error?.message || "unknown error"}. ` +
+          "Local record kept to avoid orphaning an active code on the lock."
+        );
       }
     }
 
@@ -572,14 +575,48 @@ export class SmartLockAccessCodeService {
   }
 
   /**
-   * Update access code
+   * Update access code (DB) and, if the code is already set on the device,
+   * propagate `code`/`name` changes to the provider so the physical lock stays
+   * in sync. Time-window fields are not propagated here — callers who want to
+   * change validity should delete and recreate the code.
    */
   async updateAccessCode(
     id: number,
     updates: Partial<AccessCode>
   ): Promise<AccessCode | null> {
+    const existing = await this.accessCodeRepository.findOne({
+      where: { id },
+      relations: ["device"],
+    });
+    if (!existing) return null;
+
     await this.accessCodeRepository.update(id, updates);
-    return await this.getAccessCodeById(id);
+    const refreshed = await this.getAccessCodeById(id);
+    if (!refreshed) return null;
+
+    const codeChanged = updates.code !== undefined && updates.code !== existing.code;
+    const nameChanged = updates.codeName !== undefined && updates.codeName !== existing.codeName;
+    const shouldPropagate =
+      (codeChanged || nameChanged) &&
+      existing.status === AccessCodeStatus.SET &&
+      existing.externalCodeId;
+
+    if (!shouldPropagate) return refreshed;
+
+    try {
+      const provider = LockProviderFactory.getProvider(existing.device.provider);
+      await provider.updateAccessCode(existing.externalCodeId, {
+        code: codeChanged ? refreshed.code : undefined,
+        name: nameChanged ? refreshed.codeName : undefined,
+      });
+      refreshed.errorMessage = null;
+    } catch (error: any) {
+      // Persist the failure so the UI can surface a warning; don't roll back
+      // the DB update — the operator can retry via a delete+recreate.
+      refreshed.errorMessage = `Provider update failed: ${error?.message || "unknown error"}`;
+      logger.error(`Failed to propagate access-code update ${id} to provider:`, error);
+    }
+    return await this.accessCodeRepository.save(refreshed);
   }
 
   /**

@@ -120,15 +120,21 @@ export class SifelyLockProvider implements ILockProvider {
 
   /**
    * Gets a single device by its external ID (lockId)
+   * Sifely's `/v3/lock/detail` is a POST endpoint per the API docs; using GET
+   * yields a 405 or an empty response on some deployments.
    */
   async getDevice(externalDeviceId: string): Promise<Device> {
     try {
-      const config = await this.authService.getAxiosConfig();
+      const accessToken = await this.authService.getValidAccessToken();
 
-      const response = await axios.get(
+      const response = await axios.post(
         `${this.baseUrl}/v3/lock/detail`,
+        null,
         {
-          ...config,
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
           params: {
             lockId: externalDeviceId,
           },
@@ -136,14 +142,15 @@ export class SifelyLockProvider implements ILockProvider {
       );
 
       const data = response.data;
-      if (data.code !== undefined && data.code !== 0) {
-        throw new Error(data.message || "Failed to fetch device");
+      if (data.code !== undefined && data.code !== 0 && data.code !== 200) {
+        throw new Error(data.message || data.errmsg || "Failed to fetch device");
       }
 
       return this.mapSifelyLockToDevice(data.data || data);
     } catch (error: any) {
-      logger.error("Error fetching Sifely device:", error.message);
-      throw error;
+      const apiErrorMessage = error.response?.data?.message || error.response?.data?.errmsg || error.message;
+      logger.error("Error fetching Sifely device:", apiErrorMessage);
+      throw new Error(apiErrorMessage || "Failed to fetch device");
     }
   }
 
@@ -403,7 +410,7 @@ export class SifelyLockProvider implements ILockProvider {
       externalCodeId: sifelyCode.keyboardPwdId?.toString(),
       code: sifelyCode.keyboardPwd,
       name: sifelyCode.keyboardPwdName,
-      status: this.mapPasscodeStatus(sifelyCode.keyboardPwdType, sifelyCode.sendDate),
+      status: this.mapPasscodeStatus(sifelyCode.keyboardPwdType, sifelyCode.sendDate, sifelyCode.endDate),
       startsAt: sifelyCode.startDate ? new Date(sifelyCode.startDate).toISOString() : undefined,
       endsAt: sifelyCode.endDate ? new Date(sifelyCode.endDate).toISOString() : undefined,
       providerMetadata: {
@@ -426,11 +433,20 @@ export class SifelyLockProvider implements ILockProvider {
   }
 
   /**
-   * Map Sifely passcode type to our status
+   * Map Sifely passcode row to our status field.
+   * Sifely `keyboardPwdType` values (per docs):
+   *   1 = one-time, 2 = permanent, 3 = period, 4 = cyclic, 5 = customized,
+   *   6 = customized cyclic, 7 = office pass.
+   * A missing `sendDate` means the passcode hasn't been synced to the lock yet.
+   * A period passcode whose `endDate` is in the past is considered expired.
    */
-  private mapPasscodeStatus(type: number, sendDate: number | undefined): string {
-    // Types: 1=once, 2=permanent, 3=period, 4=cycling, etc.
+  private mapPasscodeStatus(
+    type: number | undefined,
+    sendDate: number | undefined,
+    endDate?: number,
+  ): string {
     if (!sendDate) return "pending";
+    if (type === 3 && endDate && endDate < Date.now()) return "removed";
     return "set";
   }
 }

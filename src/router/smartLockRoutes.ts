@@ -398,8 +398,12 @@ router.post("/property-devices", async (req: Request, res: Response) => {
       requestedIsActive
     );
 
-    // If createDefaultSettings is true, create/update property lock settings
-    let settingsData = null;
+    // Ensure a PropertyLockSettings row exists for this property so downstream
+    // code (settings UI, auto-generate cron) has a stable record to update.
+    // When `createDefaultSettings` is passed, enable auto-generate and honor
+    // any explicit `settings` overrides. Otherwise, just create the row with
+    // the entity's defaults (autoGenerateCodes: false — opt-in).
+    let settingsData;
     if (createDefaultSettings) {
       const defaultSettings = {
         autoGenerateCodes: true,
@@ -409,6 +413,8 @@ router.post("/property-devices", async (req: Request, res: Response) => {
         ...settings, // Allow overriding defaults
       };
       settingsData = await accessCodeService.updateSettings(propertyId, defaultSettings);
+    } else {
+      settingsData = await accessCodeService.getOrCreateSettings(propertyId);
     }
 
     return res.json({
