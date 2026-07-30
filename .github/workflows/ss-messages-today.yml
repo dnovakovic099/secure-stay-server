@@ -7,7 +7,7 @@ jobs:
   query:
     runs-on: ubuntu-latest
     steps:
-      - name: Count SecureStay inbox messages sent per rep today
+      - name: Count SecureStay inbox_v2 messages per rep today
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -35,84 +35,36 @@ jobs:
               const parts = Object.fromEntries(fmt.formatToParts(new Date()).map(p => [p.type, p.value]));
               const etDate = `${parts.year}-${parts.month}-${parts.day}`;
               const dayStart = new Date(`${etDate}T04:00:00.000Z`);
-              console.log(`ET date: ${etDate}  windowStartUTC: ${dayStart.toISOString()}`);
+              console.log("ET_DATE=" + etDate);
+              console.log("WINDOW_START_UTC=" + dayStart.toISOString());
 
-              // Primary: attributed SecureStay sends (v2 inbox)
+              // Match AdminWorkloadService: sentVia = inbox_v2
               const [byUser] = await c.query(
                 `SELECT m.sentByUserId AS userId,
                         COALESCE(NULLIF(TRIM(m.sentByName), ''),
-                                 CONCAT(COALESCE(u.firstName,''), ' ', COALESCE(u.lastName,'')),
+                                 TRIM(CONCAT(COALESCE(u.firstName,''), ' ', COALESCE(u.lastName,''))),
                                  CONCAT('user ', m.sentByUserId)) AS name,
                         COUNT(*) AS messages,
                         COUNT(DISTINCT m.threadId) AS threads
                  FROM inbox_messages m
                  LEFT JOIN users u ON u.id = m.sentByUserId
-                 WHERE m.direction = 'outgoing'
+                 WHERE m.sentVia = 'inbox_v2'
                    AND m.sentByUserId IS NOT NULL
                    AND m.sentAt >= ?
-                   AND (m.isAutomatic IS NULL OR m.isAutomatic = 0)
                  GROUP BY m.sentByUserId, name
                  ORDER BY messages DESC`,
                 [dayStart]
               );
 
-              // Also show unattributed outgoing (channel sync / auto / pre-attribution)
-              const [[unattr]] = await c.query(
-                `SELECT COUNT(*) AS messages, COUNT(DISTINCT threadId) AS threads
-                 FROM inbox_messages
-                 WHERE direction = 'outgoing'
-                   AND sentByUserId IS NULL
-                   AND sentAt >= ?
-                   AND (isAutomatic IS NULL OR isAutomatic = 0)`,
-                [dayStart]
-              );
-              const [[auto]] = await c.query(
-                `SELECT COUNT(*) AS messages
-                 FROM inbox_messages
-                 WHERE direction = 'outgoing' AND sentAt >= ? AND isAutomatic = 1`,
-                [dayStart]
-              );
-
-              console.log(`\n========== SecureStay inbox messages sent today ==========`);
-              console.log(`Attributed to a rep: ${byUser.reduce((a,r)=>a+Number(r.messages),0)} messages across ${byUser.length} reps`);
-              console.log(`Unattributed outgoing (no sentByUserId): ${unattr.messages} msgs / ${unattr.threads} threads`);
-              console.log(`Automatic outgoing: ${auto.messages}`);
-              console.log(`\nPer rep (messages | distinct threads):`);
+              const total = byUser.reduce((a,r)=>a+Number(r.messages),0);
+              const threads = byUser.reduce((a,r)=>a+Number(r.threads),0);
+              console.log("TOTAL_MSGS=" + total);
+              console.log("REP_COUNT=" + byUser.length);
+              console.log("---PER_REP---");
               for (const r of byUser) {
-                console.log(`  ${String(r.name).trim()}: ${r.messages} msgs | ${r.threads} threads`);
+                // Avoid bare integers that GitHub may redact; prefix labels.
+                console.log("REP name=" + String(r.name).trim() + " messages=" + r.messages + " threads=" + r.threads);
               }
-
-              // Hourly shape for top senders
-              if (byUser.length) {
-                const topIds = byUser.slice(0, 8).map(r => r.userId);
-                const ph = topIds.map(()=>'?').join(',');
-                const [hourly] = await c.query(
-                  `SELECT m.sentByUserId AS userId,
-                          HOUR(CONVERT_TZ(m.sentAt, '+00:00', 'America/New_York')) AS hr,
-                          COUNT(*) AS n
-                   FROM inbox_messages m
-                   WHERE m.direction='outgoing' AND m.sentByUserId IN (${ph})
-                     AND m.sentAt >= ? AND (m.isAutomatic IS NULL OR m.isAutomatic=0)
-                   GROUP BY userId, hr
-                   ORDER BY userId, hr`,
-                  [...topIds, dayStart]
-                ).catch(async () => {
-                  // tz tables missing — approximate with UTC-4
-                  return c.query(
-                    `SELECT m.sentByUserId AS userId,
-                            HOUR(DATE_SUB(m.sentAt, INTERVAL 4 HOUR)) AS hr,
-                            COUNT(*) AS n
-                     FROM inbox_messages m
-                     WHERE m.direction='outgoing' AND m.sentByUserId IN (${ph})
-                       AND m.sentAt >= ? AND (m.isAutomatic IS NULL OR m.isAutomatic=0)
-                     GROUP BY userId, hr
-                     ORDER BY userId, hr`,
-                    [...topIds, dayStart]
-                  );
-                });
-                // skip dumping hourly unless useful — keep summary tight
-              }
-
               await c.end();
             })().catch(e => { console.error(e); process.exit(1); });
             NODE
