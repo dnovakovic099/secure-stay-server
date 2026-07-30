@@ -34,136 +34,106 @@ jobs:
               });
               const parts = Object.fromEntries(fmt.formatToParts(new Date()).map(p => [p.type, p.value]));
               const etDate = `${parts.year}-${parts.month}-${parts.day}`;
-              const dayStart = new Date(`${etDate}T04:00:00.000Z`); // EDT
+              const dayStart = new Date(`${etDate}T04:00:00.000Z`);
               console.log(`ET date: ${etDate}  windowStartUTC: ${dayStart.toISOString()}`);
 
-              // Resolve users (first/last/preferred)
               const [users] = await c.query(
-                `SELECT u.id, u.uid, u.firstName, u.lastName, u.email,
-                        e.preferredName
+                `SELECT u.id, u.uid, u.firstName, u.lastName, u.email
                  FROM users u
-                 LEFT JOIN employee e ON e.userId = u.id AND e.deletedAt IS NULL
                  WHERE u.deletedAt IS NULL
                    AND (
-                     LOWER(CONCAT(COALESCE(u.firstName,''),' ',COALESCE(u.lastName,''))) LIKE '%jerome%chan%'
-                     OR LOWER(CONCAT(COALESCE(u.firstName,''),' ',COALESCE(u.lastName,''))) LIKE '%reyan%'
-                     OR LOWER(COALESCE(e.preferredName,'')) LIKE '%reyan%'
-                     OR LOWER(COALESCE(e.preferredName,'')) LIKE '%rain%'
-                     OR LOWER(u.firstName) LIKE 'jerome%'
+                     (LOWER(u.firstName) LIKE 'jerome%' AND LOWER(u.lastName) LIKE 'chan%')
                      OR LOWER(u.firstName) LIKE 'reyan%'
-                     OR LOWER(u.firstName) LIKE 'rain%'
+                     OR LOWER(CONCAT(u.firstName,' ',u.lastName)) LIKE '%reyan%callao%'
+                     OR LOWER(CONCAT(u.firstName,' ',u.lastName)) LIKE '%jerome%chan%'
                    )`
               );
               console.log("Matched users:");
               for (const u of users) {
-                console.log(`  id=${u.id} uid=${u.uid} name=${[u.firstName,u.lastName].filter(Boolean).join(' ')} preferred=${u.preferredName||''} email=${u.email||''}`);
+                console.log(`  id=${u.id} uid=${u.uid} name=${[u.firstName,u.lastName].filter(Boolean).join(' ')} email=${u.email||''}`);
               }
 
-              const jerome = users.filter(u => /jerome/i.test(`${u.firstName} ${u.lastName} ${u.preferredName||''}`));
-              const reyan = users.filter(u => /reyan|rain/i.test(`${u.firstName} ${u.lastName} ${u.preferredName||''}`) && !/jerome/i.test(`${u.firstName}`));
+              const jerome = users.filter(u => /jerome/i.test(`${u.firstName} ${u.lastName}`));
+              const reyan = users.filter(u => /reyan/i.test(`${u.firstName} ${u.lastName}`));
 
               async function report(label, person) {
                 if (!person.length) { console.log(`\n${label}: NO USER MATCH`); return; }
-                const ids = person.map(p => p.id);
-                const uids = person.map(p => p.uid).filter(Boolean);
+                const uids = [...new Set(person.map(p => p.uid).filter(Boolean))];
                 const names = person.map(p => [p.firstName,p.lastName].filter(Boolean).join(' '));
-                console.log(`\n========== ${label} (${names.join(' / ')}) ==========`);
+                const display = names.join(' / ');
+                console.log(`\n========== ${label} (${display}) ==========`);
+                console.log(`  uids: ${uids.join(', ')}`);
 
-                // 1) Distinct issues with a timeline update authored by them today
-                const uidPlace = uids.map(()=>'?').join(',') || "''";
-                const [upd] = uids.length ? await c.query(
+                const ph = uids.map(() => '?').join(',');
+                const [upd] = await c.query(
                   `SELECT COUNT(DISTINCT issueId) AS issues, COUNT(*) AS updates
                    FROM issues_updates
                    WHERE deletedAt IS NULL AND createdAt >= ?
-                     AND (createdBy IN (${uidPlace}) OR userId IN (${uidPlace}))`,
-                  [dayStart, ...uids, ...uids]
-                ).catch(async (e) => {
-                  // column names may differ
-                  console.log(`  updates query variant: ${e.message}`);
-                  return c.query(
-                    `SELECT COUNT(DISTINCT issueId) AS issues, COUNT(*) AS updates
-                     FROM issues_updates
-                     WHERE deletedAt IS NULL AND createdAt >= ?
-                       AND createdBy IN (${uidPlace})`,
-                    [dayStart, ...uids]
-                  );
-                }) : [[{issues:0,updates:0}]];
+                     AND createdBy IN (${ph})`,
+                  [dayStart, ...uids]
+                );
 
-                // Inspect columns once
-                const [cols] = await c.query(`SHOW COLUMNS FROM issues_updates`);
-                const colNames = cols.map(c => c.Field);
-                console.log(`  issues_updates cols: ${colNames.join(', ')}`);
-
-                // Try common author fields
-                let updateIssues = Number(upd[0]?.issues||0);
-                let updateCount = Number(upd[0]?.updates||0);
-
-                // Better query using whatever author column exists
-                const authorCols = ['createdBy','userId','uid','author','created_by'].filter(c => colNames.includes(c));
-                if (authorCols.length && uids.length) {
-                  const ors = authorCols.map(c => `${c} IN (${uidPlace})`).join(' OR ');
-                  const [upd2] = await c.query(
-                    `SELECT COUNT(DISTINCT issueId) AS issues, COUNT(*) AS updates
-                     FROM issues_updates
-                     WHERE deletedAt IS NULL AND createdAt >= ? AND (${ors})`,
-                    [dayStart, ...[].concat(...authorCols.map(() => uids))]
-                  );
-                  updateIssues = Number(upd2[0].issues);
-                  updateCount = Number(upd2[0].updates);
-                }
-
-                // 2) Issues they completed (IR or GR) today
-                const nameLike = names.map(() => '?').join(',');
                 const [completed] = await c.query(
                   `SELECT
-                     SUM(completed_at >= ?) AS ir_completed,
-                     SUM(gr_completed_at >= ?) AS gr_completed,
-                     COUNT(DISTINCT CASE WHEN completed_at >= ? OR gr_completed_at >= ? THEN id END) AS tickets_completed
+                     SUM(CASE WHEN completed_at >= ? AND completed_by IN (${ph}) THEN 1 ELSE 0 END) AS ir_completed,
+                     SUM(CASE WHEN gr_completed_at >= ? AND gr_completed_by IN (${ph}) THEN 1 ELSE 0 END) AS gr_completed,
+                     COUNT(DISTINCT CASE
+                       WHEN (completed_at >= ? AND completed_by IN (${ph}))
+                         OR (gr_completed_at >= ? AND gr_completed_by IN (${ph}))
+                       THEN id END) AS tickets_completed
+                   FROM issues
+                   WHERE deleted_at IS NULL`,
+                  [dayStart, ...uids, dayStart, ...uids, dayStart, ...uids, dayStart, ...uids]
+                );
+
+                // Also match completed_by by display name (sometimes stored as name)
+                const namePh = names.map(() => '?').join(',');
+                const [completedByName] = names.length ? await c.query(
+                  `SELECT COUNT(DISTINCT id) AS n
                    FROM issues
                    WHERE deleted_at IS NULL
                      AND (
-                       completed_by IN (${uids.map(()=>'?').join(',')||"''"})
-                       OR gr_completed_by IN (${uids.map(()=>'?').join(',')||"''"})
-                       OR completed_by IN (${nameLike||"''"})
-                       OR gr_completed_by IN (${nameLike||"''"})
+                       (completed_at >= ? AND completed_by IN (${namePh}))
+                       OR (gr_completed_at >= ? AND gr_completed_by IN (${namePh}))
                      )`,
-                  [dayStart, dayStart, dayStart, dayStart, ...uids, ...uids, ...names]
-                ).catch(e => { console.log(`  completed query err: ${e.message}`); return [[{}]]; });
+                  [dayStart, ...names, dayStart, ...names]
+                ) : [[{n:0}]];
 
-                // 3) Currently assigned to them
                 const [assigned] = await c.query(
                   `SELECT COUNT(*) AS n FROM issues
                    WHERE deleted_at IS NULL
-                     AND (assignee IN (${uids.map(()=>'?').join(',')||"''"}) OR assignee IN (${nameLike||"''"}))
-                     AND status NOT IN ('completed','Completed','CLOSED','closed','Resolved','resolved')`,
-                  [...uids, ...names]
+                     AND assignee IN (${ph})
+                     AND (status IS NULL OR LOWER(status) NOT IN ('completed','closed','resolved','done'))`,
+                  [...uids]
+                );
+
+                const [sample] = await c.query(
+                  `SELECT DISTINCT u.issueId, i.ai_short_title, i.issue_description, i.status, i.category
+                   FROM issues_updates u
+                   LEFT JOIN issues i ON i.id = u.issueId
+                   WHERE u.deletedAt IS NULL AND u.createdAt >= ? AND u.createdBy IN (${ph})
+                   ORDER BY u.issueId DESC
+                   LIMIT 25`,
+                  [dayStart, ...uids]
+                );
+
+                // updated_by / last touch on issues table today
+                const [lastTouched] = await c.query(
+                  `SELECT COUNT(*) AS n FROM issues
+                   WHERE deleted_at IS NULL AND updated_at >= ?
+                     AND (updated_by IN (${ph}) OR updated_by IN (${namePh || "''"}))`,
+                  [dayStart, ...uids, ...(names.length ? names : [''])]
                 ).catch(() => [[{n:0}]]);
 
-                // 4) Sample of distinct issue ids they updated today
-                let sample = [];
-                if (authorCols.length && uids.length) {
-                  const ors = authorCols.map(c => `${c} IN (${uidPlace})`).join(' OR ');
-                  const [rows] = await c.query(
-                    `SELECT DISTINCT u.issueId, i.ai_short_title, i.issue_description, i.category, i.status, i.listing_name
-                     FROM issues_updates u
-                     LEFT JOIN issues i ON i.id = u.issueId
-                     WHERE u.deletedAt IS NULL AND u.createdAt >= ? AND (${ors})
-                     ORDER BY u.issueId DESC
-                     LIMIT 30`,
-                    [dayStart, ...[].concat(...authorCols.map(() => uids))]
-                  );
-                  sample = rows;
-                }
-
-                console.log(`  Issues with timeline update today: ${updateIssues}  (${updateCount} update rows)`);
-                console.log(`  Tickets completed today (IR/GR by them): ${completed[0]?.tickets_completed||0} (IR=${completed[0]?.ir_completed||0}, GR=${completed[0]?.gr_completed||0})`);
-                console.log(`  Currently assigned open: ${assigned[0]?.n||0}`);
-                if (sample.length) {
-                  console.log(`  Sample tickets touched:`);
-                  for (const r of sample.slice(0, 20)) {
-                    const t = r.ai_short_title || r.issue_description || '';
-                    console.log(`    #${r.issueId} [${r.status||'?'}] ${String(t).slice(0,70)}`);
-                  }
+                console.log(`  Issues with timeline update today: ${upd[0].issues}  (${upd[0].updates} update rows)`);
+                console.log(`  Completed today by uid: ${completed[0].tickets_completed} (IR=${completed[0].ir_completed}, GR=${completed[0].gr_completed})`);
+                console.log(`  Completed today by name: ${completedByName[0].n}`);
+                console.log(`  Issues last-updated by them today: ${lastTouched[0].n}`);
+                console.log(`  Currently assigned open: ${assigned[0].n}`);
+                console.log(`  Tickets touched (sample up to 25):`);
+                for (const r of sample) {
+                  const t = r.ai_short_title || r.issue_description || '';
+                  console.log(`    #${r.issueId} [${r.status||'?'}] ${String(t).slice(0,70)}`);
                 }
               }
 
