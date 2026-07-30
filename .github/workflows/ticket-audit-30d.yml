@@ -1,0 +1,161 @@
+name: Ticket Audit 30d
+
+on:
+  workflow_dispatch:
+
+jobs:
+  query:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Audit guest ticket counts
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT }}
+          command_timeout: 10m
+          script: |
+            set -e
+            cd /home/ec2-user/secure_stay/secure-stay-server
+            node <<'NODE'
+            require("dotenv").config();
+            const mysql = require("mysql2/promise");
+            (async () => {
+              const quoUsers = {"USosXqShdV": {"name": "Liezel Dormal", "email": "liezel.luxurylodging@gmail.com"}, "USV9tK0gZs": {"name": "Nikki Loraine", "email": "nikkiloraine.luxurylodging@gmail.com"}, "USrCi7zMBY": {"name": "Lynneth", "email": "lynneth.luxurylodging@gmail.com"}, "US7PADdJSM": {"name": "Joshua Cordero", "email": "joshua.luxurylodging@gmail.com"}, "USdrsAlJEV": {"name": "Tamara Matovic", "email": "tamara.luxurylodging@gmail.com"}, "USKwxVAKDg": {"name": "Rain C", "email": "reyan.luxurylodging@gmail.com"}, "USy67fsvFP": {"name": "Ferdy  ", "email": "ferdinand@luxurylodgingpm.com"}, "USY4A5wyrc": {"name": "Jade O", "email": "jaysonrey.luxurylodging@gmail.com"}, "USAseyEg5n": {"name": "Angelica Chua", "email": "angelica@luxurylodgingpm.com"}, "USa5KRPuaY": {"name": "Jerome Chan", "email": "jerome.luxurylodging@gmail.com"}, "USEDO8gsXR": {"name": "LL Support", "email": "support@luxurylodgingpm.com"}, "USGLbqfOxL": {"name": "Luxury Lodging Sales", "email": "admin@luxurylodgingpm.com"}, "USyRKGG0YE": {"name": "Chelsea L", "email": "chelsea.luxurylodging@gmail.com"}, "USmrPWKOsS": {"name": "Kaz Ron", "email": "luxurylodgingteam@gmail.com"}, "USAlqSzn1t": {"name": "Luxury Lodging", "email": "usa.florida.realty.solutions@gmail.com"}};
+              const c = await mysql.createConnection({
+                host: process.env.DATABASE_URL,
+                port: Number(process.env.DATABASE_PORT),
+                user: process.env.DATABASE_USERNAME,
+                password: process.env.DATABASE_PASSWORD,
+                database: process.env.DATABASE_NAME,
+              });
+              const since = new Date(Date.now() - 30 * 86400000);
+              const dayKey = (d) => new Intl.DateTimeFormat("en-CA", {
+                timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+              }).format(new Date(d));
+              const excludeName = (name) => {
+                const s = String(name || "").toLowerCase();
+                return /\bferdy\b|ferdinand|\banj\b|angelica|chua|\baya\b|luxury lodging|ll support|securestay ai|^louis\b|^darko\b/.test(s);
+              };
+              const normalizeName = (name) => {
+                const n = String(name || "").trim().replace(/\s+/g, " ");
+                const low = n.toLowerCase();
+                if (/^lynneth|^lyrineth|^lyneth/.test(low)) return "Lynneth Marasigan";
+                if (/^rain\b|^reyan/.test(low)) return "Rain C";
+                if (/^kaz\b/.test(low)) return "Kaz Ron";
+                if (/^jerome\b/.test(low)) return "Jerome Chan";
+                if (/^jade\b|^jayson/.test(low)) return "Jade O";
+                if (/^nikki\b/.test(low)) return "Nikki Loraine";
+                if (/^joshua\b/.test(low)) return "Joshua Cordero";
+                if (/^tamara\b/.test(low)) return "Tamara Matovic";
+                if (/^liezel\b/.test(low)) return "Liezel Dormal";
+                if (/^chelsea\b/.test(low)) return "Chelsea L";
+                if (/^phiela\b/.test(low)) return "Phiela Roxas";
+                if (/^benedict\b/.test(low)) return "Benedict Bacuno";
+                return n;
+              };
+
+              const [ssUsers] = await c.query("SELECT id, uid, firstName, lastName, email FROM users WHERE deletedAt IS NULL");
+              const ssById = new Map();
+              const ssByUid = new Map();
+              for (const u of ssUsers) {
+                const name = normalizeName([u.firstName, u.lastName].filter(Boolean).join(" ") || u.email);
+                const rec = { id: Number(u.id), uid: String(u.uid || ""), name, email: String(u.email || "").toLowerCase(), firstName: u.firstName, lastName: u.lastName };
+                ssById.set(rec.id, rec);
+                if (rec.uid) ssByUid.set(rec.uid, rec);
+              }
+              console.log("RAIN_USERS=" + JSON.stringify([...ssByUid.values()].filter(u => u.name === "Rain C").map(u => ({id:u.id,uid:u.uid,email:u.email,raw:u.firstName+" "+u.lastName}))));
+              console.log("JOSH_USERS=" + JSON.stringify([...ssByUid.values()].filter(u => u.name === "Joshua Cordero").map(u => ({id:u.id,uid:u.uid,email:u.email,raw:u.firstName+" "+u.lastName}))));
+
+              const [issueUpd] = await c.query(
+                `SELECT createdBy, issueId, createdAt FROM issues_updates
+                 WHERE deletedAt IS NULL AND createdAt >= ? AND COALESCE(source, 'securestay') <> 'system'`,
+                [since]
+              );
+
+              // top createdBy values
+              const byUid = new Map();
+              for (const r of issueUpd) {
+                const k = String(r.createdBy || "");
+                if (!byUid.has(k)) byUid.set(k, { n: 0, issues: new Set() });
+                const o = byUid.get(k); o.n++; o.issues.add(Number(r.issueId));
+              }
+              const top = [...byUid.entries()].map(([uid, o]) => {
+                const u = ssByUid.get(uid);
+                return { uid: uid.slice(0, 12), name: u ? u.name : ("UNMAPPED:" + uid.slice(0, 20)), updates: o.n, uniqueIssues: o.issues.size };
+              }).sort((a,b) => b.updates - a.updates).slice(0, 25);
+              console.log("TOP_ISSUE_AUTHORS=" + JSON.stringify(top));
+
+              // Build per-person daily + unique
+              const people = new Map();
+              const touch = (name, day, issueId) => {
+                if (!name || excludeName(name)) return;
+                if (!people.has(name)) people.set(name, { name, updateRows: 0, unique: new Set(), daily: new Map(), completed: new Set(), client: new Set() });
+                const p = people.get(name);
+                p.updateRows++;
+                p.unique.add(issueId);
+                if (!p.daily.has(day)) p.daily.set(day, new Set());
+                p.daily.get(day).add(issueId);
+              };
+              for (const r of issueUpd) {
+                const u = ssByUid.get(String(r.createdBy));
+                if (!u) continue;
+                touch(u.name, dayKey(r.createdAt), Number(r.issueId));
+              }
+
+              const [issueDone] = await c.query(
+                `SELECT id, completed_by, completed_at, gr_completed_by, gr_completed_at FROM issues
+                 WHERE deleted_at IS NULL AND ((completed_at >= ?) OR (gr_completed_at >= ?))`,
+                [since, since]
+              );
+              for (const r of issueDone) {
+                for (const [by, at] of [[r.completed_by, r.completed_at], [r.gr_completed_by, r.gr_completed_at]]) {
+                  if (!by || !at || new Date(at) < since) continue;
+                  const u = ssByUid.get(String(by));
+                  if (!u || excludeName(u.name)) continue;
+                  const p = people.get(u.name) || (people.set(u.name, { name: u.name, updateRows: 0, unique: new Set(), daily: new Map(), completed: new Set(), client: new Set() }), people.get(u.name));
+                  p.completed.add(Number(r.id));
+                  // also count completion day as a touch day
+                  const day = dayKey(at);
+                  if (!p.daily.has(day)) p.daily.set(day, new Set());
+                  p.daily.get(day).add(Number(r.id));
+                  p.unique.add(Number(r.id));
+                }
+              }
+
+              const [ctUpd] = await c.query(
+                `SELECT createdBy, clientTicketId, createdAt FROM client_ticket_updates WHERE deletedAt IS NULL AND createdAt >= ?`,
+                [since]
+              ).catch(() => [[]]);
+              for (const r of ctUpd) {
+                const u = ssByUid.get(String(r.createdBy));
+                if (!u || excludeName(u.name)) continue;
+                if (!people.has(u.name)) people.set(u.name, { name: u.name, updateRows: 0, unique: new Set(), daily: new Map(), completed: new Set(), client: new Set() });
+                people.get(u.name).client.add(Number(r.clientTicketId));
+              }
+
+              const audit = [...people.values()].map((p) => {
+                const dailySum = [...p.daily.values()].reduce((a, s) => a + s.size, 0);
+                const activeDays = p.daily.size;
+                return {
+                  name: p.name,
+                  updateRows: p.updateRows,
+                  uniqueIssues30d: p.unique.size,
+                  dailyTouchSum: dailySum,
+                  activeDays,
+                  tixPerActiveDay: activeDays ? Math.round((dailySum / activeDays) * 10) / 10 : 0,
+                  uniquePerActiveDay: activeDays ? Math.round((p.unique.size / activeDays) * 10) / 10 : 0,
+                  completed30d: p.completed.size,
+                  clientTix30d: p.client.size,
+                };
+              }).sort((a,b) => b.dailyTouchSum - a.dailyTouchSum);
+
+              const payload = { since: since.toISOString(), topAuthors: top, ticketAudit: audit };
+              const b64 = Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
+              console.log("B64_BEGIN");
+              for (let i = 0; i < b64.length; i += 120) console.log(b64.slice(i, i + 120));
+              console.log("B64_END");
+              await c.end();
+            })().catch((e) => { console.error(e); process.exit(1); });
+            NODE
