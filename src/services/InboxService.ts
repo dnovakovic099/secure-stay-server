@@ -17,6 +17,7 @@ import { ReservationInfoService } from "./ReservationInfoService";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
 import { ReviewDiscussionService } from "./ReviewDiscussionService";
 import { ReviewService } from "./ReviewService";
+import { Message } from "../entity/Message";
 import {
     isInquirySupersededByAcceptedStay,
     NOT_SUPERSEDED_INQUIRY_SQL,
@@ -29,7 +30,7 @@ import CustomErrorHandler from "../middleware/customError.middleware";
  * (Mirrors HostifyMessagePayload in MessagingServices, kept local to avoid coupling.)
  */
 export interface HostifyWebhookMessage {
-    thread_id: string | number;
+    thread_id?: string | number | null;
     message_id: number;
     message: string;
     notes?: string | null;
@@ -269,6 +270,7 @@ export class InboxService {
 
     private conversationRepo = appDatabase.getRepository(InboxConversationEntity);
     private messageRepo = appDatabase.getRepository(InboxMessageEntity);
+    private legacyMessageRepo = appDatabase.getRepository(Message);
     private usersRepo = appDatabase.getRepository(UsersEntity);
     private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
     private listingRepo = appDatabase.getRepository(Listing);
@@ -474,8 +476,17 @@ export class InboxService {
         conversation.guestEmail = summary?.guest_email ?? conversation.guestEmail ?? null;
         conversation.channel = summary?.integration_type_name ?? conversation.channel ?? null;
         conversation.listingName = summary?.listing ?? summary?.listing_title ?? conversation.listingName ?? null;
-        conversation.lastMessageText = summary?.preview ?? conversation.lastMessageText ?? null;
-        conversation.lastMessageAt = toDateOrNull(summary?.last_message) ?? conversation.lastMessageAt ?? null;
+        const summaryLastMessageAt = toDateOrNull(summary?.last_message);
+        const knownLastMessageAt = toDateOrNull(conversation.lastMessageAt);
+        // Hostify's list/detail endpoints can lag behind a webhook. Never let
+        // an older summary erase the newer preview that already reached us.
+        if (
+            !knownLastMessageAt ||
+            (summaryLastMessageAt && summaryLastMessageAt.getTime() >= knownLastMessageAt.getTime())
+        ) {
+            conversation.lastMessageText = summary?.preview ?? conversation.lastMessageText ?? null;
+            conversation.lastMessageAt = summaryLastMessageAt ?? conversation.lastMessageAt ?? null;
+        }
         // Hostify's `answered` flag lags (stays 0 after host reply / preapproval).
         // Never force answered back to 0 from the summary — refreshConversationPreview
         // recomputes it from the latest guest/host message after messages sync.
@@ -697,7 +708,13 @@ export class InboxService {
     // -------------------------------------------------------------------------
     private buildMessageFromHostify(
         raw: any,
-        ctx: { threadId: number; reservationId: number | null; listingId: number | null; channel: string | null; }
+        ctx: {
+            threadId: number;
+            reservationId: number | null;
+            listingId: number | null;
+            channel: string | null;
+            source?: "sync" | "webhook";
+        }
     ): InboxMessageEntity | null {
         const externalId = toNumberOrNull(raw?.id ?? raw?.message_id);
         if (!externalId) return null;
@@ -711,7 +728,13 @@ export class InboxService {
         const senderName =
             direction === "incoming"
                 ? firstDisplayName(raw?.guest_name, raw?.sender_name, raw?.sender)
-                : firstDisplayName(raw?.user_name, raw?.sender_name, raw?.sender, raw?.sent_by);
+                : firstDisplayName(
+                    raw?.user_name,
+                    raw?.sender_name,
+                    raw?.sender,
+                    raw?.sent_by,
+                    ctx.source === "webhook" ? null : raw?.guest_name
+                );
         // Hostify exposes attachments in several shapes: a single `attachment_url`
         // (older webhook payloads), an `image` field, or an `attachments[]` /
         // `images[]` array (thread-detail responses can carry multiple photos on
@@ -962,11 +985,50 @@ export class InboxService {
     // -------------------------------------------------------------------------
     // Webhook ingestion — persist a single message (any direction)
     // -------------------------------------------------------------------------
+    private async resolveWebhookThreadId(payload: HostifyWebhookMessage): Promise<number | null> {
+        const directThreadId = toNumberOrNull(payload?.thread_id);
+        if (directThreadId) return directThreadId;
+
+        const reservationId = toNumberOrNull(payload?.reservation_id);
+        if (!reservationId) return null;
+
+        const existingConversation = await this.conversationRepo.findOne({ where: { reservationId } });
+        if (existingConversation?.threadId) {
+            logger.info(
+                `[InboxService] resolved webhook thread ${existingConversation.threadId} from local reservation ${reservationId}`
+            );
+            return Number(existingConversation.threadId);
+        }
+
+        try {
+            const details: any = await this.hostify.getReservationInfo(this.apiKey, reservationId);
+            const reservation = details?.reservation ?? details?.data?.reservation ?? details?.data ?? details;
+            const resolvedThreadId = toNumberOrNull(
+                reservation?.message_id ?? reservation?.thread_id ?? reservation?.messageId
+            );
+            if (resolvedThreadId) {
+                logger.info(
+                    `[InboxService] resolved webhook thread ${resolvedThreadId} from Hostify reservation ${reservationId}`
+                );
+            }
+            return resolvedThreadId;
+        } catch (error: any) {
+            logger.warn(
+                `[InboxService] could not resolve webhook thread from reservation ${reservationId}: ${error.message}`
+            );
+            return null;
+        }
+    }
+
     async ingestWebhookMessage(payload: HostifyWebhookMessage) {
-        const threadId = toNumberOrNull(payload?.thread_id);
+        const threadId = await this.resolveWebhookThreadId(payload);
         const externalId = toNumberOrNull(payload?.message_id);
         if (!threadId || !externalId) {
-            logger.warn("[InboxService] ingestWebhookMessage missing thread_id/message_id");
+            logger.warn(
+                `[InboxService] ingestWebhookMessage unresolved thread/message id ` +
+                `(thread=${payload?.thread_id ?? "missing"}, message=${payload?.message_id ?? "missing"}, ` +
+                `reservation=${payload?.reservation_id ?? "missing"})`
+            );
             return null;
         }
 
@@ -1040,6 +1102,7 @@ export class InboxService {
             reservationId: conversation.reservationId,
             listingId: conversation.listingId,
             channel: conversation.channel,
+            source: "webhook",
         });
         if (!message) return null;
         message.sentVia = "webhook";
@@ -1269,6 +1332,140 @@ export class InboxService {
                 `[InboxService] preview refresh failed for thread ${conversation.threadId}: ${err.message}`
             );
         }
+    }
+
+    /**
+     * Recover incoming Hostify webhook messages that reached the legacy
+     * incoming-message store but did not make it into inbox_messages.
+     *
+     * Hostify can expose fresh activity to its webhook before the public thread
+     * detail endpoint includes it. The conversation preview is therefore newer
+     * than the latest Inbox v2 row in this failure mode. Only query the legacy
+     * table when that timestamp gap exists so normal 15-second thread polling
+     * remains cheap.
+     */
+    private async backfillLegacyIncomingMessages(conversation: InboxConversationEntity): Promise<number> {
+        const summaryAt = toDateOrNull(conversation.lastMessageAt);
+        if (!summaryAt) return 0;
+
+        const latestInboxMessage = await this.messageRepo.findOne({
+            where: { threadId: conversation.threadId },
+            order: { sentAt: "DESC", id: "DESC" },
+        });
+        const latestInboxAt = toDateOrNull(latestInboxMessage?.sentAt);
+        if (latestInboxAt && latestInboxAt.getTime() >= summaryAt.getTime()) return 0;
+
+        const legacyQuery = this.legacyMessageRepo
+            .createQueryBuilder("legacy")
+            .where("legacy.source = :source", { source: "hostify" })
+            .andWhere("legacy.threadId = :threadId", { threadId: String(conversation.threadId) })
+            .andWhere("legacy.isIncoming = 1");
+        if (latestInboxAt) {
+            legacyQuery.andWhere("legacy.receivedAt > :after", {
+                after: new Date(latestInboxAt.getTime() - 2_000),
+            });
+        }
+        const legacyMessages = await legacyQuery
+            .orderBy("legacy.receivedAt", "ASC")
+            .addOrderBy("legacy.id", "ASC")
+            .limit(100)
+            .getMany();
+        if (!legacyMessages.length) return 0;
+
+        const candidateIds = legacyMessages
+            .map((message) => toNumberOrNull(message.messageId))
+            .filter((id): id is number => id !== null);
+        const existingByExternalId = candidateIds.length
+            ? await this.messageRepo.find({
+                where: { externalId: In(candidateIds) },
+                select: ["id", "externalId", "threadId", "body", "sentAt"],
+            })
+            : [];
+        const globalByExternalId = new Map(
+            existingByExternalId.map((message) => [Number(message.externalId), message])
+        );
+
+        const firstLegacyAt = legacyMessages.reduce(
+            (earliest, message) => {
+                const receivedAt = toDateOrNull(message.receivedAt);
+                return receivedAt && receivedAt < earliest ? receivedAt : earliest;
+            },
+            summaryAt
+        );
+        const recentThreadMessages = await this.messageRepo
+            .createQueryBuilder("message")
+            .where("message.threadId = :threadId", { threadId: conversation.threadId })
+            .andWhere("message.sentAt >= :after", {
+                after: new Date(firstLegacyAt.getTime() - 2_000),
+            })
+            .getMany();
+
+        const recovered = legacyMessages.flatMap((legacy) => {
+            const originalExternalId = toNumberOrNull(legacy.messageId);
+            const sentAt = toDateOrNull(legacy.receivedAt);
+            const body = String(legacy.body || "").trim();
+            if (!originalExternalId || !sentAt || !body) return [];
+
+            const alreadyInThread = recentThreadMessages.some((current) => {
+                if (current.direction !== "incoming") return false;
+                if (String(current.body || "").trim() !== body) return false;
+                const currentAt = toDateOrNull(current.sentAt);
+                return !!currentAt && Math.abs(currentAt.getTime() - sentAt.getTime()) <= 2_000;
+            });
+            if (alreadyInThread) return [];
+
+            const globalMatch = globalByExternalId.get(originalExternalId);
+            if (globalMatch && Number(globalMatch.threadId) === Number(conversation.threadId)) {
+                return [];
+            }
+
+            // A bad/reused provider id must not make a real guest message
+            // disappear. Use the legacy row's stable local id as a namespaced
+            // fallback while retaining the original id whenever it is safe.
+            const externalId = globalMatch
+                ? -(8_000_000_000_000 + Number(legacy.id))
+                : originalExternalId;
+            if (globalMatch) {
+                logger.warn(
+                    `[InboxService] legacy Hostify message id collision ${originalExternalId}; ` +
+                    `recovering thread ${conversation.threadId} as ${externalId}`
+                );
+            }
+
+            return [
+                this.messageRepo.create({
+                    externalId,
+                    threadId: conversation.threadId,
+                    reservationId: conversation.reservationId ?? toNumberOrNull(legacy.reservationId),
+                    listingId: conversation.listingId ?? toNumberOrNull(legacy.listingId),
+                    body,
+                    note: null,
+                    direction: "incoming",
+                    senderType: "guest",
+                    senderName: legacy.guestName || conversation.guestName || null,
+                    isAutomatic: 0,
+                    isSms: 0,
+                    channel: conversation.channel,
+                    attachmentUrl: null,
+                    guestId: conversation.guestId ?? toNumberOrNull(legacy.guestId),
+                    sentAt,
+                    sentByUserId: null,
+                    sentByName: null,
+                    sentVia: "legacy_backfill",
+                    source: "hostify",
+                }),
+            ];
+        });
+        if (!recovered.length) return 0;
+
+        const inserted = await this.saveMessages(recovered);
+        if (inserted) {
+            await this.refreshConversationPreview(conversation);
+        }
+        logger.info(
+            `[InboxService] recovered ${inserted} incoming message(s) from legacy store for thread ${conversation.threadId}`
+        );
+        return inserted;
     }
 
     // -------------------------------------------------------------------------
@@ -1926,6 +2123,17 @@ export class InboxService {
         // Even if sync was a no-op (messages already local), clear sticky
         // extension_price pins once an alteration-accepted event is in the thread.
         await this.clearExtensionPriceIfAlterationAccepted(conversation);
+
+        // The legacy incoming-only webhook store is an independent safety net.
+        // If Hostify's detail API lags and Inbox v2 missed an insert, recover the
+        // actual guest rows before returning the thread.
+        try {
+            await this.backfillLegacyIncomingMessages(conversation);
+        } catch (err: any) {
+            logger.warn(
+                `[InboxService] legacy incoming backfill failed for thread ${threadId}: ${err.message}`
+            );
+        }
 
         const messages = await this.messageRepo.find({
             where: { threadId },

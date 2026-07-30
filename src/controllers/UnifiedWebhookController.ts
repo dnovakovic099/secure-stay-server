@@ -674,14 +674,22 @@ export class UnifiedWebhookController {
                             // v2 inbox: persist EVERY message (incoming + outgoing +
                             // automatic + system) into the local inbox store so it stays
                             // complete and we can drop polling once the webhook is live.
-                            if (payload.message_id && payload.thread_id) {
+                            // Some Hostify staff-message events omit thread_id but still
+                            // include reservation_id. InboxService can recover the thread
+                            // from that reservation, so do not discard those events here.
+                            if (payload.message_id) {
                                 try {
                                     const inboxService = new InboxService();
                                     await inboxService.ingestWebhookMessage(payload);
                                 } catch (inboxErr: any) {
                                     logger.error(`[handleHostifyWebhook] inbox v2 ingest failed: ${inboxErr.message}`);
                                 }
+                            }
 
+                            // Keep the existing AI/detection behavior restricted to
+                            // canonical events that already include both identifiers.
+                            // This fallback is persistence-only.
+                            if (payload.message_id && payload.thread_id) {
                                 // AI response bot: consider auto-replying to inbound guest
                                 // messages. maybeAutoRespond self-gates on the DB
                                 // auto-respond toggle (AI Copilot Settings) plus the
