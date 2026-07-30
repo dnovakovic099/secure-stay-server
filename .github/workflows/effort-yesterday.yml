@@ -1,0 +1,92 @@
+name: Effort Yesterday
+
+on:
+  workflow_dispatch:
+
+jobs:
+  query:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SS messages + issues for Lynneth Kaz Jerome Rain yesterday ET
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT }}
+          command_timeout: 5m
+          script: |
+            set -e
+            cd /home/ec2-user/secure_stay/secure-stay-server
+            node <<'NODE'
+            require("dotenv").config();
+            const mysql = require("mysql2/promise");
+            (async () => {
+              const c = await mysql.createConnection({
+                host: process.env.DATABASE_URL,
+                port: Number(process.env.DATABASE_PORT),
+                user: process.env.DATABASE_USERNAME,
+                password: process.env.DATABASE_PASSWORD,
+                database: process.env.DATABASE_NAME,
+              });
+              // Yesterday ET = Jul 28 if "today" is Jul 29
+              const dayStart = new Date("2026-07-28T04:00:00.000Z");
+              const dayEnd = new Date("2026-07-29T04:00:00.000Z");
+              console.log("WINDOW=" + dayStart.toISOString() + ".." + dayEnd.toISOString());
+
+              const [users] = await c.query(
+                `SELECT id, uid, firstName, lastName FROM users WHERE deletedAt IS NULL AND (
+                   (LOWER(firstName) LIKE 'jerome%' AND LOWER(lastName) LIKE 'chan%')
+                   OR LOWER(firstName) LIKE 'reyan%'
+                   OR LOWER(firstName) LIKE 'lynneth%' OR LOWER(firstName) LIKE 'lyrineth%' OR LOWER(firstName) LIKE 'lyneth%'
+                   OR (LOWER(firstName) LIKE 'kaz%' AND LOWER(lastName) LIKE 'ron%')
+                 )`
+              );
+              for (const u of users) console.log("USER id=" + u.id + " uid=" + u.uid + " name=" + u.firstName + " " + u.lastName);
+
+              const byKey = (pred) => users.filter(pred);
+              const groups = [
+                ["RAIN", byKey(u => /reyan/i.test(u.firstName))],
+                ["LYNNETH", byKey(u => /lynn|lyrin|lyneth/i.test(u.firstName))],
+                ["JEROME", byKey(u => /jerome/i.test(u.firstName))],
+                ["KAZ", byKey(u => /kaz/i.test(u.firstName))],
+              ];
+
+              for (const [label, person] of groups) {
+                if (!person.length) { console.log("REP=" + label + " NO_MATCH"); continue; }
+                const ids = person.map(p => p.id);
+                const uids = person.map(p => p.uid);
+                const idPh = ids.map(()=>"?").join(",");
+                const uidPh = uids.map(()=>"?").join(",");
+
+                const [[ss]] = await c.query(
+                  `SELECT COUNT(*) AS messages, COUNT(DISTINCT threadId) AS threads
+                   FROM inbox_messages
+                   WHERE sentVia='inbox_v2' AND sentByUserId IN (${idPh})
+                     AND sentAt >= ? AND sentAt < ?`,
+                  [...ids, dayStart, dayEnd]
+                );
+
+                const [[iss]] = await c.query(
+                  `SELECT COUNT(DISTINCT issueId) AS issues, COUNT(*) AS updates
+                   FROM issues_updates
+                   WHERE deletedAt IS NULL AND createdBy IN (${uidPh})
+                     AND createdAt >= ? AND createdAt < ?`,
+                  [...uids, dayStart, dayEnd]
+                );
+
+                const [[done]] = await c.query(
+                  `SELECT COUNT(DISTINCT id) AS completed
+                   FROM issues WHERE deleted_at IS NULL
+                     AND (
+                       (completed_at >= ? AND completed_at < ? AND completed_by IN (${uidPh}))
+                       OR (gr_completed_at >= ? AND gr_completed_at < ? AND gr_completed_by IN (${uidPh}))
+                     )`,
+                  [dayStart, dayEnd, ...uids, dayStart, dayEnd, ...uids]
+                );
+
+                console.log("REP=" + label + " ss_msgs=" + ss.messages + " ss_threads=" + ss.threads + " issues_touched=" + iss.issues + " issue_updates=" + iss.updates + " completed=" + done.completed);
+              }
+              await c.end();
+            })().catch(e => { console.error(e); process.exit(1); });
+            NODE
