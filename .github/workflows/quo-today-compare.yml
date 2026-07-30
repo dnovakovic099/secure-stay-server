@@ -1,0 +1,187 @@
+name: Quo Today Compare
+
+on:
+  workflow_dispatch:
+
+jobs:
+  query:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compare SS synced Quo today vs UI
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT }}
+          command_timeout: 10m
+          script: |
+            set -e
+            cd /home/ec2-user/secure_stay/secure-stay-server
+            node <<'NODE'
+            require("dotenv").config();
+            const mysql = require("mysql2/promise");
+            (async () => {
+              const quoUsers = {"USosXqShdV": {"name": "Liezel Dormal", "email": "liezel.luxurylodging@gmail.com"}, "USV9tK0gZs": {"name": "Nikki Loraine", "email": "nikkiloraine.luxurylodging@gmail.com"}, "USrCi7zMBY": {"name": "Lynneth", "email": "lynneth.luxurylodging@gmail.com"}, "US7PADdJSM": {"name": "Joshua Cordero", "email": "joshua.luxurylodging@gmail.com"}, "USdrsAlJEV": {"name": "Tamara Matovic", "email": "tamara.luxurylodging@gmail.com"}, "USKwxVAKDg": {"name": "Rain C", "email": "reyan.luxurylodging@gmail.com"}, "USy67fsvFP": {"name": "Ferdy  ", "email": "ferdinand@luxurylodgingpm.com"}, "USY4A5wyrc": {"name": "Jade O", "email": "jaysonrey.luxurylodging@gmail.com"}, "USAseyEg5n": {"name": "Angelica Chua", "email": "angelica@luxurylodgingpm.com"}, "USa5KRPuaY": {"name": "Jerome Chan", "email": "jerome.luxurylodging@gmail.com"}, "USEDO8gsXR": {"name": "LL Support", "email": "support@luxurylodgingpm.com"}, "USGLbqfOxL": {"name": "Luxury Lodging Sales", "email": "admin@luxurylodgingpm.com"}, "USyRKGG0YE": {"name": "Chelsea L", "email": "chelsea.luxurylodging@gmail.com"}, "USmrPWKOsS": {"name": "Kaz Ron", "email": "luxurylodgingteam@gmail.com"}, "USAlqSzn1t": {"name": "Luxury Lodging", "email": "usa.florida.realty.solutions@gmail.com"}};
+              const c = await mysql.createConnection({
+                host: process.env.DATABASE_URL,
+                port: Number(process.env.DATABASE_PORT),
+                user: process.env.DATABASE_USERNAME,
+                password: process.env.DATABASE_PASSWORD,
+                database: process.env.DATABASE_NAME,
+              });
+              // Today ET = 2026-07-29, EDT = UTC-4 → start 2026-07-29T04:00:00Z
+              const dayStart = new Date("2026-07-29T04:00:00.000Z");
+              const dayEnd = new Date("2026-07-30T04:00:00.000Z");
+              const normalizeName = (name) => {
+                const n = String(name || "").trim().replace(/\s+/g, " ");
+                const low = n.toLowerCase();
+                if (/^lynneth|^lyrineth|^lyneth/.test(low)) return "Lynneth Marasigan";
+                if (/^rain\b|^reyan/.test(low)) return "Rain C";
+                if (/^kaz\b/.test(low)) return "Kaz Ron";
+                if (/^jerome\b/.test(low)) return "Jerome Chan";
+                if (/^jade\b|^jayson/.test(low)) return "Jade O";
+                if (/^nikki\b/.test(low)) return "Nikki Loraine";
+                if (/^joshua\b/.test(low)) return "Joshua Cordero";
+                if (/^tamara\b/.test(low)) return "Tamara Matovic";
+                if (/^liezel\b/.test(low)) return "Liezel Dormal";
+                if (/^chelsea\b/.test(low)) return "Chelsea L";
+                if (/^phiela\b/.test(low)) return "Phiela Roxas";
+                if (/^benedict\b/.test(low)) return "Benedict Bacuno";
+                if (/^angelica\b/.test(low)) return "Angelica Chua";
+                if (/^ferdy\b|^ferdinand/.test(low)) return "Ferdy";
+                if (/ll support/.test(low)) return "LL Support";
+                if (/luxury lodging/.test(low)) return "Luxury Lodging";
+                return n;
+              };
+
+              // Also include Phiela/Benedict IDs discovered earlier
+              quoUsers["USTuNVcbIY"] = { name: "Phiela Roxas", email: "" };
+              quoUsers["USvMHXd7q9"] = { name: "Benedict Bacuno", email: "" };
+
+              const people = {};
+              const ensure = (name) => {
+                if (!people[name]) people[name] = {
+                  name, texts: 0, calls: 0, outCalls: 0, answered: 0, talkSec: 0,
+                  callIds: [], textSample: 0,
+                };
+                return people[name];
+              };
+
+              const [msgs] = await c.query(
+                `SELECT quoUserId, sentByUserId, senderName, sentAt, fromNumber, phoneNumberId
+                 FROM quo_messages
+                 WHERE direction='outgoing' AND sentAt >= ? AND sentAt < ?`,
+                [dayStart, dayEnd]
+              );
+              for (const m of msgs) {
+                let name = null;
+                if (m.quoUserId && quoUsers[m.quoUserId]) name = normalizeName(quoUsers[m.quoUserId].name);
+                else if (m.senderName) name = normalizeName(m.senderName);
+                if (!name) continue;
+                ensure(name).texts++;
+              }
+
+              const [calls] = await c.query(
+                `SELECT externalId, direction, duration, answeredBy, initiatedBy, quoUserId, occurredAt, status, phoneNumberId
+                 FROM quo_calls WHERE occurredAt >= ? AND occurredAt < ?`,
+                [dayStart, dayEnd]
+              );
+              let kazCalls = [];
+              for (const call of calls) {
+                const quoUid = call.direction === "outgoing" ? (call.initiatedBy || call.quoUserId) : call.answeredBy;
+                let name = null;
+                if (quoUid && quoUsers[quoUid]) name = normalizeName(quoUsers[quoUid].name);
+                // also count if answeredBy/initiated is kaz even when we used other path
+                if (!name && call.answeredBy && quoUsers[call.answeredBy]) name = normalizeName(quoUsers[call.answeredBy].name);
+                if (!name) continue;
+                const p = ensure(name);
+                p.calls++;
+                if (call.direction === "outgoing") p.outCalls++;
+                if (call.direction === "incoming" && call.answeredBy) p.answered++;
+                // Quo "answered calls" often means inbound answered; outgoing may count separately
+                if (call.answeredBy && quoUsers[call.answeredBy] && normalizeName(quoUsers[call.answeredBy].name) === name && call.direction === "incoming") {
+                  // already counted
+                }
+                p.talkSec += Number(call.duration || 0);
+                if (name === "Kaz Ron") {
+                  kazCalls.push({
+                    id: call.externalId,
+                    dir: call.direction,
+                    durSec: Number(call.duration || 0),
+                    at: new Date(call.occurredAt).toISOString(),
+                    answeredBy: call.answeredBy,
+                    initiatedBy: call.initiatedBy,
+                    quoUserId: call.quoUserId,
+                    status: call.status,
+                    phoneNumberId: call.phoneNumberId,
+                  });
+                }
+              }
+
+              // Recompute answered the Quo way: for each person, inbound where answeredBy = them
+              for (const p of Object.values(people)) { p.answered = 0; p.outCalls = 0; p.calls = 0; p.talkSec = 0; }
+              for (const call of calls) {
+                const participants = new Set();
+                if (call.direction === "outgoing") {
+                  const uid = call.initiatedBy || call.quoUserId;
+                  if (uid && quoUsers[uid]) participants.add(normalizeName(quoUsers[uid].name));
+                } else {
+                  if (call.answeredBy && quoUsers[call.answeredBy]) participants.add(normalizeName(quoUsers[call.answeredBy].name));
+                }
+                // Also attribute talk to whoever answered/initiated
+                for (const name of participants) {
+                  const p = ensure(name);
+                  p.calls++;
+                  if (call.direction === "outgoing") p.outCalls++;
+                  else p.answered++;
+                  p.talkSec += Number(call.duration || 0);
+                }
+              }
+
+              // Max call occurredAt / msg sentAt for sync lag
+              const [[msgMax]] = await c.query(`SELECT MAX(sentAt) mx, COUNT(*) n FROM quo_messages WHERE sentAt >= ?`, [dayStart]);
+              const [[callMax]] = await c.query(`SELECT MAX(occurredAt) mx, COUNT(*) n FROM quo_calls WHERE occurredAt >= ?`, [dayStart]);
+
+              const rows = Object.values(people).map(p => ({
+                name: p.name,
+                texts: p.texts,
+                calls: p.calls,
+                outCalls: p.outCalls,
+                answered: p.answered,
+                talkMin: Math.round(p.talkSec / 60),
+                talkSec: p.talkSec,
+              })).sort((a,b) => b.calls - a.calls || b.texts - a.texts);
+
+              // Quo UI screenshot today for comparison
+              const quoUi = {
+                "Rain C": { calls: 38, out: 20, answered: 18, talk: "1h32m", texts: 136 },
+                "Kaz Ron": { calls: 34, out: 30, answered: 4, talk: "2h26m", texts: 4 },
+                "Lynneth Marasigan": { calls: 13, out: 10, answered: 3, talk: "17m", texts: 21 },
+                "Jerome Chan": { calls: 8, out: 4, answered: 4, talk: "13m", texts: 14 },
+                "Liezel Dormal": { calls: 3, out: 1, answered: 2, talk: "22m", texts: 18 },
+                "Tamara Matovic": { calls: 3, out: 1, answered: 2, talk: "7m", texts: 53 },
+                "Angelica Chua": { calls: 0, out: 0, answered: 0, talk: "0", texts: 4 },
+                "Chelsea L": { calls: 0, out: 0, answered: 0, talk: "0", texts: 67 },
+              };
+
+              const payload = {
+                window: { dayStart: dayStart.toISOString(), dayEnd: dayEnd.toISOString() },
+                sync: {
+                  msgsToday: Number(msgMax.n||0), msgMax: msgMax.mx,
+                  callsToday: Number(callMax.n||0), callMax: callMax.mx,
+                  now: new Date().toISOString(),
+                },
+                dbToday: rows,
+                quoUi,
+                kazCalls: kazCalls.sort((a,b) => a.at.localeCompare(b.at)),
+                kazCallCountRaw: kazCalls.length,
+                kazTalkSecRaw: kazCalls.reduce((a,c)=>a+c.durSec,0),
+              };
+              const b64 = Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
+              console.log("B64_BEGIN");
+              for (let i = 0; i < b64.length; i += 120) console.log(b64.slice(i, i + 120));
+              console.log("B64_END");
+              await c.end();
+            })().catch(e => { console.error(e); process.exit(1); });
+            NODE
