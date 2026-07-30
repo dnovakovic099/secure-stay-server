@@ -1,0 +1,153 @@
+name: AI Feedback Today
+
+on:
+  workflow_dispatch:
+
+jobs:
+  query:
+    name: Read-only IR + GR feedback on prod
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query IR and GR AI feedback for today (America/New_York)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT }}
+          command_timeout: 5m
+          script: |
+            set -e
+            cd /home/ec2-user/secure_stay/secure-stay-server
+            node <<'NODE'
+            require("dotenv").config();
+            const mysql = require("mysql2/promise");
+            (async () => {
+              const c = await mysql.createConnection({
+                host: process.env.DATABASE_URL,
+                port: Number(process.env.DATABASE_PORT),
+                user: process.env.DATABASE_USERNAME,
+                password: process.env.DATABASE_PASSWORD,
+                database: process.env.DATABASE_NAME,
+              });
+
+              const fmt = new Intl.DateTimeFormat("en-US", {
+                timeZone: "America/New_York",
+                year: "numeric", month: "2-digit", day: "2-digit",
+              });
+              const parts = Object.fromEntries(fmt.formatToParts(new Date()).map((p) => [p.type, p.value]));
+              const etDate = `${parts.year}-${parts.month}-${parts.day}`;
+              // July is EDT (UTC-4). CONVERT_TZ often NULL without tz tables.
+              const [[tzRow]] = await c.query(
+                `SELECT CONVERT_TZ(CONCAT(?, ' 00:00:00'), 'America/New_York', '+00:00') AS dayStart`,
+                [etDate]
+              );
+              const dayStart = (tzRow && tzRow.dayStart) || new Date(`${etDate}T04:00:00.000Z`);
+              console.log(`ET date: ${etDate}`);
+              console.log(`Window start (UTC): ${new Date(dayStart).toISOString()}`);
+
+              const nameOf = (r) => String(r.reviewer || "").trim() || (r.userId != null ? `user ${r.userId}` : "unknown");
+              const clip = (s, n = 400) => (s ? String(s).replace(/\s+/g, " ").trim().slice(0, n) : "");
+
+              // ---- IR: issue_ai_feedback ----
+              const [ir] = await c.query(
+                `SELECT f.id, f.issueId, f.suggestionId, f.userId, f.rating, f.categories,
+                        f.feedbackText, f.correctedResponse, f.createdAt,
+                        i.ai_short_title, i.issue_description, i.category, i.listing_name, i.status, i.gr_status,
+                        CONCAT(COALESCE(u.firstName,''), ' ', COALESCE(u.lastName,'')) AS reviewer
+                 FROM issue_ai_feedback f
+                 LEFT JOIN issues i ON i.id = f.issueId
+                 LEFT JOIN users u ON u.id = f.userId
+                 WHERE f.createdAt >= ?
+                 ORDER BY f.createdAt ASC`,
+                [dayStart]
+              );
+
+              // ---- GR / Inbox: ai_message_feedback ----
+              const [gr] = await c.query(
+                `SELECT f.id, f.threadId, f.messageId, f.listingId, f.reservationId, f.userId,
+                        f.targetType, f.rating, f.categories, f.feedbackText, f.correctedResponse,
+                        f.originalMessage, f.subjectUserId, f.createdAt,
+                        l.internalListingName AS listingName,
+                        CONCAT(COALESCE(u.firstName,''), ' ', COALESCE(u.lastName,'')) AS reviewer,
+                        CONCAT(COALESCE(su.firstName,''), ' ', COALESCE(su.lastName,'')) AS subjectUser
+                 FROM ai_message_feedback f
+                 LEFT JOIN listing l ON l.id = f.listingId
+                 LEFT JOIN users u ON u.id = f.userId
+                 LEFT JOIN users su ON su.id = f.subjectUserId
+                 WHERE f.createdAt >= ?
+                 ORDER BY f.createdAt ASC`,
+                [dayStart]
+              ).catch(async (err) => {
+                // listing table column name may differ; retry without listing join
+                console.log(`GR listing join failed (${err.message}); retrying without listing name`);
+                return c.query(
+                  `SELECT f.id, f.threadId, f.messageId, f.listingId, f.reservationId, f.userId,
+                          f.targetType, f.rating, f.categories, f.feedbackText, f.correctedResponse,
+                          f.originalMessage, f.subjectUserId, f.createdAt,
+                          NULL AS listingName,
+                          CONCAT(COALESCE(u.firstName,''), ' ', COALESCE(u.lastName,'')) AS reviewer,
+                          CONCAT(COALESCE(su.firstName,''), ' ', COALESCE(su.lastName,'')) AS subjectUser
+                   FROM ai_message_feedback f
+                   LEFT JOIN users u ON u.id = f.userId
+                   LEFT JOIN users su ON su.id = f.subjectUserId
+                   WHERE f.createdAt >= ?
+                   ORDER BY f.createdAt ASC`,
+                  [dayStart]
+                );
+              });
+
+              const summarize = (rows, label) => {
+                const byUser = new Map();
+                let up = 0, down = 0, none = 0;
+                const themes = new Map();
+                for (const r of rows) {
+                  const who = nameOf(r);
+                  byUser.set(who, (byUser.get(who) || 0) + 1);
+                  if (r.rating === "up") up++;
+                  else if (r.rating === "down") down++;
+                  else none++;
+                  let cats = [];
+                  try { cats = r.categories ? JSON.parse(r.categories) : []; } catch { cats = []; }
+                  for (const t of cats) themes.set(t, (themes.get(t) || 0) + 1);
+                }
+                console.log(`\n========== ${label} ==========`);
+                console.log(`Total: ${rows.length}  |  👍 ${up}  👎 ${down}  (no rating) ${none}`);
+                console.log("By reviewer:");
+                [...byUser.entries()].sort((a, b) => b[1] - a[1]).forEach(([n, c]) => console.log(`  ${n}: ${c}`));
+                if (themes.size) {
+                  console.log("Themes:");
+                  [...themes.entries()].sort((a, b) => b[1] - a[1]).forEach(([t, c]) => console.log(`  ${t}: ${c}`));
+                }
+              };
+
+              summarize(ir, "IR Copilot (issue_ai_feedback)");
+              for (const f of ir) {
+                const when = new Date(f.createdAt).toLocaleString("en-US", { timeZone: "America/New_York" });
+                const title = f.ai_short_title || f.issue_description || "";
+                console.log(`\n  [${when}] ticket ${f.issueId} — ${clip(title, 80)}`);
+                console.log(`    listing: ${f.listing_name || "(none)"}  category: ${f.category || "?"}`);
+                console.log(`    by: ${nameOf(f)}  rating: ${f.rating || "(none)"}`);
+                if (f.categories) console.log(`    themes: ${f.categories}`);
+                if (f.feedbackText) console.log(`    note: ${clip(f.feedbackText, 500)}`);
+                if (f.correctedResponse) console.log(`    correction: ${clip(f.correctedResponse, 500)}`);
+              }
+
+              summarize(gr, "GR / Inbox AI (ai_message_feedback)");
+              for (const f of gr) {
+                const when = new Date(f.createdAt).toLocaleString("en-US", { timeZone: "America/New_York" });
+                console.log(`\n  [${when}] thread ${f.threadId || "—"}  target=${f.targetType || "?"}  listingId=${f.listingId || "—"}`);
+                console.log(`    listing: ${f.listingName || "(none)"}`);
+                console.log(`    by: ${nameOf(f)}  rating: ${f.rating || "(none)"}`);
+                if (f.subjectUserId) console.log(`    subject (sent reply author): ${String(f.subjectUser || "").trim() || f.subjectUserId}`);
+                if (f.categories) console.log(`    themes: ${f.categories}`);
+                if (f.feedbackText) console.log(`    note: ${clip(f.feedbackText, 500)}`);
+                if (f.correctedResponse) console.log(`    preferred: ${clip(f.correctedResponse, 500)}`);
+                if (f.originalMessage) console.log(`    original: ${clip(f.originalMessage, 240)}`);
+              }
+
+              console.log(`\n========== COMBINED ==========`);
+              console.log(`IR: ${ir.length}   GR: ${gr.length}   Total: ${ir.length + gr.length}`);
+              await c.end();
+            })().catch((e) => { console.error(e); process.exit(1); });
+            NODE
