@@ -156,7 +156,7 @@ export class ExpenseController {
             if (!["expense", "resolution"].includes(entityType) || !entityId) {
                 return response.status(400).send({ message: "Valid entity type and ID are required." });
             }
-            return response.send(await new AccountingActivityService().getActivity(entityType, entityId));
+            return response.send(await new AccountingActivityService().getActivity(entityType, entityId, request.user.id));
         } catch (error) {
             return next(error);
         }
@@ -173,6 +173,45 @@ export class ExpenseController {
                 entityType,
                 entityId,
                 request.body?.message,
+                request.user.id
+            ));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async updateAccountingDiscussion(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const entityType = request.params.entityType as "expense" | "resolution";
+            const entityId = Number(request.params.entityId);
+            const discussionId = Number(request.params.discussionId);
+            if (!["expense", "resolution"].includes(entityType) || !entityId || !discussionId) {
+                return response.status(400).send({ message: "Valid entity type, entity ID, and discussion ID are required." });
+            }
+            return response.send(await new AccountingActivityService().updateDiscussion(
+                entityType,
+                entityId,
+                discussionId,
+                request.body?.message,
+                request.user.id
+            ));
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async deleteAccountingDiscussion(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const entityType = request.params.entityType as "expense" | "resolution";
+            const entityId = Number(request.params.entityId);
+            const discussionId = Number(request.params.discussionId);
+            if (!["expense", "resolution"].includes(entityType) || !entityId || !discussionId) {
+                return response.status(400).send({ message: "Valid entity type, entity ID, and discussion ID are required." });
+            }
+            return response.send(await new AccountingActivityService().deleteDiscussion(
+                entityType,
+                entityId,
+                discussionId,
                 request.user.id
             ));
         } catch (error) {
@@ -243,7 +282,14 @@ export class ExpenseController {
         try {
             const expenseService = new ExpenseService();
             const userId = request.user.id;
-            const result = await expenseService.bulkUpdateExpense(request.body, userId);
+            const uploadedFiles = (request.files as { [fieldname: string]: Express.Multer.File[] } | undefined)?.attachments;
+            const fileInfo = uploadedFiles?.map(file => ({
+                fileName: file.filename,
+                filePath: file.path,
+                mimeType: file.mimetype,
+                originalName: file.originalname
+            })) || null;
+            const result = await expenseService.bulkUpdateExpense(request.body, userId, fileInfo);
             return response.status(200).json(result);
         } catch (error) {
             return next(error);

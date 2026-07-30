@@ -54,6 +54,9 @@ router.route('/getexpense/:id/history').get(verifySession, expenseController.get
 router.route('/activity/:entityType/:entityId')
     .get(verifySession, expenseController.getAccountingActivity)
     .post(verifySession, expenseController.createAccountingDiscussion);
+router.route('/activity/:entityType/:entityId/:discussionId')
+    .put(verifySession, expenseController.updateAccountingDiscussion)
+    .delete(verifySession, expenseController.deleteAccountingDiscussion);
 
 router.route('/claimsfeefunds').get(verifySession, expenseController.getClaimsFeeFunds);
 
@@ -61,7 +64,12 @@ router.route('/deleteexpense/:id').delete(verifySession, expenseController.delet
 
 router.route('/bulkdeleteexpenses').post(verifySession, verifyAdmin, expenseController.bulkDeleteExpenses);
 
-router.route('/bulkupdateexpense').post(verifySession,validateBulkUpdateExpense, expenseController.bulkUpdateExpenses)
+router.route('/bulkupdateexpense').post(
+    verifySession,
+    fileUpload('expense').fields([{ name: 'attachments', maxCount: 10 }]),
+    validateBulkUpdateExpense,
+    expenseController.bulkUpdateExpenses
+)
 
 router.route('/expense/migratefilestodrive').get(verifySession, expenseController.migrateFilesToDrive);
 

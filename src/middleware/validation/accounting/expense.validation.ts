@@ -265,16 +265,28 @@ export const validateGetExpenseList = (request: Request, response: Response, nex
 
 export const validateBulkUpdateExpense = (request: Request, response: Response, next: NextFunction) => {
     const schema = Joi.object({
-        expenseId: Joi.array().items(Joi.number().required()).min(1).required(),
+        expenseId: Joi.alternatives().try(
+            Joi.array().items(Joi.number().required()).min(1),
+            Joi.string().custom((value, helpers) => {
+                try {
+                    const parsed = JSON.parse(value);
+                    return Array.isArray(parsed) && parsed.length > 0 && parsed.every(item => Number.isFinite(Number(item)))
+                        ? value
+                        : helpers.error("any.invalid");
+                } catch {
+                    return helpers.error("any.invalid");
+                }
+            })
+        ).required(),
         expenseDate: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
-        }).required().allow(null),
+        }).required().allow(null, ""),
         dateOfWork: Joi.string().regex(/^\d{4}-\d{2}-\d{2}$/).messages({
             'string.pattern.base': 'Date must be in the format "yyyy-mm-dd"',
-        }).required().allow(null),
+        }).required().allow(null, ""),
         status: Joi.string().required()
-            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE, ExpenseStatus.CANCELLED, ExpenseStatus.REFUNDED, ExpenseStatus.NA).allow(null),
-        paymentMethod: Joi.string().required().allow(null)
+            .valid(ExpenseStatus.PENDING, ExpenseStatus.APPROVED, ExpenseStatus.PAID, ExpenseStatus.OVERDUE, ExpenseStatus.CANCELLED, ExpenseStatus.REFUNDED, ExpenseStatus.NA).allow(null, ""),
+        paymentMethod: Joi.string().required().allow(null, "")
             .valid("Venmo", "Credit Card", "ACH", "Zelle", "PayPal"),
         paymentDetails: Joi.string().optional().allow(null, ""),
         categories: Joi.alternatives().try(
@@ -291,14 +303,14 @@ export const validateBulkUpdateExpense = (request: Request, response: Response, 
                     return helpers.error("any.invalid");
                 }
             })
-        ).required().allow(null),
-        concept: Joi.string().required().allow(null),
-        listingMapId: Joi.number().required().allow(null),
-        amount: Joi.number().required().allow(null),
-        contractorName: Joi.string().required().allow(null),
-        contractorNumber: Joi.string().required().allow(null),
-        findings: Joi.string().required().allow(null),
-        datePaid: Joi.string().required().allow(null),
+        ).required().allow(null, ""),
+        concept: Joi.string().required().allow(null, ""),
+        listingMapId: Joi.number().required().allow(null, ""),
+        amount: Joi.number().required().allow(null, ""),
+        contractorName: Joi.string().required().allow(null, ""),
+        contractorNumber: Joi.string().required().allow(null, ""),
+        findings: Joi.string().required().allow(null, ""),
+        datePaid: Joi.string().required().allow(null, ""),
         isRecurring: Joi.number().valid(0, 1).optional(),
         llCover: Joi.number().valid(0, 1).optional(),
         fromClaimsFee: Joi.number().valid(0, 1).optional(),
@@ -309,7 +321,7 @@ export const validateBulkUpdateExpense = (request: Request, response: Response, 
 
     const { error } = schema.validate(request.body);
     if (error) {
-        next(error);
+        return next(error);
     }
     next();
 };

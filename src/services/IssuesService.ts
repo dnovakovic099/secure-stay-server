@@ -2766,6 +2766,12 @@ export class IssuesService {
     if (!existingIssueUpdate) {
       throw CustomErrorHandler.notFound(`Issue update with ID ${id} not found`);
     }
+    if (existingIssueUpdate.source === "slack" || existingIssueUpdate.source === "system") {
+      throw CustomErrorHandler.forbidden("Slack and system updates cannot be edited from SecureStay.");
+    }
+    if (existingIssueUpdate.createdBy !== userId) {
+      throw CustomErrorHandler.forbidden("Only the message author can edit this update.");
+    }
     existingIssueUpdate.updates = updates;
     existingIssueUpdate.updatedBy = userId;
 
@@ -2819,10 +2825,18 @@ export class IssuesService {
         `Issue update with the id ${id} not found`
       );
     }
-
-    if (issueUpdate.source !== "slack") {
-      await this.deleteTrackedIssueUpdateSlackMessage(issueUpdate);
+    if (issueUpdate.source === "slack" || issueUpdate.source === "system") {
+      throw CustomErrorHandler.forbidden("Slack and system updates cannot be deleted from SecureStay.");
     }
+    const requestingUser = await this.usersRepo.findOne({ where: { uid: userId } });
+    const isAdmin = Boolean(requestingUser?.isSuperAdmin)
+      || requestingUser?.userType === "admin"
+      || requestingUser?.userType === "super admin";
+    if (issueUpdate.createdBy !== userId && !isAdmin) {
+      throw CustomErrorHandler.forbidden("Only the message author or a SecureStay admin can delete this update.");
+    }
+
+    await this.deleteTrackedIssueUpdateSlackMessage(issueUpdate);
 
     issueUpdate.deletedAt = new Date();
     issueUpdate.deletedBy = userId;

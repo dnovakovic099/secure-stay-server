@@ -23,6 +23,8 @@ import { generateSlackMessageLink } from "../helpers/helpers";
 import { ExpenseHistoryEntity } from "../entity/ExpenseHistory";
 import { RefundRequestEntity } from "../entity/RefundRequest";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
+import fs from "fs";
+import path from "path";
 
 const ACCOUNTING_TIME_ZONE = "America/New_York";
 const ACCOUNTING_TIMESTAMP_DATE_TYPES = new Set(["createdAt", "updatedAt"]);
@@ -67,8 +69,8 @@ interface ExpenseBulkUpdateObject {
     categories: string;
     concept: string;
     listingMapId: number;
-    amount: number;
-    expenseId: number[];
+    amount: number | string;
+    expenseId: number[] | string;
     contractorName?: string;
     contractorNumber?: string;
     findings?: string;
@@ -800,7 +802,7 @@ export class ExpenseService {
                     : '';
 
                 const user = users.find(user => user.uid == expense.updatedBy);
-                const updatedBy = user ? `${user.firstName} ${user.lastName}` : "";
+                const updatedBy = user ? `${user.firstName} ${user.lastName}` : expense.updatedBy || "";
                 const createdByUser = users.find(user => user.uid == expense.createdBy);
                 const createdBy = createdByUser ? `${createdByUser.firstName} ${createdByUser.lastName}` : expense.createdBy;
 
@@ -841,7 +843,7 @@ export class ExpenseService {
                     updatedAt: this.formatAccountingTimestamp(expense.updatedAt),
                     createdAtTimestamp: expense.createdAt?.getTime() || 0,
                     updatedAtTimestamp: expense.updatedAt?.getTime() || 0,
-                    updatedBy: user ? `${user.firstName} ${user.lastName}` : "",
+                    updatedBy,
                     attachments: fileLinks,
                     fileInfo: fileInfoList.filter(file => file.entityId === expense.id),
                     issues: issueIds,
@@ -1931,7 +1933,11 @@ export class ExpenseService {
         };
     }
 
-    public async bulkUpdateExpense(body: ExpenseBulkUpdateObject, userId: string) {
+    public async bulkUpdateExpense(
+        body: ExpenseBulkUpdateObject,
+        userId: string,
+        fileInfo: { fileName: string, filePath: string, mimeType: string; originalName: string; }[] | null = null
+    ) {
         const {
             expenseId,
             expenseDate,
@@ -1952,14 +1958,36 @@ export class ExpenseService {
             type
         } = body;
 
+        const normalizedExpenseIds: number[] = (typeof expenseId === "string" ? JSON.parse(expenseId) : expenseId)
+            .map((id: number | string) => Number(id));
+        const fileInfoByExpenseId = new Map<number, NonNullable<typeof fileInfo>>();
+
+        if (fileInfo?.length) {
+            for (const id of normalizedExpenseIds) {
+                const expenseFiles = fileInfo.map((file, fileIndex) => {
+                    const copiedFileName = `${Date.now()}_${id}_${fileIndex}_${file.fileName}`;
+                    const copiedFilePath = path.join(path.dirname(file.filePath), copiedFileName);
+                    fs.copyFileSync(file.filePath, copiedFilePath);
+                    return { ...file, fileName: copiedFileName, filePath: copiedFilePath };
+                });
+                fileInfoByExpenseId.set(id, expenseFiles);
+            }
+            fileInfo.forEach(file => {
+                if (fs.existsSync(file.filePath)) fs.unlinkSync(file.filePath);
+            });
+        }
+
         const failedExpenseUpdate: number[] = [];
         const failedHostawayExpenseUpdate: number[] = [];
 
-        for (const id of expenseId) {
+        for (const id of normalizedExpenseIds) {
             const expense = await this.expenseRepo.findOne({ where: { id: id } });
 
             if (!expense) {
                 logger.error(`Expense with id ${id} not found.`);
+                (fileInfoByExpenseId.get(id) || []).forEach(file => {
+                    if (fs.existsSync(file.filePath)) fs.unlinkSync(file.filePath);
+                });
                 failedExpenseUpdate.push(id);
                 continue;
             }
@@ -1976,19 +2004,44 @@ export class ExpenseService {
             if (categories) expense.categories = categories;
             if (concept) expense.concept = concept;
             if (listingMapId) expense.listingMapId = listingMapId;
-            if (amount !== undefined && amount !== null) {
+            if (amount !== undefined && amount !== null && amount !== "") {
                 expense.amount = type === "extras" ? Math.abs(Number(amount)) : Math.abs(Number(amount)) * -1;
             }
-            if (contractorName !== undefined && contractorName !== null) expense.contractorName = contractorName;
-            if (contractorNumber !== undefined && contractorNumber !== null) expense.contractorNumber = contractorNumber;
-            if (findings !== undefined && findings !== null) expense.findings = findings;
-            if (datePaid !== undefined && datePaid !== null) expense.datePaid = datePaid;
+            if (contractorName !== undefined && contractorName !== null && contractorName !== "") expense.contractorName = contractorName;
+            if (contractorNumber !== undefined && contractorNumber !== null && contractorNumber !== "") expense.contractorNumber = contractorNumber;
+            if (findings !== undefined && findings !== null && findings !== "") expense.findings = findings;
+            if (datePaid !== undefined && datePaid !== null && datePaid !== "") expense.datePaid = datePaid;
             if (isRecurring !== undefined && isRecurring !== null) expense.isRecurring = isRecurring ? isRecurring : 0;
+
+            const filesForExpense = fileInfoByExpenseId.get(id) || [];
+            if (filesForExpense.length > 0) {
+                let existingFileNames: string[] = [];
+                try {
+                    existingFileNames = expense.fileNames ? JSON.parse(expense.fileNames) : [];
+                } catch {
+                    existingFileNames = [];
+                }
+                expense.fileNames = JSON.stringify([
+                    ...existingFileNames,
+                    ...filesForExpense.map(file => file.fileName)
+                ]);
+            }
 
             expense.updatedBy = userId;
             expense.updatedAt = new Date();
 
             await this.expenseRepo.save(expense);
+            for (const file of filesForExpense) {
+                const fileRecord = new FileInfo();
+                fileRecord.entityType = "expense";
+                fileRecord.entityId = expense.id;
+                fileRecord.fileName = file.fileName;
+                fileRecord.createdBy = userId;
+                fileRecord.localPath = file.filePath;
+                fileRecord.mimetype = file.mimeType;
+                fileRecord.originalName = file.originalName;
+                await this.fileInfoRepo.save(fileRecord);
+            }
             await this.syncLinkedRefundRequestFromExpense(expense, userId);
             await this.logExpenseChanges(
                 expense.id,
@@ -2011,6 +2064,7 @@ export class ExpenseService {
                     "findings",
                     "datePaid",
                     "isRecurring",
+                    "fileNames",
                 ]
             );
             // Sync with Hostaway
