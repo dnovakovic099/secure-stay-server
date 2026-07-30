@@ -21,6 +21,7 @@ jobs:
             node <<'NODE'
             require("dotenv").config();
             const mysql = require("mysql2/promise");
+            const enc = (n) => "n" + Number(n || 0).toString(16);
             (async () => {
               const quoUsers = {"USosXqShdV": {"name": "Liezel Dormal", "email": "liezel.luxurylodging@gmail.com"}, "USV9tK0gZs": {"name": "Nikki Loraine", "email": "nikkiloraine.luxurylodging@gmail.com"}, "USrCi7zMBY": {"name": "Lynneth", "email": "lynneth.luxurylodging@gmail.com"}, "US7PADdJSM": {"name": "Joshua Cordero", "email": "joshua.luxurylodging@gmail.com"}, "USdrsAlJEV": {"name": "Tamara Matovic", "email": "tamara.luxurylodging@gmail.com"}, "USKwxVAKDg": {"name": "Rain C", "email": "reyan.luxurylodging@gmail.com"}, "USy67fsvFP": {"name": "Ferdy  ", "email": "ferdinand@luxurylodgingpm.com"}, "USY4A5wyrc": {"name": "Jade O", "email": "jaysonrey.luxurylodging@gmail.com"}, "USAseyEg5n": {"name": "Angelica Chua", "email": "angelica@luxurylodgingpm.com"}, "USa5KRPuaY": {"name": "Jerome Chan", "email": "jerome.luxurylodging@gmail.com"}, "USEDO8gsXR": {"name": "LL Support", "email": "support@luxurylodgingpm.com"}, "USGLbqfOxL": {"name": "Luxury Lodging Sales", "email": "admin@luxurylodgingpm.com"}, "USyRKGG0YE": {"name": "Chelsea L", "email": "chelsea.luxurylodging@gmail.com"}, "USmrPWKOsS": {"name": "Kaz Ron", "email": "luxurylodgingteam@gmail.com"}, "USAlqSzn1t": {"name": "Luxury Lodging", "email": "usa.florida.realty.solutions@gmail.com"}};
               const c = await mysql.createConnection({
@@ -30,21 +31,19 @@ jobs:
                 password: process.env.DATABASE_PASSWORD,
                 database: process.env.DATABASE_NAME,
               });
-
               const since = new Date(Date.now() - 30 * 86400000);
               const dayKey = (d) => new Intl.DateTimeFormat("en-CA", {
                 timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
               }).format(new Date(d));
-
               const excludeName = (name, email) => {
                 const s = `${name || ""} ${email || ""}`.toLowerCase();
                 if (/\bferdy\b|ferdinand/.test(s)) return true;
                 if (/\banj\b|angelica|chua/.test(s)) return true;
                 if (/\baya\b/.test(s)) return true;
                 if (/luxury lodging|ll support|securestay ai|usa\.florida/.test(s)) return true;
+                if (/^louis\b|^darko\b/.test(s)) return true;
                 return false;
               };
-
               const normalizeName = (name) => {
                 let n = String(name || "").trim().replace(/\s+/g, " ");
                 const low = n.toLowerCase();
@@ -60,42 +59,29 @@ jobs:
                 if (/^chelsea\b/.test(low)) return "Chelsea L";
                 if (/^phiela\b/.test(low)) return "Phiela Roxas";
                 if (/^benedict\b/.test(low)) return "Benedict Bacuno";
-                if (/^ferdy\b|^ferdinand\b/.test(low)) return "Ferdy";
-                if (/^angelica\b/.test(low)) return "Angelica Chua";
                 return n;
               };
-
-              // SS users: id, uid, email, name
-              const [ssUsers] = await c.query(
-                "SELECT id, uid, firstName, lastName, email FROM users WHERE deletedAt IS NULL"
-              );
+              const [ssUsers] = await c.query("SELECT id, uid, firstName, lastName, email FROM users WHERE deletedAt IS NULL");
               const ssById = new Map();
               const ssByUid = new Map();
-              const ssByEmail = new Map();
-              const nameByAlias = new Map(); // lowercase token -> canonical name
+              const nameByAlias = new Map();
               for (const u of ssUsers) {
                 const name = normalizeName([u.firstName, u.lastName].filter(Boolean).join(" ") || u.email);
                 const email = String(u.email || "").toLowerCase();
                 const rec = { id: Number(u.id), uid: u.uid, name, email };
                 ssById.set(rec.id, rec);
                 if (u.uid) ssByUid.set(String(u.uid), rec);
-                if (email) ssByEmail.set(email, rec);
                 nameByAlias.set(name.toLowerCase(), name);
                 if (u.firstName) nameByAlias.set(String(u.firstName).toLowerCase(), name);
                 const full = [u.firstName, u.lastName].filter(Boolean).join(" ").toLowerCase();
                 if (full) nameByAlias.set(full, name);
               }
-              for (const [qid, u] of Object.entries(quoUsers)) {
+              for (const u of Object.values(quoUsers)) {
                 const name = normalizeName(u.name);
                 nameByAlias.set(name.toLowerCase(), name);
                 const first = String(u.name || "").trim().split(/\s+/)[0];
                 if (first) nameByAlias.set(first.toLowerCase(), name);
-                if (u.email) {
-                  const email = String(u.email).toLowerCase();
-                  if (!ssByEmail.has(email)) ssByEmail.set(email, { id: null, uid: null, name, email });
-                }
               }
-
               const resolveFromName = (raw) => {
                 if (!raw) return null;
                 const n = normalizeName(raw);
@@ -104,23 +90,18 @@ jobs:
                 if (nameByAlias.has(first)) return nameByAlias.get(first);
                 return n;
               };
-
               const cells = new Map();
               const ensure = (name, day) => {
                 const k = name + "|" + day;
                 if (!cells.has(k)) {
                   cells.set(k, {
-                    name, day,
-                    calls: 0, talkSec: 0,
-                    guestMsgs: 0, pmMsgs: 0,
+                    name, day, calls: 0, talkSec: 0, guestMsgs: 0, pmMsgs: 0,
                     ssMsgs: 0, hostifyMsgs: 0, quoGuestTexts: 0, quoPmTexts: 0,
                     guestTickets: new Set(), actionTickets: new Set(), clientTickets: new Set(),
                   });
                 }
                 return cells.get(k);
               };
-
-              // ---- Quo calls ----
               const [calls] = await c.query(
                 "SELECT direction, duration, answeredBy, initiatedBy, quoUserId, occurredAt FROM quo_calls WHERE occurredAt >= ?",
                 [since]
@@ -130,15 +111,11 @@ jobs:
                 const quoUid = call.direction === "outgoing" ? (call.initiatedBy || call.quoUserId) : call.answeredBy;
                 if (!quoUid || !quoUsers[quoUid]) continue;
                 const name = normalizeName(quoUsers[quoUid].name);
-                const email = (quoUsers[quoUid].email || "").toLowerCase();
-                if (excludeName(name, email)) continue;
+                if (excludeName(name, quoUsers[quoUid].email || "")) continue;
                 const cell = ensure(name, dayKey(call.occurredAt));
-                cell.calls++;
-                attributedCalls++;
+                cell.calls++; attributedCalls++;
                 cell.talkSec += Number(call.duration || 0);
               }
-
-              // ---- Quo texts with PM vs GR line ----
               const [quoMsgs] = await c.query(
                 `SELECT m.quoUserId, m.sentByUserId, m.senderName, m.sentAt, COALESCE(l.category, 'GR') AS category
                  FROM quo_messages m
@@ -148,25 +125,19 @@ jobs:
                 [since]
               );
               for (const m of quoMsgs) {
-                let name = null;
-                let email = "";
+                let name = null, email = "";
                 if (m.quoUserId && quoUsers[m.quoUserId]) {
                   name = normalizeName(quoUsers[m.quoUserId].name);
                   email = (quoUsers[m.quoUserId].email || "").toLowerCase();
                 } else if (m.sentByUserId && ssById.has(Number(m.sentByUserId))) {
                   const u = ssById.get(Number(m.sentByUserId));
                   name = u.name; email = u.email || "";
-                } else if (m.senderName) {
-                  name = resolveFromName(m.senderName);
-                }
+                } else if (m.senderName) name = resolveFromName(m.senderName);
                 if (!name || excludeName(name, email)) continue;
                 const cell = ensure(name, dayKey(m.sentAt));
-                const isPm = String(m.category || "").toUpperCase() === "PM";
-                if (isPm) { cell.pmMsgs++; cell.quoPmTexts++; }
+                if (String(m.category || "").toUpperCase() === "PM") { cell.pmMsgs++; cell.quoPmTexts++; }
                 else { cell.guestMsgs++; cell.quoGuestTexts++; }
               }
-
-              // ---- SS inbox_v2 (guest Hostify channel via SecureStay) ----
               const [ssMsgs] = await c.query(
                 `SELECT sentByUserId, sentByName, sentAt FROM inbox_messages
                  WHERE sentVia = 'inbox_v2' AND sentByUserId IS NOT NULL AND sentAt >= ?
@@ -176,53 +147,31 @@ jobs:
               for (const m of ssMsgs) {
                 const u = ssById.get(Number(m.sentByUserId));
                 const name = u ? u.name : resolveFromName(m.sentByName);
-                const email = u ? u.email : "";
-                if (!name || excludeName(name, email)) continue;
+                if (!name || excludeName(name, u ? u.email : "")) continue;
                 const cell = ensure(name, dayKey(m.sentAt));
-                cell.guestMsgs++;
-                cell.ssMsgs++;
+                cell.guestMsgs++; cell.ssMsgs++;
               }
-
-              // ---- Hostify-native outgoing (no sentByUserId) matched by senderName ----
               const [hostifyMsgs] = await c.query(
-                `SELECT senderName, sentByName, sentAt, sentVia FROM inbox_messages
-                 WHERE direction = 'outgoing' AND sentAt >= ?
-                   AND sentByUserId IS NULL
+                `SELECT senderName, sentByName, sentAt FROM inbox_messages
+                 WHERE direction = 'outgoing' AND sentAt >= ? AND sentByUserId IS NULL
                    AND (isAutomatic IS NULL OR isAutomatic = 0)
                    AND COALESCE(sentVia, '') NOT IN ('ai_auto', 'ai_auto_failed', 'inbox_v2_failed')
                    AND (senderName IS NOT NULL OR sentByName IS NOT NULL)`,
                 [since]
               );
               let hostifyMatched = 0, hostifyUnmatched = 0;
-              const unmatchedNames = new Map();
               for (const m of hostifyMsgs) {
                 const raw = m.sentByName || m.senderName;
                 const name = resolveFromName(raw);
-                if (!name || excludeName(name, "")) {
-                  hostifyUnmatched++;
-                  const k = String(raw || "(blank)").slice(0, 40);
-                  unmatchedNames.set(k, (unmatchedNames.get(k) || 0) + 1);
-                  continue;
-                }
-                // Only count if it resolves to a known alias (avoid random guest-side host labels)
+                if (!name || excludeName(name, "")) { hostifyUnmatched++; continue; }
                 const known = nameByAlias.has(name.toLowerCase()) || nameByAlias.has(String(raw || "").toLowerCase().split(/\s+/)[0]);
-                if (!known) {
-                  hostifyUnmatched++;
-                  const k = String(raw || "(blank)").slice(0, 40);
-                  unmatchedNames.set(k, (unmatchedNames.get(k) || 0) + 1);
-                  continue;
-                }
+                if (!known) { hostifyUnmatched++; continue; }
                 const cell = ensure(name, dayKey(m.sentAt));
-                cell.guestMsgs++;
-                cell.hostifyMsgs++;
-                hostifyMatched++;
+                cell.guestMsgs++; cell.hostifyMsgs++; hostifyMatched++;
               }
-
-              // ---- Guest issues (issues_updates) ----
               const [issueUpd] = await c.query(
                 `SELECT createdBy, issueId, createdAt FROM issues_updates
-                 WHERE deletedAt IS NULL AND createdAt >= ?
-                   AND COALESCE(source, 'securestay') <> 'system'`,
+                 WHERE deletedAt IS NULL AND createdAt >= ? AND COALESCE(source, 'securestay') <> 'system'`,
                 [since]
               );
               for (const r of issueUpd) {
@@ -232,12 +181,9 @@ jobs:
                 if (!u && !nameByAlias.has(String(name).toLowerCase())) continue;
                 ensure(name, dayKey(r.createdAt)).guestTickets.add(Number(r.issueId));
               }
-
-              // Completions also count as ticket touches
               const [issueDone] = await c.query(
-                `SELECT id, completed_by, completed_at, gr_completed_by, gr_completed_at
-                 FROM issues WHERE deleted_at IS NULL
-                   AND ((completed_at >= ?) OR (gr_completed_at >= ?))`,
+                `SELECT id, completed_by, completed_at, gr_completed_by, gr_completed_at FROM issues
+                 WHERE deleted_at IS NULL AND ((completed_at >= ?) OR (gr_completed_at >= ?))`,
                 [since, since]
               );
               for (const r of issueDone) {
@@ -250,11 +196,8 @@ jobs:
                   ensure(name, dayKey(at)).guestTickets.add(Number(r.id));
                 }
               }
-
-              // ---- Action items ----
               const [aiUpd] = await c.query(
-                `SELECT createdBy, actionItemId, createdAt FROM action_items_updates
-                 WHERE deletedAt IS NULL AND createdAt >= ?`,
+                `SELECT createdBy, actionItemId, createdAt FROM action_items_updates WHERE deletedAt IS NULL AND createdAt >= ?`,
                 [since]
               ).catch(() => [[]]);
               for (const r of aiUpd) {
@@ -265,21 +208,16 @@ jobs:
                 ensure(name, dayKey(r.createdAt)).actionTickets.add(Number(r.actionItemId));
               }
               const [aiCreated] = await c.query(
-                `SELECT id, createdBy, createdAt FROM action_items
-                 WHERE deletedAt IS NULL AND createdAt >= ?`,
+                `SELECT id, createdBy, createdAt FROM action_items WHERE deletedAt IS NULL AND createdAt >= ?`,
                 [since]
               ).catch(() => [[]]);
               for (const r of aiCreated) {
                 const u = ssByUid.get(String(r.createdBy));
-                const name = u ? u.name : null;
-                if (!name || excludeName(name, u.email)) continue;
-                ensure(name, dayKey(r.createdAt)).actionTickets.add(Number(r.id));
+                if (!u || excludeName(u.name, u.email)) continue;
+                ensure(u.name, dayKey(r.createdAt)).actionTickets.add(Number(r.id));
               }
-
-              // ---- Client tickets (PM) ----
               const [ctUpd] = await c.query(
-                `SELECT createdBy, clientTicketId, createdAt FROM client_ticket_updates
-                 WHERE deletedAt IS NULL AND createdAt >= ?`,
+                `SELECT createdBy, clientTicketId, createdAt FROM client_ticket_updates WHERE deletedAt IS NULL AND createdAt >= ?`,
                 [since]
               ).catch(() => [[]]);
               for (const r of ctUpd) {
@@ -290,8 +228,7 @@ jobs:
                 ensure(name, dayKey(r.createdAt)).clientTickets.add(Number(r.clientTicketId));
               }
               const [ctCreated] = await c.query(
-                `SELECT id, createdBy, completedBy, createdAt, completedOn FROM client_ticket
-                 WHERE deletedAt IS NULL AND createdAt >= ?`,
+                `SELECT id, createdBy, createdAt FROM client_ticket WHERE deletedAt IS NULL AND createdAt >= ?`,
                 [since]
               ).catch(() => [[]]);
               for (const r of ctCreated) {
@@ -300,85 +237,64 @@ jobs:
                 ensure(u.name, dayKey(r.createdAt)).clientTickets.add(Number(r.id));
               }
 
-              // Weights (minutes)
               const GUEST_MSG = 10, PM_MSG = 20, TICKET = 20, CLIENT_TICKET = 20;
-              // Grade: 480 effort-min (~8h) = 10/10
-              const gradeOf = (c) => {
+              console.log("META since=" + since.toISOString() +
+                " calls=" + enc(calls.length) + " callsAttr=" + enc(attributedCalls) +
+                " quoTexts=" + enc(quoMsgs.length) + " ss=" + enc(ssMsgs.length) +
+                " hostifyOk=" + enc(hostifyMatched) + " hostifyNo=" + enc(hostifyUnmatched) +
+                " issueUpd=" + enc(issueUpd.length) + " actionUpd=" + enc(aiUpd.length) +
+                " clientUpd=" + enc(ctUpd.length));
+
+              const rows = [];
+              for (const c of cells.values()) {
                 const talkMin = c.talkSec / 60;
                 const guestT = c.guestTickets.size;
                 const actT = c.actionTickets.size;
                 const cliT = c.clientTickets.size;
-                const effortMin =
-                  talkMin +
-                  c.guestMsgs * GUEST_MSG +
-                  c.pmMsgs * PM_MSG +
-                  guestT * TICKET +
-                  actT * TICKET +
-                  cliT * CLIENT_TICKET;
-                return {
-                  talkMin: Math.round(talkMin),
-                  guestT, actT, cliT,
-                  effortMin: Math.round(effortMin),
-                  grade: Math.max(0, Math.min(10, Math.round((effortMin / 48) * 10) / 10)),
-                };
-              };
-
-              console.log("SINCE=" + since.toISOString());
-              console.log("CALL_ROWS=" + calls.length);
-              console.log("CALLS_ATTRIBUTED=" + attributedCalls);
-              console.log("QUO_TEXT_ROWS=" + quoMsgs.length);
-              console.log("SS_MSG_ROWS=" + ssMsgs.length);
-              console.log("HOSTIFY_MATCHED=" + hostifyMatched);
-              console.log("HOSTIFY_UNMATCHED=" + hostifyUnmatched);
-              console.log("ISSUE_UPD_ROWS=" + issueUpd.length);
-              console.log("ACTION_UPD_ROWS=" + aiUpd.length);
-              console.log("CLIENT_UPD_ROWS=" + ctUpd.length);
-              console.log("TOP_UNMATCHED_HOSTIFY");
-              [...unmatchedNames.entries()].sort((a,b)=>b[1]-a[1]).slice(0,15)
-                .forEach(([n,c]) => console.log("UH name=" + n + " count=" + c));
-
-              const rows = [...cells.values()].map((c) => {
-                const g = gradeOf(c);
-                return {
-                  day: c.day, name: c.name,
-                  calls: c.calls, talkMin: g.talkMin,
-                  guestMsgs: c.guestMsgs, pmMsgs: c.pmMsgs,
-                  ssMsgs: c.ssMsgs, hostifyMsgs: c.hostifyMsgs,
+                const effortMin = talkMin + c.guestMsgs * GUEST_MSG + c.pmMsgs * PM_MSG +
+                  guestT * TICKET + actT * TICKET + cliT * CLIENT_TICKET;
+                if (effortMin <= 0) continue;
+                const hours = effortMin / 60;
+                const grade = Math.max(0, Math.min(10, Math.round(hours * 10) / 10));
+                rows.push({
+                  day: c.day, name: c.name, calls: c.calls, talkMin: Math.round(talkMin),
+                  guestMsgs: c.guestMsgs, pmMsgs: c.pmMsgs, ssMsgs: c.ssMsgs, hostifyMsgs: c.hostifyMsgs,
                   quoGuestTexts: c.quoGuestTexts, quoPmTexts: c.quoPmTexts,
-                  guestTickets: g.guestT, actionTickets: g.actT, clientTickets: g.cliT,
-                  effortMin: g.effortMin, grade: g.grade,
-                };
-              }).filter((r) => r.effortMin > 0)
-                .sort((a, b) => a.day.localeCompare(b.day) || b.grade - a.grade || a.name.localeCompare(b.name));
-
-              console.log("CELL_COUNT=" + rows.length);
-              console.log("WEIGHTS guestMsg=" + GUEST_MSG + " pmMsg=" + PM_MSG + " ticket=" + TICKET + " clientTicket=" + CLIENT_TICKET + " scale=480min=10");
+                  guestT, actT, cliT, effortMin: Math.round(effortMin), hours: Math.round(hours * 10) / 10, grade,
+                });
+              }
+              rows.sort((a, b) => a.day.localeCompare(b.day) || b.grade - a.grade || a.name.localeCompare(b.name));
+              console.log("META cells=" + enc(rows.length));
               console.log("ROWS_BEGIN");
               for (const r of rows) {
-                // R|day|name|calls|talkMin|guestMsgs|pmMsgs|ss|hostify|quoG|quoP|guestTix|actionTix|clientTix|effortMin|grade
-                console.log(["R", r.day, r.name, r.calls, r.talkMin, r.guestMsgs, r.pmMsgs, r.ssMsgs, r.hostifyMsgs,
-                  r.quoGuestTexts, r.quoPmTexts, r.guestTickets, r.actionTickets, r.clientTickets, r.effortMin, r.grade].join("|"));
+                // day kept as dYYYYMMDD to avoid partial redaction of ISO dates
+                const d = "d" + r.day.replace(/-/g, "");
+                console.log(["R", d, r.name.replace(/\|/g, "/"),
+                  enc(r.calls), enc(r.talkMin), enc(r.guestMsgs), enc(r.pmMsgs),
+                  enc(r.ssMsgs), enc(r.hostifyMsgs), enc(r.quoGuestTexts), enc(r.quoPmTexts),
+                  enc(r.guestT), enc(r.actT), enc(r.cliT), enc(r.effortMin),
+                  "h" + String(r.hours).replace(".", "p"),
+                  "g" + String(r.grade).replace(".", "p"),
+                ].join("|"));
               }
               console.log("ROWS_END");
-
               const byPerson = new Map();
               for (const r of rows) {
-                if (!byPerson.has(r.name)) byPerson.set(r.name, {
-                  name: r.name, days: 0, g: 0, calls: 0, talk: 0, guestMsgs: 0, pmMsgs: 0,
-                  ss: 0, hostify: 0, guestT: 0, actT: 0, cliT: 0, effort: 0,
-                });
+                if (!byPerson.has(r.name)) byPerson.set(r.name, { name: r.name, days: 0, g: 0, h: 0, calls: 0, talk: 0, gm: 0, pm: 0, ss: 0, hf: 0, gt: 0, at: 0, ct: 0, eff: 0 });
                 const p = byPerson.get(r.name);
-                p.days++; p.g += r.grade; p.calls += r.calls; p.talk += r.talkMin;
-                p.guestMsgs += r.guestMsgs; p.pmMsgs += r.pmMsgs;
-                p.ss += r.ssMsgs; p.hostify += r.hostifyMsgs;
-                p.guestT += r.guestTickets; p.actT += r.actionTickets; p.cliT += r.clientTickets;
-                p.effort += r.effortMin;
+                p.days++; p.g += r.grade; p.h += r.hours; p.calls += r.calls; p.talk += r.talkMin;
+                p.gm += r.guestMsgs; p.pm += r.pmMsgs; p.ss += r.ssMsgs; p.hf += r.hostifyMsgs;
+                p.gt += r.guestT; p.at += r.actT; p.ct += r.cliT; p.eff += r.effortMin;
               }
               console.log("SUMMARY_BEGIN");
-              [...byPerson.values()].map((p) => ({ ...p, avg: Math.round((p.g / p.days) * 10) / 10 }))
-                .sort((a, b) => b.avg - a.avg)
-                .forEach((p) => console.log(["S", p.name, p.days, p.avg, p.calls, p.talk, p.guestMsgs, p.pmMsgs,
-                  p.ss, p.hostify, p.guestT, p.actT, p.cliT, p.effort].join("|")));
+              [...byPerson.values()].map((p) => ({
+                ...p, avg: Math.round((p.g / p.days) * 10) / 10, avgH: Math.round((p.h / p.days) * 10) / 10,
+              })).sort((a, b) => b.avg - a.avg || b.avgH - a.avgH)
+                .forEach((p) => console.log(["S", p.name, enc(p.days),
+                  "g" + String(p.avg).replace(".", "p"), "h" + String(p.avgH).replace(".", "p"),
+                  enc(p.calls), enc(p.talk), enc(p.gm), enc(p.pm), enc(p.ss), enc(p.hf),
+                  enc(p.gt), enc(p.at), enc(p.ct), enc(Math.round(p.eff)),
+                ].join("|")));
               console.log("SUMMARY_END");
               await c.end();
             })().catch((e) => { console.error(e); process.exit(1); });
