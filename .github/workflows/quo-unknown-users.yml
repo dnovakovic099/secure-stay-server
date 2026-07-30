@@ -1,0 +1,70 @@
+name: Quo Unknown Users
+
+on:
+  workflow_dispatch:
+
+jobs:
+  query:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Identify unknown Quo user IDs
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT }}
+          command_timeout: 5m
+          script: |
+            set -e
+            cd /home/ec2-user/secure_stay/secure-stay-server
+            node <<'NODE'
+
+            require("dotenv").config();
+            const mysql = require("mysql2/promise");
+            (async () => {
+              const c = await mysql.createConnection({
+                host: process.env.DATABASE_URL,
+                port: Number(process.env.DATABASE_PORT),
+                user: process.env.DATABASE_USERNAME,
+                password: process.env.DATABASE_PASSWORD,
+                database: process.env.DATABASE_NAME,
+              });
+              const since = new Date(Date.now() - 30 * 86400000);
+              const ids = ["USTuNVcbIY", "USvMHXd7q9"];
+              for (const id of ids) {
+                const [msgs] = await c.query(
+                  `SELECT senderName, COUNT(*) n FROM quo_messages
+                   WHERE direction='outgoing' AND sentAt >= ? AND quoUserId = ?
+                   GROUP BY senderName ORDER BY n DESC`,
+                  [since, id]
+                );
+                const [calls] = await c.query(
+                  `SELECT direction,
+                          SUM(answeredBy = ?) AS answered,
+                          SUM(initiatedBy = ?) AS initiated,
+                          SUM(quoUserId = ?) AS asQuo,
+                          COUNT(*) n,
+                          ROUND(SUM(COALESCE(duration,0))/60) talkMin
+                   FROM quo_calls WHERE occurredAt >= ?
+                     AND (answeredBy = ? OR initiatedBy = ? OR quoUserId = ?)`,
+                  [id, id, id, since, id, id, id]
+                );
+                console.log("USER id=" + id);
+                console.log("MSG_SENDERS " + JSON.stringify(msgs));
+                console.log("CALLS " + JSON.stringify(calls));
+              }
+              // Also: how many Luxury Lodging texts have senderName of real reps?
+              const [shared] = await c.query(
+                `SELECT m.quoUserId, m.senderName, COUNT(*) n
+                 FROM quo_messages m
+                 WHERE m.direction='outgoing' AND m.sentAt >= ?
+                   AND m.quoUserId IN ('USAlqSzn1t','USEDO8gsXR','USGLbqfOxL','USmrPWKOsS')
+                 GROUP BY m.quoUserId, m.senderName
+                 ORDER BY n DESC LIMIT 40`,
+                [since]
+              );
+              console.log("SHARED_ACCOUNT_SENDERS " + JSON.stringify(shared));
+              await c.end();
+            })().catch(e => { console.error(e); process.exit(1); });
+            NODE
