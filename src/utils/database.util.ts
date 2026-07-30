@@ -34,6 +34,11 @@ export async function initDatabase() {
     logger.info("📌 Database connected");
   } catch (err) {
     logger.error("❌ Database initialization failed:", err);
+    // Do not start an API process that cannot authenticate users or serve data.
+    // The process manager can restart this instance once MariaDB is reachable;
+    // continuing here leaves a broken worker returning "Internal server error"
+    // until a later request happens to reach a healthy worker.
+    throw err;
   }
 
   return appDatabase;
