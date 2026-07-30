@@ -420,7 +420,7 @@ export function scheduleGetReservation() {
     }
   );
 
-  // Automated Access Code Generation - Daily at 4 AM EST
+  // Automated Access Code Generation - Daily at 6 AM America/New_York
   schedule.scheduleJob(
     { hour: 6, minute: 0, tz: "America/New_York" },
     async () => {
@@ -435,14 +435,14 @@ export function scheduleGetReservation() {
     }
   );
 
-  // Process Scheduled Access Codes - Daily at 5 AM EST
+  // Process Scheduled Access Codes - Daily at 7 AM America/New_York
   // This job finds all access codes with check-in date = today and sets them on devices
   // with proper validity (startsAt, endsAt) based on listing times and property settings
   schedule.scheduleJob(
     { hour: 7, minute: 0, tz: "America/New_York" },
     async () => {
       try {
-        logger.info("Daily access code processing job started (5 AM EST)...");
+        logger.info("Daily access code processing job started (7 AM America/New_York)...");
         const accessCodeService = new SmartLockAccessCodeService();
         const result = await accessCodeService.processScheduledCodes();
         logger.info(`Daily access code processing completed: ${result.processed} set on devices, ${result.failed} failed`);

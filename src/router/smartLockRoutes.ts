@@ -1,8 +1,13 @@
 import { Router, Request, Response } from "express";
+import axios from "axios";
 import { SmartLockDeviceService } from "../services/SmartLockDeviceService";
 import { SmartLockAccessCodeService } from "../services/SmartLockAccessCodeService";
 import { LockProviderFactory } from "../providers/LockProviderFactory";
 import { CodeGenerationMode } from "../entity/PropertyLockSettings";
+import { appDatabase } from "../utils/database.util";
+import { SmartLockDevice } from "../entity/SmartLockDevice";
+import { PropertyDevice } from "../entity/PropertyDevice";
+import { AccessCode } from "../entity/AccessCode";
 import logger from "../utils/logger.utils";
 
 const router = Router();
@@ -145,6 +150,92 @@ router.post("/devices/sync-all", async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to sync devices",
+    });
+  }
+});
+
+/**
+ * Disconnect a connected account
+ * Removes local device + mapping records and, for Seam, calls the provider's
+ * disconnect API. Sifely is env-based auth so there is nothing to revoke
+ * upstream — we just clean up local records.
+ * DELETE /smart-locks/connected-accounts/:connectedAccountId
+ * Body: { provider: "seam" | "sifely" }
+ */
+router.delete("/connected-accounts/:connectedAccountId", async (req: Request, res: Response) => {
+  try {
+    const { connectedAccountId } = req.params;
+    const { provider } = req.body as { provider?: string };
+
+    if (!connectedAccountId || !provider) {
+      return res.status(400).json({
+        success: false,
+        message: "connectedAccountId (URL) and provider (body) are required",
+      });
+    }
+
+    const normalizedProvider = String(provider).toLowerCase();
+
+    const deviceRepository = appDatabase.getRepository(SmartLockDevice);
+    const propertyDeviceRepository = appDatabase.getRepository(PropertyDevice);
+    const accessCodeRepository = appDatabase.getRepository(AccessCode);
+
+    const devices = await deviceRepository.find({
+      where: { provider: normalizedProvider, connectedAccountId },
+    });
+
+    if (!devices.length) {
+      return res.status(404).json({
+        success: false,
+        message: "No devices found for this connected account",
+      });
+    }
+
+    const deviceIds = devices.map((device) => device.id);
+
+    // Best-effort upstream revoke for Seam; Sifely has no per-account concept.
+    if (normalizedProvider === "seam") {
+      try {
+        await axios.post(
+          "https://connect.getseam.com/connected_accounts/delete",
+          { connected_account_id: connectedAccountId },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${process.env.SEAM_API_KEY || ""}`,
+            },
+          }
+        );
+      } catch (error: any) {
+        logger.warn(
+          `Seam disconnect API call failed for account ${connectedAccountId}: ${error?.response?.data?.error?.message || error.message}`
+        );
+      }
+    }
+
+    // Remove local records. Cascade order: access codes → mappings → devices.
+    if (deviceIds.length) {
+      await accessCodeRepository.createQueryBuilder()
+        .delete()
+        .where("device_id IN (:...deviceIds)", { deviceIds })
+        .execute();
+      await propertyDeviceRepository.createQueryBuilder()
+        .delete()
+        .where("device_id IN (:...deviceIds)", { deviceIds })
+        .execute();
+      await deviceRepository.delete(deviceIds);
+    }
+
+    return res.json({
+      success: true,
+      message: `Disconnected ${devices.length} device${devices.length === 1 ? "" : "s"}`,
+      data: { removedDeviceIds: deviceIds },
+    });
+  } catch (error: any) {
+    logger.error("Error disconnecting connected account:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to disconnect connected account",
     });
   }
 });
@@ -689,6 +780,17 @@ router.post(
         });
       }
 
+      // Fall back to the listing's configured check-in/out hours when the
+      // client doesn't supply them; otherwise scheduledAt defaults to midnight
+      // and can end up in the past, which Sifely rejects.
+      const settingsWithTz = await accessCodeService.getSettingsWithTimezone(parseInt(propertyId));
+      const resolvedCheckInTime = checkInTime !== undefined
+        ? parseInt(checkInTime)
+        : settingsWithTz.checkInTimeStart ?? undefined;
+      const resolvedCheckOutTime = checkOutTime !== undefined
+        ? parseInt(checkOutTime)
+        : settingsWithTz.checkOutTime ?? undefined;
+
       const codes = await accessCodeService.createAccessCodesForReservation({
         reservationId,
         propertyId,
@@ -696,8 +798,8 @@ router.post(
         guestPhone,
         checkInDate: new Date(checkInDate),
         checkOutDate: checkOutDate ? new Date(checkOutDate) : undefined,
-        checkInTime: checkInTime !== undefined ? parseInt(checkInTime) : undefined,
-        checkOutTime: checkOutTime !== undefined ? parseInt(checkOutTime) : undefined,
+        checkInTime: resolvedCheckInTime,
+        checkOutTime: resolvedCheckOutTime,
       });
 
       return res.json({

@@ -151,26 +151,35 @@ export class SifelyLockProvider implements ILockProvider {
    * Creates an access code (passcode) on a device
    * Uses the Sifely API with Bearer token auth and query parameters
    * Docs: https://apidocs.sifely.com/api-197300856
+   *
+   * addType is the ADD METHOD (2 = remote add via gateway or Wi-Fi lock).
+   * keyboardPwdType is the VALIDITY TYPE (2 = permanent, 3 = period).
+   * These are distinct — see the Sifely docs; the earlier implementation
+   * conflated them, which caused every period-limited create to fail.
    */
   async createAccessCode(params: CreateAccessCodeParams): Promise<ProviderAccessCode> {
     try {
       const accessToken = await this.authService.getValidAccessToken();
 
-      // Build query parameters per Sifely API docs
       const queryParams: any = {
         lockId: params.deviceId,
         keyboardPwd: params.code,
         keyboardPwdName: params.name || "Access Code",
+        addType: 2, // Remote add (gateway / Wi-Fi lock)
       };
 
-      // Add time-based parameters if specified
-      // addType: 1=once, 2=permanent, 3=period, 4=cyclic
+      // Validity type: 3 = time-limited (period), 2 = permanent
       if (params.startsAt && params.endsAt) {
-        queryParams.addType = 3; // Period type (time-limited)
-        queryParams.startDate = new Date(params.startsAt).getTime();
-        queryParams.endDate = new Date(params.endsAt).getTime();
+        queryParams.keyboardPwdType = 3;
+        const start = new Date(params.startsAt).getTime();
+        const end = new Date(params.endsAt).getTime();
+        // Sifely rejects a start time in the past on many gateway configs;
+        // clamp to now + 60s so the passcode is programmable immediately.
+        const now = Date.now();
+        queryParams.startDate = Math.max(start, now + 60_000);
+        queryParams.endDate = end;
       } else {
-        queryParams.addType = 2; // Permanent type
+        queryParams.keyboardPwdType = 2;
       }
 
       logger.info(`Creating Sifely passcode for device ${params.deviceId} via ${this.baseUrl}/v3/keyboardPwd/add`);

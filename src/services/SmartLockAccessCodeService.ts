@@ -200,8 +200,9 @@ export class SmartLockAccessCodeService {
         : `Reservation #${reservationId}`;
 
     // Calculate scheduled time (hours before check-in)
-    // Use provided checkInTime or fallback to midnight (0)
-    const actualCheckInHour = checkInTime ?? 0; // Fallback: 12 AM (midnight)
+    // Use provided checkInTime, then the listing's configured check-in hour,
+    // then fall back to 15 (3 PM) which is the common industry default.
+    const actualCheckInHour = checkInTime ?? settingsWithTimezone.checkInTimeStart ?? 15;
 
     // Convert check-in time from listing timezone to UTC
     const scheduledAt = createUTCDateFromLocalTime(new Date(checkInDate), actualCheckInHour, timezone);
@@ -212,8 +213,9 @@ export class SmartLockAccessCodeService {
     // Calculate expiration time (hours after check-out)
     let expiresAt: Date | null = null;
     if (checkOutDate) {
-      // Use provided checkOutTime or fallback to 11 PM (23)
-      const actualCheckOutHour = checkOutTime ?? 23; // Fallback: 11 PM
+      // Use provided checkOutTime, then the listing's configured check-out
+      // hour, then fall back to 11 (11 AM) which is the common industry default.
+      const actualCheckOutHour = checkOutTime ?? settingsWithTimezone.checkOutTime ?? 11;
 
       // Convert check-out time from listing timezone to UTC
       expiresAt = createUTCDateFromLocalTime(new Date(checkOutDate), actualCheckOutHour, timezone);
@@ -362,6 +364,19 @@ export class SmartLockAccessCodeService {
     }
 
     try {
+      // Sifely locks without a gateway (or with remote disabled) will silently
+      // accept the API call and return a keyboardPwdId while never actually
+      // programming the lock — leaving guests locked out. Fail fast instead.
+      if (device.provider === "sifely") {
+        const meta = (device.providerMetadata || {}) as Record<string, any>;
+        if (meta.hasGateway !== 1) {
+          throw new Error("Sifely lock has no gateway connected; passcode cannot be set remotely.");
+        }
+        if (meta.remoteEnable !== 1) {
+          throw new Error("Sifely lock has remote passcode setting disabled.");
+        }
+      }
+
       logger.info(`Setting access code ${accessCodeId} with validity: ${startsAt?.toISOString()} to ${endsAt?.toISOString()}`);
 
       const result = await provider.createAccessCode({
@@ -586,8 +601,8 @@ export class SmartLockAccessCodeService {
       .createQueryBuilder("ac")
       .leftJoinAndSelect("ac.device", "device")
       .where("ac.status = :status", { status: AccessCodeStatus.SCHEDULED })
-      // .andWhere("ac.checkInDate >= :today", { today })
-      // .andWhere("ac.checkInDate < :tomorrow", { tomorrow })
+      .andWhere("ac.checkInDate >= :today", { today })
+      .andWhere("ac.checkInDate < :tomorrow", { tomorrow })
       .getMany();
   }
 
