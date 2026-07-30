@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { AxiosRequestConfig, AxiosResponse } from "axios";
 import {
   ILockProvider,
   ConnectionOptions,
@@ -11,19 +11,64 @@ import {
 import { SifelyAuthService } from "../services/SifelyAuthService";
 import logger from "../utils/logger.utils";
 
+const SIFELY_REQUEST_TIMEOUT_MS = 30_000;
+
 /**
  * Sifely Lock Provider Implementation
  * Implements ILockProvider interface for Sifely API
  * All credentials are read from environment variables
+ *
+ * apiUrl is the smart-server (production API host) — all `/v3/*` operations
+ * MUST target this. baseUrl is only used by the OAuth service for
+ * `/system/smart/login`, which lives on a different origin on some tenants.
+ * Historically createAccessCode targeted baseUrl (defaulting to dev-alexa),
+ * which surfaced as 504 Gateway Timeout when the dev proxy couldn't reach the
+ * upstream smart-server.
  */
 export class SifelyLockProvider implements ILockProvider {
   readonly providerName = "sifely";
   private baseUrl: string;
+  private apiUrl: string;
   private authService: SifelyAuthService;
 
   constructor() {
     this.baseUrl = process.env.SIFELY_BASE_URL || "https://dev-alexa.sifely.com";
+    this.apiUrl = process.env.SIFELY_API_URL || "https://app-smart-server.sifely.com";
     this.authService = new SifelyAuthService();
+  }
+
+  /**
+   * Retry a Sifely request once on 504 / connection timeouts. These are
+   * transient — usually the lock's gateway is briefly unreachable and a
+   * follow-up succeeds. Non-5xx failures aren't retried.
+   */
+  private async requestWithRetry<T = any>(config: AxiosRequestConfig, attempt = 1): Promise<AxiosResponse<T>> {
+    try {
+      return await axios.request<T>({ timeout: SIFELY_REQUEST_TIMEOUT_MS, ...config });
+    } catch (error: any) {
+      const status = error?.response?.status;
+      const isTransient = status === 502 || status === 503 || status === 504 || error?.code === "ECONNABORTED" || error?.code === "ETIMEDOUT";
+      if (!isTransient || attempt >= 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 750));
+      return this.requestWithRetry<T>(config, attempt + 1);
+    }
+  }
+
+  /**
+   * Rewrite raw axios errors into something an operator can act on.
+   * "Request failed with status code 504" isn't helpful in a tooltip.
+   */
+  private normalizeSifelyError(error: any, action: string): Error {
+    const status = error?.response?.status;
+    const apiMessage = error?.response?.data?.message || error?.response?.data?.errmsg;
+    if (status === 504 || error?.code === "ECONNABORTED" || error?.code === "ETIMEDOUT") {
+      return new Error(`Sifely did not respond in time while ${action}. The lock's gateway may be offline or unreachable — check the device's connection and retry.`);
+    }
+    if (status && status >= 500) {
+      return new Error(`Sifely server error (${status}) while ${action}. Retry shortly; if it persists, the lock or gateway is likely offline.`);
+    }
+    if (apiMessage) return new Error(apiMessage);
+    return new Error(error?.message || `Failed while ${action}`);
   }
 
   /**
@@ -74,26 +119,20 @@ export class SifelyLockProvider implements ILockProvider {
     try {
       const accessToken = await this.authService.getValidAccessToken();
 
-      // Use the API server URL (different from auth server)
-      const apiBaseUrl = process.env.SIFELY_API_URL || "https://app-smart-server.sifely.com";
+      logger.info(`Sifely listDevices - using API URL: ${this.apiUrl}, token prefix: ${accessToken?.substring(0, 20)}...`);
 
-      logger.info(`Sifely listDevices - using API URL: ${apiBaseUrl}, token prefix: ${accessToken?.substring(0, 20)}...`);
-
-      // POST request with Bearer token in Authorization header and params in query string
-      const response = await axios.post(
-        `${apiBaseUrl}/v3/key/list`,
-        null,
-        {
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${accessToken}`,
-          },
-          params: {
-            pageNo: 1,
-            pageSize: 100,
-          },
-        }
-      );
+      const response = await this.requestWithRetry({
+        method: "post",
+        url: `${this.apiUrl}/v3/key/list`,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+        },
+        params: {
+          pageNo: 1,
+          pageSize: 100,
+        },
+      });
 
       const data = response.data;
       logger.info(`Sifely listDevices response code: ${data.code}, message: ${data.message}`);
@@ -105,7 +144,6 @@ export class SifelyLockProvider implements ILockProvider {
       const locks = data.list || [];
       logger.info(`Sifely found ${locks.length} devices`);
 
-      // Log first lock to see available fields
       if (locks.length > 0) {
         logger.info(`Sifely first lock fields: ${JSON.stringify(Object.keys(locks[0]))}`);
         logger.info(`Sifely first lock data: ${JSON.stringify(locks[0])}`);
@@ -114,7 +152,7 @@ export class SifelyLockProvider implements ILockProvider {
       return locks.map((lock: any) => this.mapSifelyLockToDevice(lock));
     } catch (error: any) {
       logger.error("Error fetching Sifely devices:", error.response?.data || error.message);
-      throw error;
+      throw this.normalizeSifelyError(error, "fetching devices");
     }
   }
 
@@ -127,19 +165,15 @@ export class SifelyLockProvider implements ILockProvider {
     try {
       const accessToken = await this.authService.getValidAccessToken();
 
-      const response = await axios.post(
-        `${this.baseUrl}/v3/lock/detail`,
-        null,
-        {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
-          params: {
-            lockId: externalDeviceId,
-          },
-        }
-      );
+      const response = await this.requestWithRetry({
+        method: "post",
+        url: `${this.apiUrl}/v3/lock/detail`,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        params: { lockId: externalDeviceId },
+      });
 
       const data = response.data;
       if (data.code !== undefined && data.code !== 0 && data.code !== 200) {
@@ -148,9 +182,9 @@ export class SifelyLockProvider implements ILockProvider {
 
       return this.mapSifelyLockToDevice(data.data || data);
     } catch (error: any) {
-      const apiErrorMessage = error.response?.data?.message || error.response?.data?.errmsg || error.message;
-      logger.error("Error fetching Sifely device:", apiErrorMessage);
-      throw new Error(apiErrorMessage || "Failed to fetch device");
+      const normalized = this.normalizeSifelyError(error, "fetching device");
+      logger.error("Error fetching Sifely device:", normalized.message);
+      throw normalized;
     }
   }
 
@@ -189,24 +223,21 @@ export class SifelyLockProvider implements ILockProvider {
         queryParams.keyboardPwdType = 2;
       }
 
-      logger.info(`Creating Sifely passcode for device ${params.deviceId} via ${this.baseUrl}/v3/keyboardPwd/add`);
+      logger.info(`Creating Sifely passcode for device ${params.deviceId} via ${this.apiUrl}/v3/keyboardPwd/add`);
 
-      const response = await axios.post(
-        `${this.baseUrl}/v3/keyboardPwd/add`,
-        null, // No body - parameters go in query string
-        {
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${accessToken}`,
-          },
-          params: queryParams,
-        }
-      );
+      const response = await this.requestWithRetry({
+        method: "post",
+        url: `${this.apiUrl}/v3/keyboardPwd/add`,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+        },
+        params: queryParams,
+      });
 
       const data = response.data;
       logger.info(`Sifely createAccessCode response: ${JSON.stringify(data)}`);
 
-      // Check for error response
       if (data.code !== undefined && data.code !== 0 && data.code !== 200) {
         throw new Error(data.message || `Failed to create passcode with code: ${data.code}`);
       }
@@ -223,10 +254,9 @@ export class SifelyLockProvider implements ILockProvider {
         providerMetadata: data,
       };
     } catch (error: any) {
-      // Extract actual error message from Sifely API response
-      const apiErrorMessage = error.response?.data?.message || error.response?.data?.errmsg || error.message;
-      logger.error("Error creating Sifely passcode:", apiErrorMessage);
-      throw new Error(apiErrorMessage || "Failed to create passcode");
+      const normalized = this.normalizeSifelyError(error, "creating passcode");
+      logger.error("Error creating Sifely passcode:", normalized.message);
+      throw normalized;
     }
   }
 
@@ -251,17 +281,15 @@ export class SifelyLockProvider implements ILockProvider {
       if (params.startsAt) queryParams.startDate = new Date(params.startsAt).getTime();
       if (params.endsAt) queryParams.endDate = new Date(params.endsAt).getTime();
 
-      const response = await axios.post(
-        `${this.baseUrl}/v3/keyboardPwd/change`,
-        null,
-        {
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${accessToken}`,
-          },
-          params: queryParams,
-        }
-      );
+      const response = await this.requestWithRetry({
+        method: "post",
+        url: `${this.apiUrl}/v3/keyboardPwd/change`,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+        },
+        params: queryParams,
+      });
 
       const data = response.data;
       if (data.code !== undefined && data.code !== 0 && data.code !== 200) {
@@ -280,9 +308,9 @@ export class SifelyLockProvider implements ILockProvider {
         providerMetadata: data,
       };
     } catch (error: any) {
-      const apiErrorMessage = error.response?.data?.message || error.response?.data?.errmsg || error.message;
-      logger.error("Error updating Sifely passcode:", apiErrorMessage);
-      throw new Error(apiErrorMessage || "Failed to update passcode");
+      const normalized = this.normalizeSifelyError(error, "updating passcode");
+      logger.error("Error updating Sifely passcode:", normalized.message);
+      throw normalized;
     }
   }
 
@@ -299,17 +327,15 @@ export class SifelyLockProvider implements ILockProvider {
         keyboardPwdId: externalCodeId,
       };
 
-      const response = await axios.post(
-        `${this.baseUrl}/v3/keyboardPwd/delete`,
-        null,
-        {
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${accessToken}`,
-          },
-          params: queryParams,
-        }
-      );
+      const response = await this.requestWithRetry({
+        method: "post",
+        url: `${this.apiUrl}/v3/keyboardPwd/delete`,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+        },
+        params: queryParams,
+      });
 
       const data = response.data;
       if (data.code !== undefined && data.code !== 0 && data.code !== 200) {
@@ -318,9 +344,9 @@ export class SifelyLockProvider implements ILockProvider {
 
       logger.info(`Deleted Sifely passcode ${externalCodeId}`);
     } catch (error: any) {
-      const apiErrorMessage = error.response?.data?.message || error.response?.data?.errmsg || error.message;
-      logger.error("Error deleting Sifely passcode:", apiErrorMessage);
-      throw new Error(apiErrorMessage || "Failed to delete passcode");
+      const normalized = this.normalizeSifelyError(error, "deleting passcode");
+      logger.error("Error deleting Sifely passcode:", normalized.message);
+      throw normalized;
     }
   }
 
@@ -333,19 +359,18 @@ export class SifelyLockProvider implements ILockProvider {
     try {
       const accessToken = await this.authService.getValidAccessToken();
 
-      const response = await axios.get(
-        `${this.baseUrl}/v3/lock/listKeyboardPwd`,
-        {
-          headers: {
-            "Authorization": `Bearer ${accessToken}`,
-          },
-          params: {
-            lockId: externalDeviceId,
-            pageNo: 1,
-            pageSize: 100,
-          },
-        }
-      );
+      const response = await this.requestWithRetry({
+        method: "get",
+        url: `${this.apiUrl}/v3/lock/listKeyboardPwd`,
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+        },
+        params: {
+          lockId: externalDeviceId,
+          pageNo: 1,
+          pageSize: 100,
+        },
+      });
 
       const data = response.data;
       if (data.code !== undefined && data.code !== 0 && data.code !== 200) {
@@ -355,9 +380,9 @@ export class SifelyLockProvider implements ILockProvider {
       const passcodes = data.list || [];
       return passcodes.map((code: any) => this.mapSifelyPasscodeToProviderAccessCode(code));
     } catch (error: any) {
-      const apiErrorMessage = error.response?.data?.message || error.response?.data?.errmsg || error.message;
-      logger.error("Error fetching Sifely passcodes:", apiErrorMessage);
-      throw new Error(apiErrorMessage || "Failed to fetch passcodes");
+      const normalized = this.normalizeSifelyError(error, "fetching passcodes");
+      logger.error("Error fetching Sifely passcodes:", normalized.message);
+      throw normalized;
     }
   }
 
