@@ -1,0 +1,274 @@
+name: Quo Attribution Audit
+
+on:
+  workflow_dispatch:
+
+jobs:
+  query:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Audit Quo number and user attribution
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT }}
+          command_timeout: 15m
+          script: |
+            set -e
+            cd /home/ec2-user/secure_stay/secure-stay-server
+            node <<'NODE'
+            require("dotenv").config();
+            const mysql = require("mysql2/promise");
+            (async () => {
+              const quoUsers = {"USosXqShdV": {"name": "Liezel Dormal", "email": "liezel.luxurylodging@gmail.com"}, "USV9tK0gZs": {"name": "Nikki Loraine", "email": "nikkiloraine.luxurylodging@gmail.com"}, "USrCi7zMBY": {"name": "Lynneth", "email": "lynneth.luxurylodging@gmail.com"}, "US7PADdJSM": {"name": "Joshua Cordero", "email": "joshua.luxurylodging@gmail.com"}, "USdrsAlJEV": {"name": "Tamara Matovic", "email": "tamara.luxurylodging@gmail.com"}, "USKwxVAKDg": {"name": "Rain C", "email": "reyan.luxurylodging@gmail.com"}, "USy67fsvFP": {"name": "Ferdy  ", "email": "ferdinand@luxurylodgingpm.com"}, "USY4A5wyrc": {"name": "Jade O", "email": "jaysonrey.luxurylodging@gmail.com"}, "USAseyEg5n": {"name": "Angelica Chua", "email": "angelica@luxurylodgingpm.com"}, "USa5KRPuaY": {"name": "Jerome Chan", "email": "jerome.luxurylodging@gmail.com"}, "USEDO8gsXR": {"name": "LL Support", "email": "support@luxurylodgingpm.com"}, "USGLbqfOxL": {"name": "Luxury Lodging Sales", "email": "admin@luxurylodgingpm.com"}, "USyRKGG0YE": {"name": "Chelsea L", "email": "chelsea.luxurylodging@gmail.com"}, "USmrPWKOsS": {"name": "Kaz Ron", "email": "luxurylodgingteam@gmail.com"}, "USAlqSzn1t": {"name": "Luxury Lodging", "email": "usa.florida.realty.solutions@gmail.com"}};
+              const c = await mysql.createConnection({
+                host: process.env.DATABASE_URL,
+                port: Number(process.env.DATABASE_PORT),
+                user: process.env.DATABASE_USERNAME,
+                password: process.env.DATABASE_PASSWORD,
+                database: process.env.DATABASE_NAME,
+              });
+              const since = new Date(Date.now() - 30 * 86400000);
+
+              const normalizeName = (name) => {
+                const n = String(name || "").trim().replace(/\s+/g, " ");
+                const low = n.toLowerCase();
+                if (/^lynneth|^lyrineth|^lyneth/.test(low)) return "Lynneth Marasigan";
+                if (/^rain\b|^reyan/.test(low)) return "Rain C";
+                if (/^kaz\b/.test(low)) return "Kaz Ron";
+                if (/^jerome\b/.test(low)) return "Jerome Chan";
+                if (/^jade\b|^jayson/.test(low)) return "Jade O";
+                if (/^nikki\b/.test(low)) return "Nikki Loraine";
+                if (/^joshua\b/.test(low)) return "Joshua Cordero";
+                if (/^tamara\b/.test(low)) return "Tamara Matovic";
+                if (/^liezel\b/.test(low)) return "Liezel Dormal";
+                if (/^chelsea\b/.test(low)) return "Chelsea L";
+                if (/^phiela\b/.test(low)) return "Phiela Roxas";
+                if (/^benedict\b/.test(low)) return "Benedict Bacuno";
+                if (/^ferdy\b|^ferdinand/.test(low)) return "Ferdy";
+                if (/^angelica\b/.test(low)) return "Angelica Chua";
+                if (/ll support|support@/.test(low)) return "LL Support";
+                if (/luxury lodging/.test(low)) return "Luxury Lodging";
+                return n || "(blank)";
+              };
+
+              // Phone lines
+              const [lines] = await c.query(
+                `SELECT phoneNumberId, phoneNumber, name, category, synced, lastSyncedAt
+                 FROM quo_phone_lines ORDER BY category, name`
+              ).catch(async () => {
+                // column names may differ
+                const [cols] = await c.query("SHOW COLUMNS FROM quo_phone_lines");
+                return [[]];
+              });
+              if (!lines.length) {
+                const [cols] = await c.query("SHOW COLUMNS FROM quo_phone_lines");
+                const [rows] = await c.query("SELECT * FROM quo_phone_lines LIMIT 50");
+                console.log("LINE_COLS=" + cols.map(c => c.Field).join(","));
+              }
+
+              const [lines2] = await c.query("SELECT * FROM quo_phone_lines");
+              const lineMeta = {};
+              for (const l of lines2) {
+                const id = l.phoneNumberId || l.phone_number_id || l.id;
+                lineMeta[id] = {
+                  number: l.phoneNumber || l.phone_number || l.number || null,
+                  name: l.name || l.label || null,
+                  category: l.category || null,
+                };
+              }
+
+              // Messages last 30d by attribution path
+              const [msgs] = await c.query(
+                `SELECT m.quoUserId, m.sentByUserId, m.senderName, m.fromNumber, m.phoneNumberId,
+                        cnv.phoneNumberId AS convPhoneId, COALESCE(l.category,'?') AS category,
+                        COUNT(*) AS n
+                 FROM quo_messages m
+                 LEFT JOIN quo_conversations cnv ON cnv.conversationId = m.conversationId
+                 LEFT JOIN quo_phone_lines l ON l.phoneNumberId = COALESCE(m.phoneNumberId, cnv.phoneNumberId)
+                 WHERE m.direction='outgoing' AND m.sentAt >= ?
+                 GROUP BY m.quoUserId, m.sentByUserId, m.senderName, m.fromNumber, m.phoneNumberId, convPhoneId, category`,
+                [since]
+              );
+
+              // Collapse to people
+              const byPerson = {};
+              const ensure = (name) => {
+                if (!byPerson[name]) byPerson[name] = { name, texts: 0, byLine: {}, viaQuoUser: 0, viaSsUser: 0, viaSenderName: 0, viaNone: 0 };
+                return byPerson[name];
+              };
+              let unattrTexts = 0;
+              const unattrSamples = {};
+              for (const m of msgs) {
+                const n = Number(m.n);
+                let name = null;
+                let path = "none";
+                if (m.quoUserId && quoUsers[m.quoUserId]) {
+                  name = normalizeName(quoUsers[m.quoUserId].name);
+                  path = "quoUser";
+                } else if (m.senderName) {
+                  name = normalizeName(m.senderName);
+                  path = "senderName";
+                }
+                const lineId = m.convPhoneId || m.phoneNumberId || "?";
+                const line = lineMeta[lineId] || {};
+                const lineKey = `${m.category}|${line.name || line.number || lineId}`;
+                if (!name || name === "(blank)") {
+                  unattrTexts += n;
+                  const k = `sender=${m.senderName||""}|quo=${m.quoUserId||""}|line=${lineKey}|from=${m.fromNumber||""}`;
+                  unattrSamples[k] = (unattrSamples[k] || 0) + n;
+                  continue;
+                }
+                const p = ensure(name);
+                p.texts += n;
+                p.byLine[lineKey] = (p.byLine[lineKey] || 0) + n;
+                if (path === "quoUser") p.viaQuoUser += n;
+                else p.viaSenderName += n;
+              }
+
+              // Calls
+              const [calls] = await c.query(
+                `SELECT direction, answeredBy, initiatedBy, quoUserId, phoneNumberId, COUNT(*) AS n,
+                        SUM(COALESCE(duration,0)) AS talkSec
+                 FROM quo_calls WHERE occurredAt >= ?
+                 GROUP BY direction, answeredBy, initiatedBy, quoUserId, phoneNumberId`,
+                [since]
+              );
+              let unattrCalls = 0, unattrTalk = 0;
+              const unattrCallSamples = {};
+              for (const call of calls) {
+                const n = Number(call.n);
+                const talk = Number(call.talkSec || 0);
+                const quoUid = call.direction === "outgoing" ? (call.initiatedBy || call.quoUserId) : call.answeredBy;
+                const line = lineMeta[call.phoneNumberId] || {};
+                const lineKey = `${line.category || "?"}|${line.name || line.number || call.phoneNumberId || "?"}`;
+                if (!quoUid || !quoUsers[quoUid]) {
+                  unattrCalls += n; unattrTalk += talk;
+                  const k = `dir=${call.direction}|ans=${call.answeredBy||""}|init=${call.initiatedBy||""}|quo=${call.quoUserId||""}|line=${lineKey}`;
+                  unattrCallSamples[k] = (unattrCallSamples[k] || 0) + n;
+                  continue;
+                }
+                const name = normalizeName(quoUsers[quoUid].name);
+                const p = ensure(name);
+                p.calls = (p.calls || 0) + n;
+                p.talkSec = (p.talkSec || 0) + talk;
+                p.callLines = p.callLines || {};
+                p.callLines[lineKey] = (p.callLines[lineKey] || 0) + n;
+              }
+
+              // Shared / suspicious accounts detail
+              const sharedNames = ["Kaz Ron", "Luxury Lodging", "LL Support", "Luxury Lodging Sales", "Ferdy", "Angelica Chua"];
+              const focus = ["Kaz Ron", "Jerome Chan", "Chelsea L", "Phiela Roxas", "Benedict Bacuno", "Liezel Dormal", "Lynneth Marasigan", "Jade O", "Rain C", "Joshua Cordero", "Nikki Loraine", "Tamara Matovic"];
+
+              // Also: texts where senderName looks like Kaz/Jerome but quoUser is shared/other
+              const [mismatch] = await c.query(
+                `SELECT m.quoUserId, m.senderName, COUNT(*) AS n
+                 FROM quo_messages m
+                 WHERE m.direction='outgoing' AND m.sentAt >= ?
+                   AND m.senderName IS NOT NULL AND m.quoUserId IS NOT NULL
+                 GROUP BY m.quoUserId, m.senderName
+                 HAVING n >= 3
+                 ORDER BY n DESC
+                 LIMIT 80`,
+                [since]
+              );
+              const mismatches = mismatch.map(r => ({
+                quoUserId: r.quoUserId,
+                quoName: quoUsers[r.quoUserId] ? normalizeName(quoUsers[r.quoUserId].name) : "UNKNOWN_QUO_USER",
+                senderName: r.senderName,
+                n: Number(r.n),
+                conflict: quoUsers[r.quoUserId] && normalizeName(quoUsers[r.quoUserId].name) !== normalizeName(r.senderName),
+              })).filter(x => x.conflict);
+
+              // Unknown quoUserIds appearing in data
+              const unknownIds = {};
+              for (const m of msgs) {
+                if (m.quoUserId && !quoUsers[m.quoUserId]) {
+                  unknownIds[m.quoUserId] = (unknownIds[m.quoUserId] || 0) + Number(m.n);
+                }
+              }
+              for (const call of calls) {
+                for (const id of [call.answeredBy, call.initiatedBy, call.quoUserId]) {
+                  if (id && !quoUsers[id]) unknownIds[id] = (unknownIds[id] || 0) + Number(call.n);
+                }
+              }
+
+              // Per-line totals (are some lines dark?)
+              const [lineVol] = await c.query(
+                `SELECT COALESCE(l.phoneNumberId, cnv.phoneNumberId) AS lineId,
+                        COALESCE(l.name,'(nolabel)') AS lineName,
+                        COALESCE(l.category,'?') AS category,
+                        COALESCE(l.phoneNumber, '') AS phone,
+                        SUM(m.direction='outgoing') AS outTexts,
+                        SUM(m.direction='incoming') AS inTexts
+                 FROM quo_messages m
+                 LEFT JOIN quo_conversations cnv ON cnv.conversationId = m.conversationId
+                 LEFT JOIN quo_phone_lines l ON l.phoneNumberId = COALESCE(m.phoneNumberId, cnv.phoneNumberId)
+                 WHERE m.sentAt >= ?
+                 GROUP BY lineId, lineName, category, phone
+                 ORDER BY outTexts DESC`,
+                [since]
+              );
+
+              const [callLineVol] = await c.query(
+                `SELECT c.phoneNumberId AS lineId,
+                        COALESCE(l.name,'(nolabel)') AS lineName,
+                        COALESCE(l.category,'?') AS category,
+                        COUNT(*) AS calls,
+                        ROUND(SUM(COALESCE(c.duration,0))/60) AS talkMin
+                 FROM quo_calls c
+                 LEFT JOIN quo_phone_lines l ON l.phoneNumberId = c.phoneNumberId
+                 WHERE c.occurredAt >= ?
+                 GROUP BY lineId, lineName, category
+                 ORDER BY calls DESC`,
+                [since]
+              );
+
+              const people = Object.values(byPerson).map(p => ({
+                name: p.name,
+                texts: p.texts,
+                calls: p.calls || 0,
+                talkMin: Math.round((p.talkSec || 0) / 60),
+                viaQuoUser: p.viaQuoUser,
+                viaSenderName: p.viaSenderName,
+                topTextLines: Object.entries(p.byLine).sort((a,b)=>b[1]-a[1]).slice(0,8)
+                  .map(([k,v]) => ({ line: k, n: v })),
+                topCallLines: Object.entries(p.callLines || {}).sort((a,b)=>b[1]-a[1]).slice(0,8)
+                  .map(([k,v]) => ({ line: k, n: v })),
+              })).sort((a,b) => (b.texts + b.calls) - (a.texts + a.calls));
+
+              const payload = {
+                since: since.toISOString(),
+                quoUserMap: Object.fromEntries(Object.entries(quoUsers).map(([id,u]) => [id, { name: normalizeName(u.name), email: u.email }])),
+                people,
+                focus: focus.map(name => people.find(p => p.name === name) || { name, texts: 0, calls: 0, talkMin: 0, missing: true }),
+                shared: sharedNames.map(name => people.find(p => p.name === name) || { name, texts: 0, calls: 0, talkMin: 0 }),
+                unattrTexts,
+                unattrCalls,
+                unattrTalkMin: Math.round(unattrTalk / 60),
+                topUnattrTexts: Object.entries(unattrSamples).sort((a,b)=>b[1]-a[1]).slice(0,20)
+                  .map(([k,n]) => ({ key: k, n })),
+                topUnattrCalls: Object.entries(unattrCallSamples).sort((a,b)=>b[1]-a[1]).slice(0,20)
+                  .map(([k,n]) => ({ key: k, n })),
+                senderVsQuoConflicts: mismatches.slice(0, 40),
+                unknownQuoUserIds: Object.entries(unknownIds).sort((a,b)=>b[1]-a[1]).slice(0,30)
+                  .map(([id,n]) => ({ id, n })),
+                lines: lineVol.map(r => ({
+                  id: r.lineId, name: r.lineName, category: r.category, phone: r.phone,
+                  outTexts: Number(r.outTexts||0), inTexts: Number(r.inTexts||0),
+                })),
+                callLines: callLineVol.map(r => ({
+                  id: r.lineId, name: r.lineName, category: r.category,
+                  calls: Number(r.calls||0), talkMin: Number(r.talkMin||0),
+                })),
+              };
+
+              const b64 = Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
+              console.log("B64_BEGIN");
+              for (let i = 0; i < b64.length; i += 120) console.log(b64.slice(i, i + 120));
+              console.log("B64_END");
+              await c.end();
+            })().catch((e) => { console.error(e); process.exit(1); });
+            NODE
