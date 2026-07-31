@@ -469,16 +469,17 @@ export class SmartLockAccessCodeService {
     accessCode.attemptCount = (accessCode.attemptCount || 0) + 1;
 
     try {
-      // Sifely locks without a gateway (or with remote disabled) will silently
-      // accept the API call and return a keyboardPwdId while never actually
-      // programming the lock — leaving guests locked out. Fail fast instead.
+      // Sifely locks without a gateway will silently accept the API call and
+      // return a keyboardPwdId while never actually programming the lock —
+      // leaving guests locked out. Fail fast instead.
+      //
+      // Do not gate on remoteEnable. It is 1-or-2 rather than a boolean, and it
+      // describes remote *unlocking*, not passcode programming: locks reporting
+      // 2 accept gateway passcode writes normally (verified against Waveland 1B).
       if (device.provider === "sifely") {
         const meta = (device.providerMetadata || {}) as Record<string, any>;
         if (meta.hasGateway !== 1) {
           throw new Error("Sifely lock has no gateway connected; passcode cannot be set remotely.");
-        }
-        if (meta.remoteEnable !== 1) {
-          throw new Error("Sifely lock has remote passcode setting disabled.");
         }
       }
 

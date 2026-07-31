@@ -25,17 +25,16 @@ let sweepInProgress = false;
 const MAX_PUSH_ATTEMPTS = 6;
 
 /**
- * Failures that will never succeed on retry: the lock has no gateway, has
- * remote programming switched off, doesn't support passcodes at all, or the
- * provider credentials are dead. Retrying these burns API quota and buries the
- * transient failures that are actually worth another attempt.
+ * Failures that will never succeed on retry: the lock has no gateway, doesn't
+ * support passcodes at all, or the provider credentials are dead. Retrying
+ * these burns API quota and buries the transient failures that are actually
+ * worth another attempt.
  */
 function isPermanentLockFailure(message?: string | null): boolean {
   if (!message) return false;
   const m = message.toLowerCase();
   return (
     m.includes("no gateway connected") ||
-    m.includes("remote passcode setting disabled") ||
     m.includes("function is not supported") ||
     m.includes("status code 401") ||
     m.includes("permission denied")
