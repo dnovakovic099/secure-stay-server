@@ -85,6 +85,7 @@ export class RefundRequestService {
   private listingRepo = appDatabase.getRepository(Listing);
   private reservationInfoRepo = appDatabase.getRepository(ReservationInfoEntity);
   private reviewRepo = appDatabase.getRepository(ReviewEntity);
+  private reviewCheckoutRepo = appDatabase.getRepository(ReviewCheckout);
   private fileInfoRepo = appDatabase.getRepository(FileInfo);
   private employeeRepo = appDatabase.getRepository(Employee);
   private reservationInfoLogRepo = appDatabase.getRepository(ReservationInfoLog);
@@ -1240,8 +1241,8 @@ export class RefundRequestService {
         return { data: events };
     }
 
-    async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; keyword: string; keywordField?: string; propertyType: string; serviceType?: string; chargeToClient?: string; dateType?: string; stayTiming?: string; fromDate?: string; toDate?: string; createdBy?: string; paymentMethod?: string; refundCategory?: string; reviewRating?: string; refundAmountMin?: string; refundAmountMax?: string; expenseEntry?: string; sortRules?: string; }) {
-        const { page, limit, status, reservationId, listingId, keyword, keywordField, propertyType, serviceType, chargeToClient, dateType, stayTiming, fromDate, toDate, createdBy, paymentMethod, refundCategory, reviewRating, refundAmountMin, refundAmountMax, expenseEntry, sortRules } = query;
+    async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; keyword: string; keywordField?: string; propertyType: string; serviceType?: string; chargeToClient?: string; dateType?: string; stayTiming?: string; fromDate?: string; toDate?: string; createdBy?: string; paymentMethod?: string; refundCategory?: string; reviewRating?: string; refundAmountMin?: string; refundAmountMax?: string; expenseEntry?: string; sortRules?: string; excludeRemovedBadReviewRefunds?: string; }) {
+        const { page, limit, status, reservationId, listingId, keyword, keywordField, propertyType, serviceType, chargeToClient, dateType, stayTiming, fromDate, toDate, createdBy, paymentMethod, refundCategory, reviewRating, refundAmountMin, refundAmountMax, expenseEntry, sortRules, excludeRemovedBadReviewRefunds } = query;
         const offset = (page - 1) * limit;
 
         const normalizeArray = (value: any): string[] => {
@@ -1266,6 +1267,34 @@ export class RefundRequestService {
         const minAmount = refundAmountMin !== undefined && refundAmountMin !== null && refundAmountMin !== "" ? Number(refundAmountMin) : null;
         const maxAmount = refundAmountMax !== undefined && refundAmountMax !== null && refundAmountMax !== "" ? Number(refundAmountMax) : null;
         const selectedExpenseEntry = String(expenseEntry || "").trim();
+        const shouldExcludeRemovedBadReviewRefunds = ["true", "1", "yes"].includes(String(excludeRemovedBadReviewRefunds || "").trim().toLowerCase());
+        const removedBadReviewRefundCategory = "refund to remove bad review";
+        const removedReviewReservationIds = shouldExcludeRemovedBadReviewRefunds
+            ? await (async () => {
+                const [reviewRows, checkoutRows] = await Promise.all([
+                    this.reviewRepo
+                        .createQueryBuilder("review")
+                        .select("DISTINCT review.reservationId", "reservationId")
+                        .where("review.reservationId IS NOT NULL")
+                        .andWhere(new Brackets((subQuery) => {
+                            subQuery
+                                .where("review.isHidden = :isHidden", { isHidden: 1 })
+                                .orWhere("review.visibility = :removedVisibility", { removedVisibility: "Removed" });
+                        }))
+                        .getRawMany(),
+                    this.reviewCheckoutRepo
+                        .createQueryBuilder("reviewCheckout")
+                        .leftJoin("reviewCheckout.reservationInfo", "reservationInfo")
+                        .select("DISTINCT reservationInfo.id", "reservationId")
+                        .where("reservationInfo.id IS NOT NULL")
+                        .andWhere("reviewCheckout.visibility = :removedVisibility", { removedVisibility: "Removed" })
+                        .getRawMany(),
+                ]);
+                return Array.from(new Set([...reviewRows, ...checkoutRows]
+                    .map((row: any) => Number(row.reservationId))
+                    .filter((value: number) => Number.isFinite(value) && value > 0)));
+            })()
+            : [];
         const selectedStayTiming = ["ongoing", "mitigation"].includes(String(stayTiming || "")) ? String(stayTiming) : "";
         const easternToday = getEasternDateString();
         const mitigationFromDate = format(new Date(`${easternToday}T12:00:00Z`).getTime() - 14 * 24 * 60 * 60 * 1000, "yyyy-MM-dd");
@@ -1404,6 +1433,14 @@ export class RefundRequestService {
                 qb.andWhere("refundRequest.checkOut BETWEEN :mitigationFromDate AND :easternToday", { mitigationFromDate, easternToday });
             }
         };
+        const applyRemovedBadReviewRefundExclusionToQuery = (qb: any) => {
+            if (!shouldExcludeRemovedBadReviewRefunds || !removedReviewReservationIds.length) return;
+            qb.andWhere(new Brackets((subQuery) => {
+                subQuery
+                    .where("LOWER(COALESCE(refundRequest.refundCategory, '')) != :removedBadReviewRefundCategory", { removedBadReviewRefundCategory })
+                    .orWhere("refundRequest.reservationId NOT IN (:...removedReviewReservationIds)", { removedReviewReservationIds });
+            }));
+        };
 
         if (propertyTypes.length > 0 || serviceTypes.length > 0) {
           const [propertyListings, serviceListings] = await Promise.all([
@@ -1531,6 +1568,7 @@ export class RefundRequestService {
                 qb.andWhere("refundRequest.expenseId IS NULL");
             }
             applyStayTimingToQuery(qb);
+            applyRemovedBadReviewRefundExclusionToQuery(qb);
             if (fromDate || toDate) {
                 qb.andWhere("expense.datePaid BETWEEN :fromDate AND :toDate", {
                     fromDate: fromDate || "1970-01-01",
@@ -1573,6 +1611,88 @@ export class RefundRequestService {
             whereConditions.checkOut = MoreThanOrEqual(easternToday);
         } else if (selectedStayTiming === "mitigation") {
             whereConditions.checkOut = Between(mitigationFromDate, easternToday);
+        }
+
+        if (shouldExcludeRemovedBadReviewRefunds && removedReviewReservationIds.length) {
+            const qb = this.refundRequestRepo.createQueryBuilder("refundRequest");
+
+            if (statusFilters.length) {
+                qb.andWhere("refundRequest.status IN (:...statusFilters)", { statusFilters });
+            }
+            if (explicitReservationIds.length || reviewRatingFilters.length) {
+                qb.andWhere("refundRequest.reservationId IN (:...effectiveReservationIds)", { effectiveReservationIds: effectiveReservationIds.length ? effectiveReservationIds : [-1] });
+            }
+            if (listingIdFilters.length || propertyTypes.length || serviceTypes.length) {
+                const explicitListingIds = listingIdFilters.map(Number).filter(Boolean);
+                let effectiveListingIds = explicitListingIds;
+
+                if (propertyTypes.length || serviceTypes.length) {
+                    effectiveListingIds = explicitListingIds.length
+                        ? explicitListingIds.filter((id) => listingIds.includes(id))
+                        : listingIds;
+                }
+
+                qb.andWhere("refundRequest.listingId IN (:...effectiveListingIds)", { effectiveListingIds: effectiveListingIds.length ? effectiveListingIds : [-1] });
+            }
+            if (chargeToClient === "true" || chargeToClient === "1") {
+                qb.andWhere("refundRequest.chargeToClient = :chargeToClient", { chargeToClient: 1 });
+            } else if (chargeToClient === "false" || chargeToClient === "0") {
+                qb.andWhere("refundRequest.chargeToClient = :chargeToClient", { chargeToClient: 0 });
+            }
+            if (createdByFilters.length) {
+                qb.andWhere("refundRequest.createdBy IN (:...createdByFilters)", { createdByFilters });
+            }
+            if (paymentMethodFilters.length) {
+                qb.andWhere("refundRequest.paymentMethod IN (:...paymentMethodFilters)", { paymentMethodFilters });
+            }
+            if (refundCategoryFilters.length) {
+                qb.andWhere("refundRequest.refundCategory IN (:...refundCategoryFilters)", { refundCategoryFilters });
+            }
+            if (minAmount !== null && maxAmount !== null && !Number.isNaN(minAmount) && !Number.isNaN(maxAmount)) {
+                qb.andWhere("refundRequest.refundAmount BETWEEN :minAmount AND :maxAmount", { minAmount, maxAmount });
+            } else if (minAmount !== null && !Number.isNaN(minAmount)) {
+                qb.andWhere("refundRequest.refundAmount >= :minAmount", { minAmount });
+            } else if (maxAmount !== null && !Number.isNaN(maxAmount)) {
+                qb.andWhere("refundRequest.refundAmount <= :maxAmount", { maxAmount });
+            }
+            if (selectedExpenseEntry === "with") {
+                qb.andWhere("refundRequest.expenseId IS NOT NULL");
+            } else if (selectedExpenseEntry === "without") {
+                qb.andWhere("refundRequest.expenseId IS NULL");
+            }
+            applyStayTimingToQuery(qb);
+            applyRemovedBadReviewRefundExclusionToQuery(qb);
+            if (fromDate || toDate) {
+                if (selectedDateField === "checkIn" || selectedDateField === "checkOut") {
+                    qb.andWhere(`refundRequest.${selectedDateField} BETWEEN :fromDate AND :toDate`, {
+                        fromDate: fromDate || "1970-01-01",
+                        toDate: toDate || "2999-12-31",
+                    });
+                } else {
+                    const { start, end } = getEasternTimestampRange(fromDate || "1970-01-01", toDate || "2999-12-31");
+                    qb.andWhere(`refundRequest.${selectedDateField} BETWEEN :fromDate AND :toDate`, { fromDate: start, toDate: end });
+                }
+            }
+            if (keyword) {
+                applyKeywordToQuery(qb, keyword);
+            }
+
+            applySortRulesToQuery(qb);
+
+            if (shouldSortDecoratedData) {
+                const data = await qb.getMany();
+                await this.decorateRefundRequests(data);
+                const sortedData = sortDecoratedRefundRequests(data);
+                return { data: sortedData.slice(offset, offset + limit), total: sortedData.length };
+            }
+
+            const [data, total] = await qb
+                .take(limit)
+                .skip(offset)
+                .getManyAndCount();
+
+            await this.decorateRefundRequests(data);
+            return { data, total };
         }
         
         const where = keyword
