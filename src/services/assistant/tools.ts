@@ -44,6 +44,29 @@ const asId = (v: any): number | null => {
     return Number.isSafeInteger(n) && n > 0 ? n : null;
 };
 
+/**
+ * Is `who` the caller themselves? Absent means the question named nobody, which
+ * is the "how did I do today" case. Matching is loose on purpose: staff write
+ * "Priya", "priya k", or an email, and the cost of a false negative is only a
+ * redirect to team_activity, while a false positive misattributes someone's work.
+ */
+const isSelf = (who: any, viewer: { userName: string | null; email: string | null }): boolean => {
+    const raw = String(who ?? "").trim().toLowerCase();
+    if (!raw) return true;
+    if (/^(me|myself|i|my|mine|self)$/.test(raw)) return true;
+
+    const name = (viewer.userName || "").toLowerCase().trim();
+    const email = (viewer.email || "").toLowerCase().trim();
+    if (raw === name || raw === email) return true;
+    if (email && raw === email.split("@")[0]) return true;
+    if (!name) return false;
+    // Share a distinctive name part, e.g. "Priya" against "Priya Kulkarni".
+    const parts = (s: string) => new Set(s.split(/[^a-z0-9]+/).filter((p) => p.length > 2));
+    const mine = parts(name);
+    for (const p of parts(raw)) if (mine.has(p)) return true;
+    return false;
+};
+
 const clampDays = (v: any, def: number, max: number) => {
     const n = Math.round(Number(v) || def);
     return Math.min(max, Math.max(1, n));
@@ -349,6 +372,13 @@ export const TOOL_SCHEMAS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
                 type: "object",
                 properties: {
                     days: { type: "number", description: "Trailing days, 1-90 (default 7)." },
+                    about: {
+                        type: "string",
+                        description:
+                            "Who the question is about. Always set this when the question names a person, " +
+                            "even if that person is the caller. Leave it out only for 'how did I do' style " +
+                            "questions that name nobody.",
+                    },
                 },
             },
         },
@@ -920,6 +950,28 @@ const handlers: Record<string, Handler> = {
 
     async my_activity(args, ctx) {
         requireCapability(ctx.viewer, "activity.self", "Activity data is not available to you.");
+        // The model has repeatedly answered "how many replies did <colleague> send" by
+        // calling this tool and reporting the caller's figures, which reads as the
+        // colleague's. Instructions alone did not hold, so the check lives here: naming
+        // someone else makes this a team_activity question, and team_activity is gated.
+        if (!isSelf(args.about, ctx.viewer)) {
+            requireCapability(
+                ctx.viewer,
+                "activity.team",
+                `These numbers are only ever the caller's own, and the question is about ${String(
+                    args.about
+                ).slice(0, 60)}. Per-person numbers for other employees are admin-only — say that plainly ` +
+                    "rather than reporting the caller's own figures."
+            );
+            return {
+                data: {
+                    note:
+                        "This tool only returns the caller's own numbers. You have team access, so use " +
+                        "team_activity for another person instead of this.",
+                },
+                rowCount: 0,
+            };
+        }
         const { userId, email } = ctx.viewer;
         if (!userId) {
             return {

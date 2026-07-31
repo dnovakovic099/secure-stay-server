@@ -187,6 +187,26 @@ async function main() {
     await expectDenied(regular, "team_activity", "regular");
     await expectDenied(regular, "payroll_lookup", "regular");
     await expectAllowed(regular, "my_activity", { days: 7 }, "regular");
+    // Naming someone else turns a self lookup into a team lookup, so it must be gated
+    // even though the tool itself only ever reads the caller's rows.
+    {
+        const handler = getToolHandler("my_activity")!;
+        try {
+            await handler({ days: 7, about: "Some Other Person" }, { viewer: regular });
+            fail("regular my_activity about a colleague", "ALLOWED — would report the caller's figures as theirs");
+        } catch (e: any) {
+            if (e instanceof CapabilityDenied) pass("regular my_activity about a colleague is denied");
+            else fail("regular my_activity about a colleague", e.message);
+        }
+        for (const self of ["me", regular.userName ?? "me", (regular.email ?? "me").split("@")[0]]) {
+            try {
+                await handler({ days: 7, about: self }, { viewer: regular });
+                pass(`my_activity about "${preview(self, 30)}" still resolves to self`);
+            } catch (e: any) {
+                fail(`my_activity about "${preview(self, 30)}"`, `blocked own numbers: ${e.message}`);
+            }
+        }
+    }
     await expectAllowed(regular, "portfolio_overview", {}, "regular");
     if (admin) {
         await expectDenied(admin, "payroll_lookup", "admin");
