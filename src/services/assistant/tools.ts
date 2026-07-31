@@ -76,23 +76,50 @@ const keywords = (raw: string): string[] => {
         .map((w) => (w.length > 4 && w.endsWith("s") ? w.slice(0, -1) : w));
     return [...new Set(words)].slice(0, 5);
 };
-const matchCount = (text: string, terms: string[]): number => {
+const matchedTerms = (text: string, terms: string[]): string[] => {
     const t = String(text || "").toLowerCase();
-    return terms.filter((k) => t.includes(k)).length;
+    return terms.filter((k) => t.includes(k));
 };
-/** ~320 chars centred on the first keyword hit, so the model sees the relevant part. */
+
+const WINDOW = 340;
+
+/**
+ * A slice of the text where the keywords actually cluster.
+ *
+ * Centring on the FIRST keyword is wrong for the messages that matter most: a
+ * guest arrival template mentions parking, trash, wifi and the door code in one
+ * long block, so the first hit on "code" can be hundreds of characters away from
+ * the part that answers the question. Pick the window containing the most
+ * distinct keywords instead.
+ */
 const snippet = (text: string, terms: string[]): string => {
     const s = String(text || "").replace(/\s+/g, " ").trim();
-    if (s.length <= 320) return s;
+    if (s.length <= WINDOW) return s;
     const lower = s.toLowerCase();
-    let at = -1;
-    for (const k of terms) {
-        const i = lower.indexOf(k);
-        if (i !== -1 && (at === -1 || i < at)) at = i;
+
+    const hits: { at: number; term: string }[] = [];
+    for (const term of terms) {
+        let i = lower.indexOf(term);
+        while (i !== -1 && hits.length < 400) {
+            hits.push({ at: i, term });
+            i = lower.indexOf(term, i + term.length);
+        }
     }
-    if (at === -1) return `${s.slice(0, 320)}…`;
-    const start = Math.max(0, at - 120);
-    return `${start > 0 ? "…" : ""}${s.slice(start, start + 320)}${start + 320 < s.length ? "…" : ""}`;
+    if (!hits.length) return `${s.slice(0, WINDOW)}…`;
+
+    let bestStart = Math.max(0, hits[0].at - 110);
+    let bestScore = -1;
+    for (const h of hits) {
+        const start = Math.max(0, h.at - 110);
+        const inWindow = hits.filter((q) => q.at >= start && q.at < start + WINDOW);
+        const score = new Set(inWindow.map((q) => q.term)).size * 10 + inWindow.length;
+        if (score > bestScore) {
+            bestScore = score;
+            bestStart = start;
+        }
+    }
+    const end = Math.min(s.length, bestStart + WINDOW);
+    return `${bestStart > 0 ? "…" : ""}${s.slice(bestStart, end)}${end < s.length ? "…" : ""}`;
 };
 
 /** listing_info.checkInTimeStart etc. are stored as an hour integer (0-23). */
@@ -818,7 +845,7 @@ const handlers: Record<string, Handler> = {
                 who: m.senderName || m.senderType || null,
                 when: m.sentAt,
                 text: snippet(text, terms),
-                matched: matchCount(text, terms),
+                matched: matchedTerms(text, terms),
             });
         }
         for (const t of tickets) {
@@ -830,7 +857,7 @@ const handlers: Record<string, Handler> = {
                 who: null,
                 when: t.created_at,
                 text: snippet(text, terms),
-                matched: matchCount(text, terms),
+                matched: matchedTerms(text, terms),
             });
         }
         for (const tm of internal) {
@@ -839,21 +866,27 @@ const handlers: Record<string, Handler> = {
                 who: tm.user_name || null,
                 when: tm.message_timestamp,
                 text: snippet(tm.content, terms),
-                matched: matchCount(tm.content, terms),
+                matched: matchedTerms(tm.content, terms),
             });
         }
         // Most keywords matched first, then most recent — an old message that mentions
         // every term beats a recent one that happens to contain "code".
-        hits.sort((a, b) => b.matched - a.matched || new Date(b.when).getTime() - new Date(a.when).getTime());
+        hits.sort(
+            (a, b) => b.matched.length - a.matched.length || new Date(b.when).getTime() - new Date(a.when).getTime()
+        );
+        // With several keywords, a hit on only one of them is usually noise ("lock" in
+        // "o'clock"). Drop those, but only when better matches exist.
+        const bestMatch = hits.length ? hits[0].matched.length : 0;
+        const ranked = terms.length > 1 && bestMatch > 1 ? hits.filter((h) => h.matched.length > 1) : hits;
 
         return {
             data: {
                 searchedFor: terms,
                 property: listingName ?? (listingId ? `listing ${listingId}` : "all properties"),
                 monthsSearched: months,
-                hits: hits.slice(0, 20),
+                hits: ranked.slice(0, 20),
                 note:
-                    hits.length === 0
+                    ranked.length === 0
                         ? "Nothing in the message or ticket history mentions these words" +
                           (ids.length ? " for this property" : "") +
                           ". Try different keywords, widen months, or drop the property scope before " +
@@ -864,7 +897,7 @@ const handlers: Record<string, Handler> = {
                           "and never present a code found here as confirmed without saying where it came from." +
                           (ids.length ? "" : " Ticket text only — scope to a property to include guest messages."),
             },
-            rowCount: hits.length,
+            rowCount: ranked.length,
         };
     },
 
