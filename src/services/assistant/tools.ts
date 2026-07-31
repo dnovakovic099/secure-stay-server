@@ -778,8 +778,8 @@ const handlers: Record<string, Handler> = {
             listingId = listing.listingId;
         }
 
-        const where: string[] = ["i.deleted_at IS NULL", "i.created_at >= ?"];
-        const params: any[] = [since];
+        const where: string[] = ["i.deleted_at IS NULL"];
+        const params: any[] = [];
         if (listingId) {
             // issues.listing_id is a VARCHAR of the numeric listing id.
             where.push("CAST(NULLIF(TRIM(i.listing_id),'') AS UNSIGNED) = ?");
@@ -797,15 +797,38 @@ const handlers: Record<string, Handler> = {
             where.push("(i.completed_at IS NULL AND COALESCE(i.status,'') NOT IN ('Completed','Cancelled','Closed'))");
         }
 
-        const rows: any[] = await appDatabase.query(
-            `SELECT i.id, i.ai_short_title, i.issue_description, i.category, i.status, i.gr_status,
-                    i.listing_name, i.guest_name, i.assignee, i.completed_by,
-                    i.check_in_date, i.created_at, i.completed_at, i.next_steps
-             FROM issues i
-             WHERE ${where.join(" AND ")}
-             ORDER BY i.created_at DESC LIMIT 40`,
-            params
-        );
+        const filters = where.join(" AND ");
+        // The 40 detail rows are a sample, so counting them would answer "which
+        // category is worst" with whatever happened to be most recent. Aggregate over
+        // the whole window separately, plus the preceding window of equal length so
+        // "is this worse than last month" has something real behind it.
+        const prevSince = new Date(since.getTime() - days * DAY_MS);
+        const [rows, byCategory, previousByCategory]: any[] = await Promise.all([
+            appDatabase.query(
+                `SELECT i.id, i.ai_short_title, i.issue_description, i.category, i.status, i.gr_status,
+                        i.listing_name, i.guest_name, i.assignee, i.completed_by,
+                        i.check_in_date, i.created_at, i.completed_at, i.next_steps
+                 FROM issues i
+                 WHERE ${filters} AND i.created_at >= ?
+                 ORDER BY i.created_at DESC LIMIT 40`,
+                [...params, since]
+            ),
+            appDatabase.query(
+                `SELECT COALESCE(NULLIF(TRIM(i.category),''), 'Uncategorized') AS category, COUNT(*) AS tickets
+                 FROM issues i
+                 WHERE ${filters} AND i.created_at >= ?
+                 GROUP BY category ORDER BY tickets DESC`,
+                [...params, since]
+            ),
+            appDatabase.query(
+                `SELECT COALESCE(NULLIF(TRIM(i.category),''), 'Uncategorized') AS category, COUNT(*) AS tickets
+                 FROM issues i
+                 WHERE ${filters} AND i.created_at >= ? AND i.created_at < ?
+                 GROUP BY category ORDER BY tickets DESC`,
+                [...params, prevSince, since]
+            ),
+        ]);
+        const sum = (list: any[]) => list.reduce((s, r) => s + Number(r.tickets || 0), 0);
 
         return {
             data: {
@@ -827,7 +850,17 @@ const handlers: Record<string, Handler> = {
                     completedAt: r.completed_at,
                     nextSteps: r.next_steps ? String(r.next_steps).slice(0, 400) : null,
                 })),
-                note: "Capped at 40 rows, newest first. Narrow by property or category for a complete picture.",
+                totals: {
+                    windowTickets: sum(byCategory),
+                    byCategory,
+                    previousWindowTickets: sum(previousByCategory),
+                    previousByCategory,
+                },
+                note:
+                    "`issues` is a sample capped at 40 rows, newest first — never count it to answer 'how many' " +
+                    "or 'which category is worst'. Use `totals` for that: it covers the whole window, and " +
+                    "`previousByCategory` covers the equally long window immediately before it, which is what to " +
+                    "compare against. Narrow by property or category to see more detail rows.",
             },
             rowCount: rows.length,
         };
@@ -1083,7 +1116,7 @@ const handlers: Record<string, Handler> = {
                         ? " This list was cut off at 80 people, so it is not the whole company — narrow by name or department."
                         : ""),
             },
-            rowCount: rows.length,
+            rowCount: Math.min(rows.length, 80),
         };
     },
 
