@@ -514,17 +514,17 @@ export class SmartLockAccessCodeService {
     } catch (error: any) {
       const message = error.message || "Failed to set access code";
 
-      // A duplicate rejection means the guest's code is already programmed —
-      // typically staff set it by hand before the sweep ran. That is the
-      // outcome we wanted, so adopt the existing code rather than reporting a
-      // failure and alerting someone about a door that already works.
-      const adopted = /same passcode already exists|passcode already exist/i.test(message)
-        ? await this.adoptExistingCode(accessCode, device, provider)
-        : false;
+      // Before reporting a failure, look at the lock. Staff often set the
+      // guest's code by hand before the sweep runs, and providers signal that
+      // inconsistently — Sifely alone returns "the same passcode already
+      // exists" on one door and "failed or means no" on another. Asking what is
+      // actually programmed is more reliable than matching error strings, and
+      // it also catches codes set manually on locks we cannot write to.
+      const adopted = await this.adoptExistingCode(accessCode, device, provider);
 
       if (adopted) {
         logger.info(
-          `Access code ${accessCodeId} already present on device ${device.id}; adopted existing passcode`
+          `Access code ${accessCodeId} already present on device ${device.id} (push reported "${message}"); adopted existing passcode`
         );
         await this.deviceRepository.update(device.id, { lastError: null, lastErrorAt: null });
       } else {
