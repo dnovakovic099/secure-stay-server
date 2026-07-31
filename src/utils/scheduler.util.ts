@@ -39,6 +39,7 @@ import { OverduePaymentService } from "../services/OverduePaymentService";
 import { QuoInboxService } from "../services/QuoInboxService";
 import { QuoItemDetectionService } from "../services/QuoItemDetectionService";
 import { RefundRequestService } from "../services/RefundRequestService";
+import { InboxService } from "../services/InboxService";
 
 
 export function scheduleGetReservation() {
@@ -779,6 +780,27 @@ export function scheduleGetReservation() {
         }
       } catch (error) {
         logger.error("[QuoInbox] Error in scheduled sync:", error);
+      }
+    }
+  );
+
+  // Hostify inbox safety-net pull — every 2 minutes, page 1 only (~50 most
+  // recent threads). The webhook is still the real-time path; this exists
+  // purely to self-heal missed deliveries (webhook drops, restarts, transient
+  // 5xx from us). syncFromHostify upserts, so re-running is safe.
+  // Kill switch: HOSTIFY_INBOX_SYNC_ENABLED=false.
+  schedule.scheduleJob(
+    "0-59/2 * * * *",
+    async () => {
+      if (String(process.env.HOSTIFY_INBOX_SYNC_ENABLED || "true").toLowerCase() === "false") return;
+      if (!process.env.HOSTIFY_API_KEY) return;
+      try {
+        const result = await new InboxService().syncFromHostify({ maxPages: 1, perPage: 50 });
+        if (result.messages) {
+          logger.info(`[HostifyInbox] Safety-net sync — threads=${result.threads}, new messages=${result.messages}`);
+        }
+      } catch (error) {
+        logger.error("[HostifyInbox] Error in scheduled safety-net sync:", error);
       }
     }
   );
