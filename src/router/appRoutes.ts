@@ -68,6 +68,7 @@ import actionItemsBetaRoutes from "./actionItemsBetaRoutes";
 import utilityProviderRoutes from "./utilityProviderRoutes";
 import rentalAgreementRoutes from "./rentalAgreementRoutes";
 import rentalAgreementTemplateRoutes from "./rentalAgreementTemplateRoutes";
+import assistantRoutes from "./assistantRoutes";
 import vendorProfileRoutes from "./vendorProfileRoutes";
 import oauthRoutes from "./oauthRoutes";
 import userNotificationRoutes from "./userNotificationRoutes";
@@ -155,6 +156,7 @@ router.use('/hostify', hostifyRoutes);
 router.use('/utility-providers', utilityProviderRoutes);
 router.use('/rental-agreement', rentalAgreementRoutes);
 router.use('/rental-agreement-templates', rentalAgreementTemplateRoutes);
+router.use('/assistant', assistantRoutes);
 
 
 // Roomify-facing endpoints (do NOT remove on redeploy — see
