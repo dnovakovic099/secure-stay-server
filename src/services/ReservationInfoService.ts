@@ -36,6 +36,8 @@ import { getEasternDateString } from "../utils/easternTime.util";
 import { TurnoverReservationChangeService } from "./TurnoverReservationChangeService";
 import { FERDY_SLACK_USER_ID } from "../utils/slackMessageBuilder";
 
+const ANJ_SLACK_USER_ID = "U08END0JTBM";
+
 export class ReservationInfoService {
   private reservationInfoRepository = appDatabase.getRepository(ReservationInfoEntity);
   private listingInfoRepository = appDatabase.getRepository(Listing)
@@ -1807,6 +1809,18 @@ export class ReservationInfoService {
       .getMany();
   }
 
+  private async getDisputeRiskMentionPrefix(reservation: ReservationInfoEntity) {
+    const listing = reservation.listingMapId
+      ? await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } })
+      : null;
+    const propertyType = ListingService.extractPropertyTypeFromTags(listing?.tags);
+    const mentions = [`<@${ANJ_SLACK_USER_ID}>`];
+    if (propertyType === "PM") {
+      mentions.push(`<@${FERDY_SLACK_USER_ID}>`);
+    }
+    return mentions.join(" ");
+  }
+
   private async postDisputeRiskAlertToSlack(
     reviewCheckout: ReviewCheckout,
     reservationId: number,
@@ -1831,11 +1845,12 @@ export class ReservationInfoService {
       : coveringReservations.length
         ? `✅ ${coveringReservations.length} upcoming reservation${coveringReservations.length === 1 ? "" : "s"} for ${propertyName} have owner revenue that can cover the total paid of this guest:\n${coveringReservations.map((item) => this.formatDisputeRiskReservationLine(item)).join("\n")}`
         : `❌ No upcoming reservations for ${propertyName} have owner revenue that can cover the total paid of this guest. Please hold payout for ${propertyName}.`;
+    const mentionPrefix = await this.getDisputeRiskMentionPrefix(reservation);
 
     await new ResolutionsTeamSlackService().postActivityToThread(reviewCheckout.id, {
       type: "dispute_risk",
       actor: changedBy,
-      details: `<@${FERDY_SLACK_USER_ID}> ${reservationSubject} (${totalPaidText}) is a dispute risk.${offboardingNote}\n${upcomingText}`,
+      details: `${mentionPrefix} ${reservationSubject} (${totalPaidText}) is a dispute risk.${offboardingNote}\n${upcomingText}`,
     });
   }
 
