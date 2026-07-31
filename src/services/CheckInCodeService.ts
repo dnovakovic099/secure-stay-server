@@ -18,6 +18,31 @@ const DEFAULT_TIMEZONE = "America/New_York";
 let sweepInProgress = false;
 
 /**
+ * How many times the sweep will re-attempt a lock that keeps refusing a code
+ * before it stops and leaves it for a human. Without this the 15-minute sweep
+ * retries the same dead lock every 15 minutes forever.
+ */
+const MAX_PUSH_ATTEMPTS = 6;
+
+/**
+ * Failures that will never succeed on retry: the lock has no gateway, has
+ * remote programming switched off, doesn't support passcodes at all, or the
+ * provider credentials are dead. Retrying these burns API quota and buries the
+ * transient failures that are actually worth another attempt.
+ */
+function isPermanentLockFailure(message?: string | null): boolean {
+  if (!message) return false;
+  const m = message.toLowerCase();
+  return (
+    m.includes("no gateway connected") ||
+    m.includes("remote passcode setting disabled") ||
+    m.includes("function is not supported") ||
+    m.includes("status code 401") ||
+    m.includes("permission denied")
+  );
+}
+
+/**
  * Statuses that represent a booking a guest will actually show up for.
  * Mirrors AccessCodeSchedulerService so the nightly job and the live webhook
  * path never disagree about whether a reservation deserves a code.
@@ -263,6 +288,23 @@ export class CheckInCodeService {
         pushed++;
         continue;
       }
+
+      // Stop re-attempting locks that cannot accept a code. These still count
+      // as failures so the guest's situation stays visible, but we quit
+      // hammering the provider every 15 minutes over something only a person
+      // standing at the door (or a credential fix) can resolve.
+      if (record.status === AccessCodeStatus.FAILED) {
+        const permanent = isPermanentLockFailure(record.errorMessage);
+        const exhausted = (record.attemptCount || 0) >= MAX_PUSH_ATTEMPTS;
+        if (permanent || exhausted) {
+          failed++;
+          errors.push(
+            `Lock ${record.deviceId} needs manual attention: ${record.errorMessage || "repeated failures"}`
+          );
+          continue;
+        }
+      }
+
       try {
         const updated = await this.accessCodeService.setAccessCodeOnDevice(record.id);
         // setAccessCodeOnDevice records provider errors on the row instead of
