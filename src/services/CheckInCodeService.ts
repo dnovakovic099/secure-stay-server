@@ -377,12 +377,12 @@ export class CheckInCodeService {
     options: { force?: boolean; dryRun?: boolean }
   ) {
     const mappedProperties = await this.propertyDeviceRepository.find({
-      where: { isActive: true },
+      where: { isActive: true, isGuestDoor: true },
       select: ["propertyId"],
     });
     const mappedPropertyIds = [...new Set(mappedProperties.map((pd) => pd.propertyId))];
     if (!mappedPropertyIds.length) {
-      logger.info("[CheckInCodes:sweep] No properties have locks mapped");
+      logger.info("[CheckInCodes:sweep] No properties have guest-facing locks mapped");
       return summary;
     }
 

@@ -27,6 +27,10 @@ export class PropertyDevice {
   @Column({ name: "is_active", default: true })
   isActive: boolean;
 
+  /** Service doors (electrical rooms, supply closets) never receive guest codes. */
+  @Column({ name: "is_guest_door", default: true })
+  isGuestDoor: boolean;
+
   @CreateDateColumn({ name: "created_at" })
   createdAt: Date;
 

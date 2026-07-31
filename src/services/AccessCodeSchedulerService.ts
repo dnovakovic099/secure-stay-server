@@ -39,12 +39,12 @@ export class AccessCodeSchedulerService {
 
       // 1. Get all unique property IDs that have device mappings
       const mappedPropertyDevices = await this.propertyDeviceRepository.find({
-        where: { isActive: true },
+        where: { isActive: true, isGuestDoor: true },
         select: ["propertyId"],
       });
 
       const uniquePropertyIds = [...new Set(mappedPropertyDevices.map(pd => pd.propertyId))];
-      logger.info(`Found ${uniquePropertyIds.length} properties with mapped devices`);
+      logger.info(`Found ${uniquePropertyIds.length} properties with mapped guest doors`);
 
       if (uniquePropertyIds.length === 0) {
         return { processed, skipped, failed };

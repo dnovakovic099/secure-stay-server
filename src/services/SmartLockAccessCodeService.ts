@@ -260,14 +260,15 @@ export class SmartLockAccessCodeService {
       timezone,
     );
 
-    // Get all devices for this property
+    // Guest codes only go to guest-facing doors. Service doors (electrical
+    // rooms, supply closets) stay mapped so staff can set codes on them by hand.
     const propertyDevices = await this.propertyDeviceRepository.find({
-      where: { propertyId, isActive: true },
+      where: { propertyId, isActive: true, isGuestDoor: true },
       relations: ["device"],
     });
 
     if (propertyDevices.length === 0) {
-      logger.warn(`No devices mapped to property ${propertyId}`);
+      logger.warn(`No guest-facing devices mapped to property ${propertyId}`);
       return [];
     }
 
