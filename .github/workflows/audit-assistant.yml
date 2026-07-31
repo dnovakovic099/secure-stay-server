@@ -1,0 +1,29 @@
+name: Audit AI Assistant
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip_llm:
+        description: "Skip the end-to-end model calls (tools + permissions only)"
+        type: boolean
+        default: false
+
+jobs:
+  audit:
+    name: Audit assistant on prod
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run assistant audit
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT }}
+          command_timeout: 25m
+          script: |
+            set -e
+            cd /home/ec2-user/secure_stay/secure-stay-server
+            FLAGS=""
+            if [ "${{ inputs.skip_llm }}" = "true" ]; then FLAGS="--no-llm"; fi
+            npx ts-node src/scripts/auditAssistant.ts $FLAGS
