@@ -784,13 +784,13 @@ export function scheduleGetReservation() {
     }
   );
 
-  // Hostify inbox safety-net pull — every 2 minutes, page 1 only (~50 most
+  // Hostify inbox safety-net pull — every minute, page 1 only (~50 most
   // recent threads). The webhook is still the real-time path; this exists
   // purely to self-heal missed deliveries (webhook drops, restarts, transient
   // 5xx from us). syncFromHostify upserts, so re-running is safe.
   // Kill switch: HOSTIFY_INBOX_SYNC_ENABLED=false.
   schedule.scheduleJob(
-    "0-59/2 * * * *",
+    "* * * * *",
     async () => {
       if (String(process.env.HOSTIFY_INBOX_SYNC_ENABLED || "true").toLowerCase() === "false") return;
       if (!process.env.HOSTIFY_API_KEY) return;
