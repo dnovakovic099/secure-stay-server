@@ -34,6 +34,16 @@ export interface ToolResult {
     rowCount?: number;
 }
 
+/**
+ * A usable row id, or null. The model sometimes passes a listingId it built from
+ * text, and mysql2 renders NaN as a bare SQL token, which comes back as "Unknown
+ * column 'NaN'" instead of an empty result.
+ */
+const asId = (v: any): number | null => {
+    const n = Number(v);
+    return Number.isSafeInteger(n) && n > 0 ? n : null;
+};
+
 const clampDays = (v: any, def: number, max: number) => {
     const n = Math.round(Number(v) || def);
     return Math.min(max, Math.max(1, n));
@@ -190,14 +200,15 @@ async function resolveListings(query: string, limit = 12): Promise<ResolvedListi
 async function resolveOne(
     args: { listingId?: number; property?: string }
 ): Promise<{ listing: ResolvedListing | null; ambiguous: ResolvedListing[] }> {
-    if (args.listingId) {
+    const explicitId = asId(args.listingId);
+    if (explicitId) {
         const rows: any[] = await appDatabase.query(
             `SELECT li.id, li.name, li.internalListingName, li.externalListingName,
                     li.city, li.state, lgm.groupId
              FROM listing_info li
              LEFT JOIN listing_group_map lgm ON lgm.listingId = li.id
              WHERE li.id = ? LIMIT 1`,
-            [Number(args.listingId)]
+            [explicitId]
         );
         const r = rows[0];
         if (!r) return { listing: null, ambiguous: [] };
@@ -386,7 +397,10 @@ export const TOOL_SCHEMAS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
             description:
                 "Look up reservations by guest name, confirmation code, or property, optionally within a " +
                 "date window. Returns stay dates, channel, guest contact, status and total. Use for " +
-                "'who is checking into X tomorrow', 'find the Henderson booking'.",
+                "'who is checking into X tomorrow', 'find the Henderson booking'. Every filter is " +
+                "optional: 'who arrives tomorrow' with no property named is a valid portfolio-wide " +
+                "question — call this with arrivingWithinDays and answer it rather than asking which " +
+                "property they meant.",
             parameters: {
                 type: "object",
                 properties: {
@@ -697,13 +711,14 @@ const handlers: Record<string, Handler> = {
 
         const retrieval = new RetrievalService();
         let groupId: number | null = null;
-        if (args.listingId) {
+        const scopeId = asId(args.listingId);
+        if (scopeId) {
             // Resolved with the same raw-SQL path the other tools use. Going through
             // ListingGroupService would pull in a TypeORM repository, which breaks in
             // ts-node contexts where the entity class and the registered metadata come
             // from different builds.
-            const { listing } = await resolveOne({ listingId: Number(args.listingId) });
-            groupId = listing?.groupId ?? Number(args.listingId);
+            const { listing } = await resolveOne({ listingId: scopeId });
+            groupId = listing?.groupId ?? scopeId;
         }
 
         const [kb, docs, facts] = await Promise.all([
@@ -748,7 +763,7 @@ const handlers: Record<string, Handler> = {
             ctx.returnedCredentials = true;
         }
 
-        let listingId: number | null = args.listingId ? Number(args.listingId) : null;
+        let listingId: number | null = asId(args.listingId);
         let listingName: string | null = null;
         if (!listingId && args.property) {
             const { listing, ambiguous } = await resolveOne({ property: args.property });
@@ -1041,7 +1056,7 @@ const handlers: Record<string, Handler> = {
         const since = new Date(Date.now() - days * DAY_MS);
         const onlyOpen = args.onlyOpen !== false;
 
-        let listingId: number | null = args.listingId ? Number(args.listingId) : null;
+        let listingId: number | null = asId(args.listingId);
         if (!listingId && args.property) {
             const { listing, ambiguous } = await resolveOne({ property: args.property });
             if (!listing) return ambiguityResult(ambiguous);
@@ -1149,7 +1164,7 @@ const handlers: Record<string, Handler> = {
             where.push("(r.reservationId = ? OR r.channelReservationId = ?)");
             params.push(String(args.reservationId), String(args.reservationId));
         }
-        let listingId: number | null = args.listingId ? Number(args.listingId) : null;
+        let listingId: number | null = asId(args.listingId);
         if (!listingId && args.property) {
             const { listing, ambiguous } = await resolveOne({ property: args.property });
             if (!listing) return ambiguityResult(ambiguous);
@@ -1269,7 +1284,7 @@ const handlers: Record<string, Handler> = {
     async expense_summary(args, ctx) {
         requireCapability(ctx.viewer, "accounting.read", "Expense data is not available to you.");
         const months = Math.min(12, Math.max(1, Math.round(Number(args.months) || 3)));
-        let listingId: number | null = args.listingId ? Number(args.listingId) : null;
+        let listingId: number | null = asId(args.listingId);
         if (!listingId && args.property) {
             const { listing, ambiguous } = await resolveOne({ property: args.property });
             if (!listing) return ambiguityResult(ambiguous);
