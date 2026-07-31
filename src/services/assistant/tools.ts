@@ -331,7 +331,9 @@ export const TOOL_SCHEMAS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
             description:
                 "The CALLER'S OWN productivity for a trailing window: guest replies sent, Quo messages and " +
                 "calls, daily effort/quality grades, and hours clocked. Use for 'how did I do today', " +
-                "'how many messages have I sent'. This only ever returns the caller's own numbers.",
+                "'how many messages have I sent'. This only ever returns the caller's own numbers, so if " +
+                "the question is about a named colleague, call team_activity instead — reporting these " +
+                "figures would attribute the caller's work to someone else.",
             parameters: {
                 type: "object",
                 properties: {
@@ -959,8 +961,10 @@ const handlers: Record<string, Handler> = {
                 hoursByDay: hours,
                 tasksByStatus: tasks,
                 note:
-                    "These are your own numbers only. guestReplies counts non-automatic outgoing SecureStay " +
-                    "inbox messages. effortGrades already includes Quo calls and SMS.",
+                    `These are ${ctx.viewer.userName || "the caller"}'s own numbers and nobody else's. If the ` +
+                    "question named a different person, do not present these as theirs — say you can only see " +
+                    "your own. guestReplies counts non-automatic outgoing SecureStay inbox messages. " +
+                    "effortGrades already includes Quo calls and SMS.",
             },
             rowCount: (replies as any[]).length,
         };
