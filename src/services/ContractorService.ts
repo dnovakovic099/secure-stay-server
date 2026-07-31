@@ -18,6 +18,30 @@ export class ContractorInfoService {
         return this.normalizeName(name).toLowerCase();
     }
 
+    private getVendorPersonName(vendor: VendorProfile) {
+        const preferredName = this.normalizeName(vendor.preferredName || "");
+        const fullName = [vendor.firstName, vendor.lastName]
+            .map(value => this.normalizeName(value || ""))
+            .filter(Boolean)
+            .join(" ");
+        if (preferredName && fullName) return `"${preferredName}" ${fullName}`;
+        if (preferredName) return `"${preferredName}"`;
+        return fullName || this.normalizeName(vendor.name || vendor.companyName || "");
+    }
+
+    private splitContractorDisplayName(name: string) {
+        const cleanName = this.normalizeName(name).replace(/\s+\([^)]*\)\s*$/, "");
+        const preferredMatch = cleanName.match(/^"([^"]+)"\s*(.*)$/);
+        const preferredName = preferredMatch?.[1]?.trim() || null;
+        const legalName = this.normalizeName(preferredMatch?.[2] || cleanName);
+        const parts = legalName.split(/\s+/).filter(Boolean);
+        return {
+            firstName: parts[0] || null,
+            lastName: parts.slice(1).join(" ") || null,
+            preferredName,
+        };
+    }
+
     private async ensureContractorSchema() {
         if (ContractorInfoService.schemaReady) return;
         await appDatabase.query(`
@@ -206,8 +230,10 @@ export class ContractorInfoService {
         }
 
         if (syncVendorProfile && saved.vendorProfileId) {
+            const structuredName = this.splitContractorDisplayName(saved.contractorName);
             await this.vendorProfileRepo.update(saved.vendorProfileId, {
                 name: saved.contractorName,
+                ...structuredName,
                 contact: saved.contractorNumber || null,
             });
         }
@@ -235,7 +261,7 @@ export class ContractorInfoService {
         if (!vendor) throw new Error("Vendor profile not found");
 
         const previousName = contractor.contractorName;
-        const nextName = keepNameFrom === "vendor" ? this.normalizeName(vendor.name) : this.normalizeName(contractor.contractorName);
+        const nextName = keepNameFrom === "vendor" ? this.getVendorPersonName(vendor) : this.normalizeName(contractor.contractorName);
         const nextPhone = keepPhoneFrom === "vendor" ? (vendor.contact || null) : (contractor.contractorNumber || null);
 
         contractor.vendorProfileId = vendor.id;
@@ -243,8 +269,12 @@ export class ContractorInfoService {
         contractor.contractorNumber = nextPhone;
         const saved = await this.contractorInfoRepo.save(contractor);
 
+        const structuredName = keepNameFrom === "contractor"
+            ? this.splitContractorDisplayName(nextName)
+            : {};
         await this.vendorProfileRepo.update(vendor.id, {
             name: nextName,
+            ...structuredName,
             contact: nextPhone,
         });
 
