@@ -1,7 +1,6 @@
 import OpenAI from "openai";
 import { appDatabase } from "../../utils/database.util";
 import { RetrievalService } from "../RetrievalService";
-import { ListingGroupService } from "../ListingGroupService";
 import { Viewer, requireCapability } from "./viewer";
 
 /**
@@ -38,6 +37,21 @@ export interface ToolResult {
 const clampDays = (v: any, def: number, max: number) => {
     const n = Math.round(Number(v) || def);
     return Math.min(max, Math.max(1, n));
+};
+
+/**
+ * Credential fields are free text, and staff have typed placeholders into them
+ * for years: "(NO WIFI)", "N/A", "TBD", "-". Returning those verbatim makes the
+ * assistant tell someone the wifi password is "(NO PASSWORD)", so treat them as
+ * absent and let the answer say it is not on file.
+ */
+const credential = (v: any): string | null => {
+    const s = String(v ?? "").trim();
+    if (!s) return null;
+    const bare = s.replace(/[()[\]]/g, "").replace(/[\s_-]+/g, " ").trim().toLowerCase();
+    const placeholder =
+        /^(n\/?a|na|none|no|null|nil|tbd|tba|unknown|pending|missing|not applicable|no wifi|no password|no code|no wifi password|does not apply|\.|-|\?+)$/;
+    return placeholder.test(bare) ? null : s;
 };
 
 /** listing_info.checkInTimeStart etc. are stored as an hour integer (0-23). */
@@ -553,12 +567,20 @@ const handlers: Record<string, Handler> = {
 
         const w = wifi[0] || {};
         const l = (locks as any[])[0] || {};
+        const wifiNetwork = credential(w.wifiUsername);
+        const wifiPassword = credential(w.wifiPassword);
         return {
             data: {
                 resolved: true,
                 property: listing,
-                wifi: { network: w.wifiUsername || null, password: w.wifiPassword || null },
-                standardDoorCode: l.default_access_code || null,
+                wifi: {
+                    network: wifiNetwork,
+                    password: wifiPassword,
+                    ...(wifiNetwork || wifiPassword
+                        ? {}
+                        : { note: "No wifi credentials on file for this property." }),
+                },
+                standardDoorCode: credential(l.default_access_code),
                 autoGeneratesGuestCodes: l.auto_generate_codes == null ? null : Boolean(l.auto_generate_codes),
                 accessNotes: (facts as any[]).map((f) => ({ field: f.fieldKey, value: f.value })),
                 note:
@@ -577,8 +599,12 @@ const handlers: Record<string, Handler> = {
         const retrieval = new RetrievalService();
         let groupId: number | null = null;
         if (args.listingId) {
-            const groups = new ListingGroupService();
-            groupId = (await groups.resolve(Number(args.listingId))) ?? Number(args.listingId);
+            // Resolved with the same raw-SQL path the other tools use. Going through
+            // ListingGroupService would pull in a TypeORM repository, which breaks in
+            // ts-node contexts where the entity class and the registered metadata come
+            // from different builds.
+            const { listing } = await resolveOne({ listingId: Number(args.listingId) });
+            groupId = listing?.groupId ?? Number(args.listingId);
         }
 
         const [kb, docs, facts] = await Promise.all([
@@ -652,7 +678,7 @@ const handlers: Record<string, Handler> = {
             ),
             appDatabase.query(
                 `SELECT status, COUNT(*) AS n FROM assigned_tasks
-                 WHERE assigneeId = ? GROUP BY status`,
+                 WHERE assignee_id = ? GROUP BY status`,
                 [userId]
             ),
         ]);
@@ -870,7 +896,7 @@ const handlers: Record<string, Handler> = {
         const rows: any[] = await appDatabase.query(
             `SELECT id, title, description, status, taskType, dueDate, isRecurring, createdAt
              FROM assigned_tasks
-             WHERE assigneeId = ?
+             WHERE assignee_id = ?
                ${includeCompleted ? "" : "AND COALESCE(status,'') NOT IN ('Completed','Cancelled')"}
              ORDER BY (dueDate IS NULL), dueDate ASC, createdAt DESC
              LIMIT 50`,
@@ -969,14 +995,50 @@ const handlers: Record<string, Handler> = {
             params
         );
 
+        // expense.categories holds a JSON array of category ids ("[18666]"), which is
+        // meaningless in an answer, so swap in the names before the model sees it.
+        const ids = new Set<number>();
+        for (const r of rows) {
+            for (const m of String(r.category).matchAll(/\d+/g)) ids.add(Number(m[0]));
+        }
+        const names = new Map<number, string>();
+        if (ids.size) {
+            const list = [...ids];
+            const cats: any[] = await appDatabase
+                .query(
+                    `SELECT id, hostawayId, categoryName FROM category
+                     WHERE id IN (${list.map(() => "?").join(",")})
+                        OR hostawayId IN (${list.map(() => "?").join(",")})`,
+                    [...list, ...list]
+                )
+                .catch(() => []);
+            for (const c of cats) {
+                if (c.categoryName == null) continue;
+                names.set(Number(c.id), String(c.categoryName));
+                if (c.hostawayId != null) names.set(Number(c.hostawayId), String(c.categoryName));
+            }
+        }
+        const labelled = rows.map((r) => {
+            const raw = String(r.category);
+            const found = [...raw.matchAll(/\d+/g)]
+                .map((m) => names.get(Number(m[0])))
+                .filter(Boolean) as string[];
+            return {
+                ...r,
+                category: found.length ? found.join(", ") : raw === "Uncategorized" ? raw : `Uncategorized (${raw})`,
+            };
+        });
+
         return {
             data: {
                 months,
                 listingId,
-                byMonthAndCategory: rows,
+                byMonthAndCategory: labelled,
                 note:
                     "Absolute expense amounts from the expense ledger. The current month is partial — " +
-                    "never compare it to a complete month without saying so. Payroll is not included.",
+                    "never compare it to a complete month without saying so. Payroll is not included. " +
+                    "A category shown as 'Uncategorized (...)' had an id with no matching category name; " +
+                    "report it as uncategorized rather than quoting the id.",
             },
             rowCount: rows.length,
         };
@@ -1005,13 +1067,21 @@ const handlers: Record<string, Handler> = {
              LEFT JOIN user_departments ud ON ud.userId = u.id
              LEFT JOIN departments d ON d.id = ud.departmentId
              WHERE ${where.join(" AND ")}
-             ORDER BY name LIMIT 80`,
+             ORDER BY COALESCE(u.isActive, 0) DESC, name
+             LIMIT 81`,
             params
         );
+        const truncated = rows.length > 80;
         return {
             data: {
-                employees: rows,
-                note: "Directory only — no compensation data is available through this tool at any access level.",
+                employees: rows.slice(0, 80),
+                note:
+                    "Directory only — no compensation data is available through this tool at any access level. " +
+                    "isActive/employeeActive of 0 means the account is deactivated: do not present those people " +
+                    "as current staff or as someone to contact." +
+                    (truncated
+                        ? " This list was cut off at 80 people, so it is not the whole company — narrow by name or department."
+                        : ""),
             },
             rowCount: rows.length,
         };

@@ -50,7 +50,7 @@ async function main() {
     console.log(`LLM end-to-end: ${SKIP_LLM ? "SKIPPED (--no-llm)" : "enabled"}`);
     console.log(`Configured: ${AssistantService.isConfigured()}`);
     console.log(`ASSISTANT_ENABLED=${process.env.ASSISTANT_ENABLED ?? "(unset)"}`);
-    console.log(`Model: ${process.env.ASSISTANT_MODEL || "gpt-5.6-luna (default)"}`);
+    console.log(`Model: ${process.env.ASSISTANT_MODEL || "(default)"}`);
 
     // ── 1. schema ────────────────────────────────────────────────────────────
     section("1. Schema");
@@ -297,6 +297,28 @@ async function main() {
     const createdConversations: number[] = [];
     if (!SKIP_LLM && AssistantService.isConfigured()) {
         section("6. End-to-end (real model, real tools)");
+
+        // ask() swallows the underlying API error behind a friendly message, so probe
+        // the configured models directly first — a bad model name looks exactly like
+        // a transient outage from the outside.
+        const OpenAI = require("openai").default ?? require("openai");
+        const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        for (const m of [
+            process.env.ASSISTANT_MODEL || "gpt-4.1-mini",
+            process.env.ASSISTANT_DEEP_MODEL || "gpt-4.1",
+        ]) {
+            try {
+                const r = await client.chat.completions.create({
+                    model: m,
+                    messages: [{ role: "user", content: "Reply with the single word: ok" }],
+                    max_tokens: 5,
+                });
+                pass(`model ${m} reachable`, preview(r.choices?.[0]?.message?.content, 40));
+            } catch (e: any) {
+                fail(`model ${m}`, `${e?.status ?? ""} ${e?.message ?? e}`);
+            }
+        }
+
         const service = new AssistantService();
 
         const askAs = async (v: Viewer, question: string) => {
@@ -414,6 +436,10 @@ async function main() {
 
                 if (!r.answer.trim()) {
                     fail(`${c.label}`, "empty answer");
+                    continue;
+                }
+                if (r.answer.startsWith("[ERROR]")) {
+                    fail(`${c.label}`, `the assistant failed outright: ${preview(r.answer, 200)}`);
                     continue;
                 }
                 if (c.mustRefuse) {

@@ -24,8 +24,11 @@ import { TOOL_SCHEMAS, ToolContext, getToolHandler } from "./tools";
  *    the assistant cannot widen access.
  */
 
-const FAST_MODEL = process.env.ASSISTANT_MODEL || "gpt-5.6-luna";
-const DEEP_MODEL = process.env.ASSISTANT_DEEP_MODEL || "gpt-5.6-terra";
+// The gpt-4.1 family is what the rest of this codebase already runs against this
+// account, supports parallel tool calls and streaming, and caches prompt prefixes
+// over 1024 tokens automatically — which is where most of the savings come from.
+const FAST_MODEL = process.env.ASSISTANT_MODEL || "gpt-4.1-mini";
+const DEEP_MODEL = process.env.ASSISTANT_DEEP_MODEL || "gpt-4.1";
 const MAX_TOOL_ROUNDS = 5;
 const MAX_HISTORY_MESSAGES = 12;
 
