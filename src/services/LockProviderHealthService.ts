@@ -14,7 +14,8 @@ import logger from "../utils/logger.utils";
 const REQUIRED_ENV: Record<string, string[]> = {
   seam: ["SEAM_API_KEY"],
   // SIFELY_CLIENT_ID may also be supplied as SCIENER_CLIENT_ID — see isConfigured().
-  sifely: ["SIFELY_USERNAME", "SIFELY_PASSWORD"],
+  // API key alone is enough; username/password used to mint one if missing.
+  sifely: [],
   ttlock: ["SCIENER_CLIENT_ID", "SCIENER_CLIENT_SECRET"],
   schlage: [],
 };
@@ -47,10 +48,13 @@ export class LockProviderHealthService {
     const missing = required.filter((key) => !process.env[key]);
 
     if (provider === "sifely") {
-      const hasClientId = !!(
-        process.env.SIFELY_CLIENT_ID || process.env.SCIENER_CLIENT_ID
+      const hasKey = !!process.env.SIFELY_API_KEY;
+      const hasLogin = !!(
+        process.env.SIFELY_USERNAME && process.env.SIFELY_PASSWORD
       );
-      if (!hasClientId) missing.push("SIFELY_CLIENT_ID|SCIENER_CLIENT_ID");
+      if (!hasKey && !hasLogin) {
+        missing.push("SIFELY_API_KEY|SIFELY_USERNAME+SIFELY_PASSWORD");
+      }
     }
 
     if (provider === "ttlock") {

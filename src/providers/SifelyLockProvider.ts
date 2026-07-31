@@ -14,27 +14,24 @@ import logger from "../utils/logger.utils";
 const SIFELY_REQUEST_TIMEOUT_MS = 30_000;
 
 /**
- * Sifely Lock Provider Implementation
- * Implements ILockProvider interface for Sifely API
- * All credentials are read from environment variables
- *
- * apiUrl is the smart-server (production API host) — all `/v3/*` operations
- * MUST target this. baseUrl is only used by the OAuth service for
- * `/system/smart/login`, which lives on a different origin on some tenants.
- * Historically createAccessCode targeted baseUrl (defaulting to dev-alexa),
- * which surfaced as 504 Gateway Timeout when the dev proxy couldn't reach the
- * upstream smart-server.
+ * Sifely Lock Provider — Open API at cus-openapi.sifely.com.
+ * Auth is a raw sk- API key in the Authorization header (no Bearer prefix).
  */
 export class SifelyLockProvider implements ILockProvider {
   readonly providerName = "sifely";
-  private baseUrl: string;
   private apiUrl: string;
   private authService: SifelyAuthService;
 
   constructor() {
-    this.baseUrl = process.env.SIFELY_BASE_URL || "https://dev-alexa.sifely.com";
-    this.apiUrl = process.env.SIFELY_API_URL || "https://app-smart-server.sifely.com";
+    this.apiUrl =
+      process.env.SIFELY_API_URL ||
+      process.env.SIFELY_OPENAPI_URL ||
+      "https://cus-openapi.sifely.com";
     this.authService = new SifelyAuthService();
+  }
+
+  private async authHeaders(): Promise<Record<string, string>> {
+    return this.authService.getAuthHeaders();
   }
 
   /**
@@ -117,38 +114,33 @@ export class SifelyLockProvider implements ILockProvider {
    */
   async listDevices(connectedAccountId?: string): Promise<Device[]> {
     try {
-      const accessToken = await this.authService.getValidAccessToken();
+      const headers = await this.authHeaders();
+      logger.info(`Sifely listDevices - using API URL: ${this.apiUrl}`);
 
-      logger.info(`Sifely listDevices - using API URL: ${this.apiUrl}, token prefix: ${accessToken?.substring(0, 20)}...`);
+      const locks: any[] = [];
+      let pageNo = 1;
+      const pageSize = 100;
+      while (true) {
+        const response = await this.requestWithRetry({
+          method: "post",
+          url: `${this.apiUrl}/v3/key/list`,
+          headers,
+          params: { pageNo, pageSize },
+        });
 
-      const response = await this.requestWithRetry({
-        method: "post",
-        url: `${this.apiUrl}/v3/key/list`,
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${accessToken}`,
-        },
-        params: {
-          pageNo: 1,
-          pageSize: 100,
-        },
-      });
+        const data = response.data;
+        if (data.code !== undefined && data.code !== 0 && data.code !== 200) {
+          throw new Error(data.message || "Failed to fetch devices");
+        }
 
-      const data = response.data;
-      logger.info(`Sifely listDevices response code: ${data.code}, message: ${data.message}`);
-
-      if (data.code !== undefined && data.code !== 0 && data.code !== 200) {
-        throw new Error(data.message || "Failed to fetch devices");
+        const page = data.list || [];
+        locks.push(...page);
+        if (page.length < pageSize) break;
+        pageNo += 1;
+        if (pageNo > 50) break;
       }
 
-      const locks = data.list || [];
       logger.info(`Sifely found ${locks.length} devices`);
-
-      if (locks.length > 0) {
-        logger.info(`Sifely first lock fields: ${JSON.stringify(Object.keys(locks[0]))}`);
-        logger.info(`Sifely first lock data: ${JSON.stringify(locks[0])}`);
-      }
-
       return locks.map((lock: any) => this.mapSifelyLockToDevice(lock));
     } catch (error: any) {
       logger.error("Error fetching Sifely devices:", error.response?.data || error.message);
@@ -163,15 +155,12 @@ export class SifelyLockProvider implements ILockProvider {
    */
   async getDevice(externalDeviceId: string): Promise<Device> {
     try {
-      const accessToken = await this.authService.getValidAccessToken();
+      const headers = await this.authHeaders();
 
       const response = await this.requestWithRetry({
         method: "post",
         url: `${this.apiUrl}/v3/lock/detail`,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
+        headers,
         params: { lockId: externalDeviceId },
       });
 
@@ -190,17 +179,14 @@ export class SifelyLockProvider implements ILockProvider {
 
   /**
    * Creates an access code (passcode) on a device
-   * Uses the Sifely API with Bearer token auth and query parameters
    * Docs: https://apidocs.sifely.com/api-197300856
    *
    * addType is the ADD METHOD (2 = remote add via gateway or Wi-Fi lock).
    * keyboardPwdType is the VALIDITY TYPE (2 = permanent, 3 = period).
-   * These are distinct — see the Sifely docs; the earlier implementation
-   * conflated them, which caused every period-limited create to fail.
    */
   async createAccessCode(params: CreateAccessCodeParams): Promise<ProviderAccessCode> {
     try {
-      const accessToken = await this.authService.getValidAccessToken();
+      const headers = await this.authHeaders();
 
       const queryParams: any = {
         lockId: params.deviceId,
@@ -228,10 +214,7 @@ export class SifelyLockProvider implements ILockProvider {
       const response = await this.requestWithRetry({
         method: "post",
         url: `${this.apiUrl}/v3/keyboardPwd/add`,
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${accessToken}`,
-        },
+        headers,
         params: queryParams,
       });
 
@@ -262,7 +245,6 @@ export class SifelyLockProvider implements ILockProvider {
 
   /**
    * Updates an existing access code
-   * Uses the Sifely API with Bearer token auth and query parameters
    * Docs: https://apidocs.sifely.com/api-197300857
    */
   async updateAccessCode(
@@ -270,7 +252,7 @@ export class SifelyLockProvider implements ILockProvider {
     params: UpdateAccessCodeParams
   ): Promise<ProviderAccessCode> {
     try {
-      const accessToken = await this.authService.getValidAccessToken();
+      const headers = await this.authHeaders();
 
       const queryParams: any = {
         keyboardPwdId: externalCodeId,
@@ -284,10 +266,7 @@ export class SifelyLockProvider implements ILockProvider {
       const response = await this.requestWithRetry({
         method: "post",
         url: `${this.apiUrl}/v3/keyboardPwd/change`,
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${accessToken}`,
-        },
+        headers,
         params: queryParams,
       });
 
@@ -316,12 +295,11 @@ export class SifelyLockProvider implements ILockProvider {
 
   /**
    * Deletes an access code
-   * Uses the Sifely API with Bearer token auth and query parameters
    * Docs: https://apidocs.sifely.com/api-197300858
    */
   async deleteAccessCode(externalCodeId: string): Promise<void> {
     try {
-      const accessToken = await this.authService.getValidAccessToken();
+      const headers = await this.authHeaders();
 
       const queryParams = {
         keyboardPwdId: externalCodeId,
@@ -330,10 +308,7 @@ export class SifelyLockProvider implements ILockProvider {
       const response = await this.requestWithRetry({
         method: "post",
         url: `${this.apiUrl}/v3/keyboardPwd/delete`,
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${accessToken}`,
-        },
+        headers,
         params: queryParams,
       });
 
@@ -352,19 +327,16 @@ export class SifelyLockProvider implements ILockProvider {
 
   /**
    * Lists all access codes for a device
-   * Uses the Sifely API with Bearer token auth
-   * Docs: https://apidocs.sifely.com/api-194455500
+   * Docs: https://apidocs.sifely.com/api-256682855
    */
   async listAccessCodes(externalDeviceId: string): Promise<ProviderAccessCode[]> {
     try {
-      const accessToken = await this.authService.getValidAccessToken();
+      const headers = await this.authHeaders();
 
       const response = await this.requestWithRetry({
         method: "get",
         url: `${this.apiUrl}/v3/lock/listKeyboardPwd`,
-        headers: {
-          "Authorization": `Bearer ${accessToken}`,
-        },
+        headers,
         params: {
           lockId: externalDeviceId,
           pageNo: 1,

@@ -3,101 +3,143 @@ import crypto from "crypto";
 import logger from "../utils/logger.utils";
 
 /**
- * Sifely OAuth Token Response
+ * Sifely Open API auth (cus-openapi.sifely.com).
+ *
+ * Login returns a long-lived `clientToken` (sk-…) that is used as the raw
+ * Authorization header — not a Bearer OAuth token. Prefer SIFELY_API_KEY when
+ * set so we do not re-login on every process start.
  */
 export interface SifelyTokenResponse {
   access_token: string;
-  expires_in: number; // seconds (typically 7200)
+  expires_in: number;
   refresh_token: string;
   token_type: string;
+  client_id?: string;
 }
 
-/**
- * Sifely Authentication Service
- * Handles OAuth2 token management for Sifely API
- * All credentials are read from environment variables
- */
 export class SifelyAuthService {
-  private baseUrl: string;
-  private clientId: string;
+  private openApiUrl: string;
+  private apiKey: string;
   private username: string;
   private password: string;
+  private appName: string;
 
-  // Token storage
   private accessToken: string | null = null;
-  private refreshToken: string | null = null;
-  private tokenExpiry: Date | null = null;
+  private clientId: string | null = null;
 
   constructor() {
-    this.baseUrl = process.env.SIFELY_BASE_URL || "https://dev-alexa.sifely.com";
-    // Prefer the Sifely-specific client id; fall back to Sciener so a single
-    // developer app can cover both Sifely's portal and TTLock/DD Lock.
-    this.clientId =
-      process.env.SIFELY_CLIENT_ID || process.env.SCIENER_CLIENT_ID || "";
+    this.openApiUrl =
+      process.env.SIFELY_OPENAPI_URL || "https://cus-openapi.sifely.com";
+    this.apiKey = (process.env.SIFELY_API_KEY || "").trim();
     this.username = process.env.SIFELY_USERNAME || "";
     this.password = process.env.SIFELY_PASSWORD || "";
+    // Their developer portal sends this header; without it, accounts that are
+    // on DEVELOPER (or unsubscribed) with >5 locks get HTTP 402/50504 on every
+    // device call. Harmless once Starter is active.
+    this.appName =
+      process.env.SIFELY_APP_NAME !== undefined
+        ? process.env.SIFELY_APP_NAME
+        : "subscriptions_portal";
   }
 
-  /**
-   * Hash password with MD5 (required by Sifely API)
-   */
   private hashPassword(password: string): string {
     return crypto.createHash("md5").update(password).digest("hex");
   }
 
+  isConfigured(): boolean {
+    return !!this.apiKey || (!!this.username && !!this.password);
+  }
+
   /**
-   * Login with username and password from environment variables
+   * Headers for every Open API call. Authorization is the raw sk- key.
    */
+  async getAuthHeaders(): Promise<Record<string, string>> {
+    const token = await this.getValidAccessToken();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: token,
+    };
+    if (this.appName) {
+      headers["X-App-Name"] = this.appName;
+    }
+    return headers;
+  }
+
+  async getValidAccessToken(): Promise<string> {
+    if (this.apiKey) {
+      this.accessToken = this.apiKey;
+      return this.apiKey;
+    }
+    if (this.accessToken) return this.accessToken;
+    const tokens = await this.login();
+    return tokens.access_token;
+  }
+
   async login(): Promise<SifelyTokenResponse> {
-    if (!this.username || !this.password || !this.clientId) {
-      throw new Error("Sifely credentials not configured. Please set SIFELY_CLIENT_ID, SIFELY_USERNAME, and SIFELY_PASSWORD in .env");
+    if (this.apiKey) {
+      const tokens: SifelyTokenResponse = {
+        access_token: this.apiKey,
+        expires_in: 365 * 24 * 3600,
+        refresh_token: "",
+        token_type: "api_key",
+      };
+      this.accessToken = this.apiKey;
+      return tokens;
     }
 
+    if (!this.username || !this.password) {
+      throw new Error(
+        "Sifely credentials not configured. Set SIFELY_API_KEY or SIFELY_USERNAME/SIFELY_PASSWORD."
+      );
+    }
+
+    const hashedPassword = this.hashPassword(this.password);
+    logger.info(`Attempting Sifely Open API login for user: ${this.username}`);
+
     try {
-      // Sifely API requires MD5 hashed password
-      const hashedPassword = this.hashPassword(this.password);
-
-      logger.info(`Attempting Sifely login for user: ${this.username}`);
-
       const response = await axios.post(
-        `${this.baseUrl}/system/smart/login`,
-        null,
+        `${this.openApiUrl}/system/smart/login`,
         {
-          params: {
-            client_id: this.clientId,
-            username: this.username,
-            password: hashedPassword,
-          },
+          account: this.username,
+          password: hashedPassword,
+        },
+        {
+          headers: { "Content-Type": "application/json" },
+          timeout: 30_000,
         }
       );
 
-      logger.info(`Sifely login response code: ${response.data.code}`);
-      logger.info(`Sifely login response data keys: ${JSON.stringify(Object.keys(response.data))}`);
-      logger.info(`Sifely login response.data.data: ${JSON.stringify(response.data.data)}`);
-
-      // Sifely API returns code 200 or 0 for success
-      if (response.data.code !== undefined && response.data.code !== 0 && response.data.code !== 200) {
-        throw new Error(response.data.message || `Login failed with code: ${response.data.code}`);
+      const raw = response.data?.data || response.data;
+      const token = raw?.clientToken || raw?.token || raw?.access_token;
+      if (!token) {
+        throw new Error(
+          response.data?.message || "Sifely login returned no clientToken"
+        );
       }
 
-      // Sifely returns 'token' and 'refreshToken' (not access_token/refresh_token)
-      const rawData = response.data.data || response.data;
-      const tokens: SifelyTokenResponse = {
-        access_token: rawData.token || rawData.access_token,
-        refresh_token: rawData.refreshToken || rawData.refresh_token,
-        expires_in: rawData.expires_in || 7200, // Default to 2 hours
-        token_type: rawData.token_type || "Bearer",
+      this.accessToken = token;
+      this.clientId = raw?.clientId || null;
+      if (raw?.clientId && !process.env.SIFELY_CLIENT_ID) {
+        // Keep in-memory only; deploy secrets remain the source of truth.
+        process.env.SIFELY_CLIENT_ID = raw.clientId;
+      }
+
+      logger.info(
+        `Sifely Open API login ok (plan=${raw?.plan || "unknown"}, locks=${raw?.lockNum ?? "?"})`
+      );
+
+      return {
+        access_token: token,
+        expires_in: 365 * 24 * 3600,
+        refresh_token: "",
+        token_type: "api_key",
+        client_id: raw?.clientId,
       };
-
-      logger.info(`Sifely tokens extracted - access_token: ${tokens.access_token?.substring(0, 30) || 'MISSING'}`);
-      this.storeTokens(tokens);
-
-      logger.info("Sifely login successful");
-      return tokens;
     } catch (error: any) {
-      // Log detailed error info
       if (error.response) {
-        logger.error(`Sifely login failed - Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
+        logger.error(
+          `Sifely login failed - Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`
+        );
       } else {
         logger.error(`Sifely login failed: ${error.message}`);
       }
@@ -105,90 +147,13 @@ export class SifelyAuthService {
     }
   }
 
-  /**
-   * Refresh the access token using refresh token
-   */
   async refreshAccessToken(): Promise<SifelyTokenResponse> {
-    if (!this.refreshToken) {
-      // No refresh token, do a fresh login
-      return await this.login();
-    }
-
-    try {
-      const response = await axios.post(
-        `${this.baseUrl}/system/smart/oauthToken`,
-        null,
-        {
-          params: {
-            client_id: this.clientId,
-            grant_type: "refresh_token",
-            refresh_token: this.refreshToken,
-          },
-        }
-      );
-
-      const tokens: SifelyTokenResponse = response.data;
-      this.storeTokens(tokens);
-
-      logger.info("Sifely token refreshed");
-      return tokens;
-    } catch (error: any) {
-      logger.error("Sifely token refresh failed, attempting login:", error.message);
-      // Refresh failed, try fresh login
-      return await this.login();
-    }
+    // Open API keys do not refresh; re-login only when using username/password.
+    this.accessToken = null;
+    return this.login();
   }
 
-  /**
-   * Get a valid access token, auto-login if needed
-   */
-  async getValidAccessToken(): Promise<string> {
-    // Check if token is expired or about to expire (5 min buffer)
-    if (this.accessToken && this.tokenExpiry) {
-      const bufferMs = 5 * 60 * 1000; // 5 minutes
-      if (new Date().getTime() < this.tokenExpiry.getTime() - bufferMs) {
-        return this.accessToken;
-      }
-    }
-
-    // Token expired or not set, try to refresh or login
-    if (this.refreshToken) {
-      const tokens = await this.refreshAccessToken();
-      return tokens.access_token;
-    }
-
-    // No tokens at all, do initial login
-    const tokens = await this.login();
-    return tokens.access_token;
-  }
-
-  /**
-   * Store tokens in memory
-   */
-  private storeTokens(tokens: SifelyTokenResponse): void {
-    this.accessToken = tokens.access_token;
-    this.refreshToken = tokens.refresh_token;
-    this.tokenExpiry = new Date(Date.now() + tokens.expires_in * 1000);
-  }
-
-  /**
-   * Check if the service has valid credentials configured
-   */
-  isConfigured(): boolean {
-    return !!this.clientId && !!this.username && !!this.password;
-  }
-
-  /**
-   * Get axios config with authorization header
-   */
   async getAxiosConfig(): Promise<object> {
-    const token = await this.getValidAccessToken();
-    return {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: token,
-      },
-    };
+    return { headers: await this.getAuthHeaders() };
   }
 }
-

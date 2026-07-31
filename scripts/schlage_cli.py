@@ -50,7 +50,11 @@ def authenticate(email: str, password: str):
 
 
 def list_devices(api) -> list:
-    locks = api.locks(include_access_codes=False)
+    # pyschlage versions differ: some accept include_access_codes=, older ones don't.
+    try:
+        locks = api.locks(include_access_codes=False)
+    except TypeError:
+        locks = api.locks()
     out = []
     for lock in locks:
         battery = lock.battery_level
