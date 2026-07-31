@@ -73,6 +73,20 @@ export class ClientController {
         status: request.query.status ? (Array.isArray(request.query.status) ? request.query.status : [request.query.status]) as string[] : undefined,
         source: request.query.source as string | undefined,
         onboardingOnly: String(request.query.onboardingOnly || "").toLowerCase() === "true",
+        onboardingStage: request.query.onboardingStage ? (Array.isArray(request.query.onboardingStage) ? request.query.onboardingStage : [request.query.onboardingStage]) as string[] : undefined,
+        timezone: request.query.timezone ? (Array.isArray(request.query.timezone) ? request.query.timezone : [request.query.timezone]) as string[] : undefined,
+        salesRepresentative: request.query.salesRepresentative ? (Array.isArray(request.query.salesRepresentative) ? request.query.salesRepresentative : [request.query.salesRepresentative]) as string[] : undefined,
+        city: request.query.city ? (Array.isArray(request.query.city) ? request.query.city : [request.query.city]) as string[] : undefined,
+        state: request.query.state ? (Array.isArray(request.query.state) ? request.query.state : [request.query.state]) as string[] : undefined,
+        country: request.query.country ? (Array.isArray(request.query.country) ? request.query.country : [request.query.country]) as string[] : undefined,
+        emailSent: request.query.emailSent === undefined ? undefined : String(request.query.emailSent) === "true",
+        smsSent: request.query.smsSent === undefined ? undefined : String(request.query.smsSent) === "true",
+        hasAsanaTask: request.query.hasAsanaTask === undefined ? undefined : String(request.query.hasAsanaTask) === "true",
+        hostifyPublishStatus: request.query.hostifyPublishStatus ? (Array.isArray(request.query.hostifyPublishStatus) ? request.query.hostifyPublishStatus : [request.query.hostifyPublishStatus]) as string[] : undefined,
+        createdFrom: request.query.createdFrom as string | undefined,
+        createdTo: request.query.createdTo as string | undefined,
+        sortBy: request.query.sortBy as "createdAt" | "name" | undefined,
+        sortOrder: request.query.sortOrder as "ASC" | "DESC" | undefined,
       };
 
       // Run both queries in parallel for better performance

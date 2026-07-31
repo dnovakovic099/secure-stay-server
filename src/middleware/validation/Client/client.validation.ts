@@ -229,7 +229,21 @@ export const validateGetClients = (request: Request, response: Response, next: N
         serviceType: Joi.array().items(Joi.string()).optional(),
         status: Joi.array().items(Joi.string().valid(...Object.values(PropertyStatus))).optional(),
         source: Joi.string().optional(),
-        onboardingOnly: Joi.boolean().optional()
+        onboardingOnly: Joi.boolean().optional(),
+        onboardingStage: Joi.array().items(Joi.string()).optional(),
+        timezone: Joi.array().items(Joi.string()).optional(),
+        salesRepresentative: Joi.array().items(Joi.string()).optional(),
+        city: Joi.array().items(Joi.string()).optional(),
+        state: Joi.array().items(Joi.string()).optional(),
+        country: Joi.array().items(Joi.string()).optional(),
+        emailSent: Joi.boolean().optional(),
+        smsSent: Joi.boolean().optional(),
+        hasAsanaTask: Joi.boolean().optional(),
+        hostifyPublishStatus: Joi.array().items(Joi.string().valid("pending", "publishing", "completed", "failed")).optional(),
+        createdFrom: Joi.date().iso().optional(),
+        createdTo: Joi.date().iso().optional(),
+        sortBy: Joi.string().valid("createdAt", "name").optional(),
+        sortOrder: Joi.string().valid("ASC", "DESC").optional()
     });
 
     const { error } = schema.validate(request.query);

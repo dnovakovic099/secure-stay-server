@@ -44,6 +44,20 @@ interface ClientFilter {
   status?: string[];
   source?: string;
   onboardingOnly?: boolean;
+  onboardingStage?: string[];
+  timezone?: string[];
+  salesRepresentative?: string[];
+  city?: string[];
+  state?: string[];
+  country?: string[];
+  emailSent?: boolean;
+  smsSent?: boolean;
+  hasAsanaTask?: boolean;
+  hostifyPublishStatus?: string[];
+  createdFrom?: string;
+  createdTo?: string;
+  sortBy?: "createdAt" | "name";
+  sortOrder?: "ASC" | "DESC";
 }
 
 // types/propertyOnboarding.ts
@@ -1402,11 +1416,45 @@ export class ClientService {
       baseQuery.andWhere("property.status = :onboardingStatus", { onboardingStatus: "onboarding" });
     }
 
+    if (filter.onboardingStage?.length) {
+      baseQuery.andWhere("property.onboardingStage IN (:...onboardingStages)", { onboardingStages: filter.onboardingStage });
+    }
+    if (filter.timezone?.length) {
+      baseQuery.andWhere("client.timezone IN (:...timezones)", { timezones: filter.timezone });
+    }
+    if (filter.salesRepresentative?.length) {
+      baseQuery.leftJoin("property.onboarding", "onboardingFilter", "onboardingFilter.deletedAt IS NULL")
+        .andWhere("onboardingFilter.salesRepresentative IN (:...salesRepresentatives)", {
+          salesRepresentatives: filter.salesRepresentative,
+        });
+    }
+    if (filter.city?.length) baseQuery.andWhere("property.city IN (:...cities)", { cities: filter.city });
+    if (filter.state?.length) baseQuery.andWhere("property.state IN (:...states)", { states: filter.state });
+    if (filter.country?.length) baseQuery.andWhere("property.country IN (:...countries)", { countries: filter.country });
+    if (filter.emailSent !== undefined) {
+      baseQuery.andWhere(filter.emailSent ? "property.welcomeEmailSentAt IS NOT NULL" : "property.welcomeEmailSentAt IS NULL");
+    }
+    if (filter.smsSent !== undefined) {
+      baseQuery.andWhere(filter.smsSent ? "property.welcomeSmsSentAt IS NOT NULL" : "property.welcomeSmsSentAt IS NULL");
+    }
+    if (filter.hasAsanaTask !== undefined) {
+      baseQuery.andWhere(filter.hasAsanaTask ? "property.asanaTaskId IS NOT NULL" : "property.asanaTaskId IS NULL");
+    }
+    if (filter.hostifyPublishStatus?.length) {
+      baseQuery.andWhere("property.hostifyPublishStatus IN (:...hostifyStatuses)", {
+        hostifyStatuses: filter.hostifyPublishStatus,
+      });
+    }
+    if (filter.createdFrom) baseQuery.andWhere("client.createdAt >= :createdFrom", { createdFrom: filter.createdFrom });
+    if (filter.createdTo) baseQuery.andWhere("client.createdAt <= :createdTo", { createdTo: `${filter.createdTo}T23:59:59.999Z` });
+
     // Get total count and paginated IDs
     // We remove .select() because using a custom select with skip/take and orderBy
     // triggers a known TypeORM bug with distinctAlias in the count subquery.
+    const sortColumn = filter.sortBy === "name" ? "client.firstName" : "client.createdAt";
+    const sortOrder = filter.sortOrder === "ASC" ? "ASC" : "DESC";
     baseQuery
-      .orderBy("client.createdAt", "DESC")
+      .orderBy(sortColumn, sortOrder)
       .skip((page - 1) * limit)
       .take(limit);
 
@@ -1434,7 +1482,7 @@ export class ClientService {
         .leftJoinAndSelect("vendorManagementInfo.suppliesToRestock", "suppliesToRestock")
         .where("client.id IN (:...clientIds)", { clientIds })
         // Must apply the exact same sorting so the final array matches the paginated order
-        .orderBy("client.createdAt", "DESC")
+        .orderBy(sortColumn, sortOrder)
         .getMany();
     }
 
