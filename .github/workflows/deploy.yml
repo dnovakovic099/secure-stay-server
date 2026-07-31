@@ -41,18 +41,31 @@ jobs:
             git clean -fd scripts/ || true
             git reset --hard origin/dev-new || { echo "❌ Git reset to origin/dev-new failed"; exit 1; }
 
+            upsert_env() {
+              key="$1"
+              value="$2"
+              if grep -q "^${key}=" .env 2>/dev/null; then
+                awk -v k="$key" -v v="$value" 'BEGIN{FS=OFS="="} $1==k{$0=k"="v} {print}' .env > .env.tmp && mv .env.tmp .env
+              else
+                printf '%s=%s\n' "$key" "$value" >> .env
+              fi
+            }
+
+            # Assistant rollout. Code defaults to OFF, so the widget only appears
+            # once this is set; keeping it in a secret means it survives deploys
+            # without anyone hand-editing .env on the box.
+            if [ -n "${ASSISTANT_ENABLED:-}" ]; then
+              echo ">>> Setting ASSISTANT_ENABLED=$ASSISTANT_ENABLED"
+              upsert_env ASSISTANT_ENABLED "$ASSISTANT_ENABLED"
+            fi
+            if [ -n "${ASSISTANT_PILOT_EMAILS:-}" ]; then
+              echo ">>> Setting ASSISTANT_PILOT_EMAILS"
+              upsert_env ASSISTANT_PILOT_EMAILS "$ASSISTANT_PILOT_EMAILS"
+            fi
+
             if [ -n "$REDDIT_CLIENT_ID" ] && [ -n "$REDDIT_CLIENT_SECRET" ]; then
               echo ">>> Upserting Reddit OAuth env vars..."
               REDIRECT_URI="${REDDIT_REDIRECT_URI:-https://securestay.ai/securestay_api/oauth/reddit/callback}"
-              upsert_env() {
-                key="$1"
-                value="$2"
-                if grep -q "^${key}=" .env 2>/dev/null; then
-                  awk -v k="$key" -v v="$value" 'BEGIN{FS=OFS="="} $1==k{$0=k"="v} {print}' .env > .env.tmp && mv .env.tmp .env
-                else
-                  printf '%s=%s\n' "$key" "$value" >> .env
-                fi
-              }
               upsert_env REDDIT_CLIENT_ID "$REDDIT_CLIENT_ID"
               upsert_env REDDIT_CLIENT_SECRET "$REDDIT_CLIENT_SECRET"
               upsert_env REDDIT_REDIRECT_URI "$REDIRECT_URI"
