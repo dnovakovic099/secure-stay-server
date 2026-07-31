@@ -8,6 +8,8 @@ import { QuoMessageEntity } from "../entity/QuoMessage";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { ClientEntity } from "../entity/Client";
 import { ReservationQuoConversationEntity } from "../entity/ReservationQuoConversation";
+import { Employee } from "../entity/Employee";
+import { FileInfo } from "../entity/FileInfo";
 import { In } from "typeorm";
 
 /**
@@ -27,6 +29,8 @@ export class QuoInboxService {
     private messageRepo = appDatabase.getRepository(QuoMessageEntity);
     private reservationRepo = appDatabase.getRepository(ReservationInfoEntity);
     private reservationQuoLinkRepo = appDatabase.getRepository(ReservationQuoConversationEntity);
+    private employeeRepo = appDatabase.getRepository(Employee);
+    private fileInfoRepo = appDatabase.getRepository(FileInfo);
 
     private client: AxiosInstance;
 
@@ -710,7 +714,7 @@ export class QuoInboxService {
 
     async getConversation(conversationId: string): Promise<{
         conversation: QuoConversationEntity;
-        messages: QuoMessageEntity[];
+        messages: Array<QuoMessageEntity & { senderAvatar: string | null }>;
     } | null> {
         const conversation = await this.conversationRepo.findOne({ where: { conversationId } });
         if (!conversation) return null;
@@ -720,7 +724,50 @@ export class QuoInboxService {
             order: { sentAt: "ASC" },
             take: 500,
         });
-        return { conversation, messages };
+        const senderUserIds = Array.from(new Set(
+            messages
+                .map((message) => Number(message.sentByUserId))
+                .filter((userId) => Number.isFinite(userId) && userId > 0)
+        ));
+        if (!senderUserIds.length) {
+            return {
+                conversation,
+                messages: messages.map((message) => Object.assign(message, { senderAvatar: null })),
+            };
+        }
+
+        const employees = await this.employeeRepo.find({
+            where: { userId: In(senderUserIds) },
+            select: ["userId", "profilePhoto"],
+        });
+        const photoIds = Array.from(new Set(
+            employees
+                .map((employee) => Number(employee.profilePhoto))
+                .filter((photoId) => Number.isFinite(photoId) && photoId > 0)
+        ));
+        const photoFiles = photoIds.length
+            ? await this.fileInfoRepo.find({ where: { id: In(photoIds) } })
+            : [];
+        const photoById = new Map(photoFiles.map((file) => [Number(file.id), file]));
+        const avatarByUserId = new Map<number, string | null>();
+        employees.forEach((employee) => {
+            const file = photoById.get(Number(employee.profilePhoto));
+            const avatar = file?.status === "uploaded" && file.driveFileId
+                ? `${process.env.BASE_URL}/getdriveimage/${file.driveFileId}`
+                : file?.localPath && file.fileName
+                    ? `${process.env.BASE_URL}/getimage/employees/${file.fileName}`
+                    : null;
+            avatarByUserId.set(Number(employee.userId), avatar);
+        });
+
+        return {
+            conversation,
+            messages: messages.map((message) => Object.assign(message, {
+                senderAvatar: message.sentByUserId
+                    ? avatarByUserId.get(Number(message.sentByUserId)) || null
+                    : null,
+            })),
+        };
     }
 
     async markRead(conversationId: string): Promise<void> {

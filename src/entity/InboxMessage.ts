@@ -48,6 +48,11 @@ export class InboxMessageEntity {
     @Column({ type: "text", nullable: true })
     note: string | null;
 
+    // SecureStay internal notes can be pinned above the chronological thread.
+    @Index()
+    @Column({ type: "tinyint", default: 0 })
+    isPinned: number;
+
     // 'incoming' (from guest) | 'outgoing' (from host/automatic/system)
     @Column({ length: 10 })
     direction: string;

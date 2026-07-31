@@ -30,6 +30,11 @@ router.get("/conversations/:threadId", verifySession, inboxV2Controller.getConve
 // Send a reply (delivers to Hostify + records local attribution)
 router.post("/conversations/:threadId/reply", verifySession, inboxV2Controller.reply);
 router.post("/conversations/:threadId/internal-note", verifySession, inboxV2Controller.internalNote);
+router.patch(
+    "/conversations/:threadId/internal-note/:messageId/pin",
+    verifySession,
+    inboxV2Controller.setInternalNotePinned
+);
 // Airbnb inquiry actions (Hostify pre-approve / special offer)
 router.post("/conversations/:threadId/preapprove", verifySession, inboxV2Controller.preapproveInquiry);
 router.post("/conversations/:threadId/special-offer", verifySession, inboxV2Controller.specialOfferInquiry);

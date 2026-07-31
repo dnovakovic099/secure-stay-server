@@ -2326,7 +2326,12 @@ export class InboxService {
         return saved;
     }
 
-    async addInternalNote(threadId: number, note: string, user: any, opts: { attachmentUrls?: string[]; } = {}) {
+    async addInternalNote(
+        threadId: number,
+        note: string,
+        user: any,
+        opts: { attachmentUrls?: string[]; pinned?: boolean; } = {}
+    ) {
         const conversation = await this.conversationRepo.findOne({ where: { threadId } });
         if (!conversation) {
             throw new Error(`Conversation ${threadId} not found`);
@@ -2344,6 +2349,7 @@ export class InboxService {
             listingId: conversation.listingId,
             body: null,
             note: noteText,
+            isPinned: opts.pinned ? 1 : 0,
             direction: "outgoing",
             senderType: "host",
             senderName: userName,
@@ -2366,6 +2372,20 @@ export class InboxService {
         await this.conversationRepo.save(conversation);
 
         return saved;
+    }
+
+    async setInternalNotePinned(threadId: number, messageId: number, pinned: boolean) {
+        const message = await this.messageRepo.findOne({
+            where: { id: Number(messageId), threadId: Number(threadId) },
+        });
+        if (!message) {
+            throw new CustomErrorHandler(404, "Internal note not found");
+        }
+        if (!String(message.note || "").trim()) {
+            throw new CustomErrorHandler(400, "Only internal notes can be pinned");
+        }
+        message.isPinned = pinned ? 1 : 0;
+        return this.messageRepo.save(message);
     }
 
     /**

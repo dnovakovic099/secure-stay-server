@@ -5448,10 +5448,18 @@ export class InboxAIService {
             }
         }
 
+        const staffInstructions = (opts.instructions || "").trim();
         lines.push("");
-        lines.push("## Message history (oldest first)");
-        const recent = messages.slice(-25); // cap context size
-        for (const m of recent) {
+        lines.push(
+            staffInstructions
+                ? "## Full message history (oldest first; staff requested a newly generated or refined reply)"
+                : "## Message history (oldest first)"
+        );
+        // Automatic suggestions keep the existing bounded context. A deliberate
+        // Generate/Refine request must see the full thread so broad instructions
+        // such as "follow up on all pending issues" can account for older asks.
+        const historyMessages = staffInstructions ? messages : messages.slice(-25);
+        for (const m of historyMessages) {
             const who =
                 m.direction === "incoming"
                     ? `GUEST (${m.senderName || conversation.guestName || "guest"})`
@@ -5475,7 +5483,6 @@ export class InboxAIService {
         // Staff steering (composer Refine/Generate). These instructions come from
         // OUR team, take precedence over defaults, and MUST be followed — while
         // still never inventing facts that aren't in context.
-        const staffInstructions = (opts.instructions || "").trim();
         if (staffInstructions) {
             const staffDraft = (opts.baseDraft || "").trim();
             lines.push("");
@@ -5498,6 +5505,11 @@ export class InboxAIService {
                     "member states here as authoritative context you may use."
                 );
             }
+            lines.push(
+                "Use the full message history above. If the instructions refer to all pending, outstanding, or unresolved " +
+                "issues, identify and address each unresolved guest-raised issue across the thread. Do not treat a team " +
+                "acknowledgement, internal note, or promise to follow up as proof that an issue was resolved."
+            );
         }
 
         lines.push("");

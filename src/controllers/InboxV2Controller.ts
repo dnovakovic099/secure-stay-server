@@ -148,7 +148,7 @@ export class InboxV2Controller {
     async internalNote(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const threadId = Number(request.params.threadId);
-            const { note, attachmentUrls } = request.body || {};
+            const { note, attachmentUrls, pinned } = request.body || {};
             if (!Number.isFinite(threadId)) {
                 return response.status(400).json({ status: false, message: "Invalid threadId" });
             }
@@ -157,8 +157,30 @@ export class InboxV2Controller {
             }
             const saved = await new InboxService().addInternalNote(threadId, String(note || "").trim(), request.user, {
                 attachmentUrls: Array.isArray(attachmentUrls) ? attachmentUrls.map(String) : [],
+                pinned: pinned === true || pinned === 1 || pinned === "1",
             });
             return response.status(201).json({ status: true, data: saved });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async setInternalNotePinned(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const threadId = Number(request.params.threadId);
+            const messageId = Number(request.params.messageId);
+            if (!Number.isFinite(threadId) || !Number.isFinite(messageId)) {
+                return response.status(400).json({ status: false, message: "Invalid threadId or messageId" });
+            }
+            if (typeof request.body?.pinned !== "boolean") {
+                return response.status(400).json({ status: false, message: "pinned must be a boolean" });
+            }
+            const saved = await new InboxService().setInternalNotePinned(
+                threadId,
+                messageId,
+                request.body.pinned
+            );
+            return response.status(200).json({ status: true, data: saved });
         } catch (error) {
             return next(error);
         }

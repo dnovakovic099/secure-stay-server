@@ -131,6 +131,34 @@ export async function ensureInboxConversationAiNeedsHumanColumns() {
   }
 }
 
+let inboxMessagePinSchemaEnsured = false;
+
+export async function ensureInboxMessagePinColumns() {
+  if (!appDatabase.isInitialized || inboxMessagePinSchemaEnsured) return;
+
+  try {
+    await addColumnIfMissing("inbox_messages", "isPinned", "TINYINT NOT NULL DEFAULT 0");
+    const existingIndexes = await appDatabase.query(
+      "SHOW INDEX FROM inbox_messages WHERE Key_name = ?",
+      ["idx_inbox_messages_pinned"]
+    );
+    if (!Array.isArray(existingIndexes) || existingIndexes.length === 0) {
+      try {
+        await appDatabase.query(
+          "CREATE INDEX idx_inbox_messages_pinned ON inbox_messages (threadId, isPinned, sentAt)"
+        );
+        logger.info("Added missing idx_inbox_messages_pinned index");
+      } catch (error: any) {
+        if (error?.code !== "ER_DUP_KEYNAME") throw error;
+      }
+    }
+    inboxMessagePinSchemaEnsured = true;
+  } catch (error) {
+    logger.error("Failed to ensure Inbox internal note pin columns:", error);
+    throw error;
+  }
+}
+
 let turnoverSettingsSchemaEnsured = false;
 
 export async function ensureTurnoverSettingsColumns() {
