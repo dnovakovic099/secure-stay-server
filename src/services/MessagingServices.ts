@@ -1188,19 +1188,47 @@ export class MessagingService {
 
         let hostifyReservation: any = null;
         let customFields: any[] = [];
+        let hostifyTransactions: any[] = [];
         try {
-            const [reservationResponse, customFieldResponse] = await Promise.all([
+            const [reservationResponse, customFieldResponse, transactionResponse] = await Promise.all([
                 this.hostifyClient.getReservationInfo(process.env.HOSTIFY_API_KEY, reservationId),
                 this.hostifyClient.getReservationCustomFields(process.env.HOSTIFY_API_KEY, reservationId),
+                this.hostifyClient.getTransactions(process.env.HOSTIFY_API_KEY, { reservation_id: reservationId }),
             ]);
             hostifyReservation = reservationResponse;
             customFields = Array.isArray(customFieldResponse) ? customFieldResponse : [];
+            hostifyTransactions = Array.isArray(transactionResponse) ? transactionResponse : [];
         } catch (error: any) {
             logger.warn(`[Hostify] Unable to enrich reservation details for ${reservationId}: ${error.message}`);
         }
 
         const liveReservation = hostifyReservation?.reservation || {};
         const liveListing = hostifyReservation?.listing || {};
+        const securityDepositTransactions = hostifyTransactions
+            .filter((transaction: any) => {
+                const type = String(transaction?.type ?? transaction?.transaction_type ?? "").trim().toLowerCase();
+                const details = String(transaction?.details ?? "").trim().toLowerCase();
+                return type === "deposit" || details === "security deposit";
+            })
+            .map((transaction: any) => ({
+                id: transaction?.id ?? transaction?.transaction_id ?? null,
+                amount: transaction?.amount ?? transaction?.value ?? null,
+                amount_fee: transaction?.amount_fee ?? null,
+                currency: transaction?.currency ?? null,
+                type: transaction?.type ?? transaction?.transaction_type ?? null,
+                type_description: transaction?.type_description ?? null,
+                charge_type: transaction?.charge_type ?? null,
+                charge_status: transaction?.charge_status ?? null,
+                is_completed: transaction?.is_completed ?? transaction?.completed ?? null,
+                source: transaction?.source ?? null,
+                details: transaction?.details ?? null,
+                created_at: transaction?.created_at ?? null,
+                updated_at: transaction?.updated_at ?? null,
+                charge_date: transaction?.charge_date ?? null,
+                authorization_type: transaction?.authorization_type ?? null,
+                authorization_release_date: transaction?.authorization_release_date ?? null,
+                original_transaction_id: transaction?.original_transaction_id ?? null,
+            }));
 
         // Guest name/email/phone usually live only on the Hostify guest record
         // (reservations carry a guest_id, not a name — notably new/manual
@@ -1360,6 +1388,10 @@ export class MessagingService {
                 }
                 return null;
             })(),
+            // Keep the raw Hostify field available to clients that need to
+            // distinguish the reservation total from collected/payout values.
+            total_price: liveReservation?.total_price ?? reservation.totalPrice ?? null,
+            owner_revenue: liveReservation?.owner_revenue ?? reservation.owner_revenue ?? null,
             netRevenue:
                 liveReservation?.net_revenue ??
                 liveReservation?.payout_price ??
@@ -1410,22 +1442,18 @@ export class MessagingService {
                 if (Number.isFinite(paid) && Number.isFinite(total)) return Math.max(0, total - paid);
                 return null;
             })(),
-            // Security deposit (Hostify: security_price / deposit_paid / deposit_fully_paid).
-            security_price:
-                liveReservation?.security_price ??
-                liveReservation?.security_deposit ??
-                reservation.securityDepositFee ??
-                null,
-            deposit_paid:
-                liveReservation?.deposit_paid ??
-                liveReservation?.security_deposit_paid ??
-                null,
+            // Keep Hostify's raw reservation deposit fields separate. The Inbox
+            // presents them verbatim instead of deriving a status or substituting
+            // a property/listing default.
+            security_price: liveReservation?.security_price ?? null,
+            security_deposit: liveReservation?.security_deposit ?? null,
+            deposit_paid: liveReservation?.deposit_paid ?? null,
+            security_deposit_paid: liveReservation?.security_deposit_paid ?? null,
             deposit_refunded: liveReservation?.deposit_refunded ?? null,
-            deposit_fully_paid:
-                liveReservation?.deposit_fully_paid ??
-                liveReservation?.deposit_full_paid ??
-                liveReservation?.security_deposit_fully_paid ??
-                null,
+            deposit_fully_paid: liveReservation?.deposit_fully_paid ?? null,
+            deposit_full_paid: liveReservation?.deposit_full_paid ?? null,
+            security_deposit_fully_paid: liveReservation?.security_deposit_fully_paid ?? null,
+            securityDepositTransactions,
             confirmedAt: liveReservation?.confirmed_at ?? (reservation as any).confirmedAt ?? (reservation as any).reservationDate ?? null,
             plannedArrival: liveReservation?.planned_arrival ?? null,
             plannedDeparture: liveReservation?.planned_departure ?? null,
@@ -1440,6 +1468,14 @@ export class MessagingService {
             checkOutTimeLocal: checkOutLocal,
             checkInTimeEastern: normalizedListing?.checkInEastern || null,
             checkOutTimeEastern: normalizedListing?.checkOutEastern || null,
+            // Reservation-specific fee lines are the source of truth for the
+            // price breakdown. Do not substitute listing/property fee defaults.
+            fees: Array.isArray(hostifyReservation?.fees) ? hostifyReservation.fees : [],
+            transactions: Array.isArray(hostifyReservation?.trasnsactions)
+                ? hostifyReservation.trasnsactions
+                : Array.isArray(hostifyReservation?.transactions)
+                    ? hostifyReservation.transactions
+                    : [],
         };
     }
 

@@ -1020,8 +1020,15 @@ export class ListingService {
     const start = startDate || formatDate(new Date());
     const end = endDate || formatDate(new Date(Date.now() + 29 * 24 * 60 * 60 * 1000));
 
-    const calendar = await this.hostifyClient.getCalendar(hostifyApiKey, Number(listingId), start, end);
-    return this.enrichHostifyCalendarWithReservations(hostifyApiKey, calendar);
+    const [calendar, listingResponse] = await Promise.all([
+      this.hostifyClient.getCalendar(hostifyApiKey, Number(listingId), start, end),
+      this.hostifyClient.getListingDetails(hostifyApiKey, listingId).catch((error: any) => {
+        logger.warn(`Unable to fetch Hostify listing ${listingId} while enriching its calendar: ${error?.message || error}`);
+        return null;
+      }),
+    ]);
+    const listing = listingResponse?.listing || listingResponse?.data?.listing || listingResponse?.data || listingResponse || null;
+    return this.enrichHostifyCalendarWithReservations(hostifyApiKey, calendar, listing);
   }
 
   private cleanCalendarText(value: unknown) {
@@ -1053,10 +1060,11 @@ export class ListingService {
     );
   }
 
-  private async enrichHostifyCalendarWithReservations(hostifyApiKey: string, calendar: any[]) {
+  private async enrichHostifyCalendarWithReservations(hostifyApiKey: string, calendar: any[], listing: any = null) {
     const days = Array.isArray(calendar) ? calendar : [];
     const reservationIds = Array.from(new Set(days.map((day) => this.getCalendarReservationId(day)).filter(Boolean))) as number[];
     const reservationMap = new Map<number, any>();
+    const guestMap = new Map<string, any>();
     const limit = pLimit(6);
 
     await Promise.all(
@@ -1065,7 +1073,21 @@ export class ListingService {
           try {
             const response = await this.hostifyClient.getReservationInfo(hostifyApiKey, reservationId);
             const reservation = this.getReservationPayload(response);
-            if (reservation) reservationMap.set(reservationId, reservation);
+            if (!reservation) return;
+
+            reservationMap.set(reservationId, reservation);
+            const guestId = reservation?.guest_id ?? reservation?.guestId ?? reservation?.guest?.id ?? null;
+            const guestName = this.getReservationGuestName(reservation);
+            const guestEmail = this.cleanCalendarText(
+              reservation?.guest_email || reservation?.guestEmail || reservation?.guest?.email
+            );
+            const guestPhone = this.cleanCalendarText(
+              reservation?.guest_phone || reservation?.guestPhone || reservation?.phone || reservation?.guest?.phone
+            );
+            if (guestId && (!guestName || !guestEmail || !guestPhone)) {
+              const guest = await this.hostifyClient.getGuest(hostifyApiKey, guestId);
+              if (guest) guestMap.set(String(guestId), guest);
+            }
           } catch (error: any) {
             logger.warn(`Unable to enrich Hostify calendar reservation ${reservationId}: ${error?.message || error}`);
           }
@@ -1076,12 +1098,32 @@ export class ListingService {
     return days.map((day) => {
       const reservationId = this.getCalendarReservationId(day);
       const reservation = reservationId ? reservationMap.get(reservationId) : null;
-      const guestName = reservation ? this.getReservationGuestName(reservation) : null;
-      const guestCount = reservation
-        ? Number(reservation?.guests || 0) ||
-          [reservation?.adults, reservation?.children, reservation?.infants].reduce((total, value) => total + (Number(value) || 0), 0) ||
-          null
-        : null;
+      const guestId = reservation?.guest_id ?? reservation?.guestId ?? reservation?.guest?.id ?? null;
+      const guest = guestId ? guestMap.get(String(guestId)) : null;
+      const guestName =
+        (reservation ? this.getReservationGuestName(reservation) : null) ||
+        this.cleanCalendarText(
+          guest?.name ||
+          guest?.full_name ||
+          guest?.fullName ||
+          [guest?.first_name, guest?.last_name].filter(Boolean).join(' ')
+        );
+      const checkInTime =
+        reservation?.checkin_time ??
+        reservation?.check_in_time ??
+        reservation?.checkInTime ??
+        listing?.checkin_start ??
+        listing?.check_in_time ??
+        listing?.checkInTimeStart ??
+        null;
+      const checkOutTime =
+        reservation?.checkout_time ??
+        reservation?.check_out_time ??
+        reservation?.checkOutTime ??
+        listing?.checkout ??
+        listing?.check_out_time ??
+        listing?.checkOutTime ??
+        null;
 
       return {
         ...day,
@@ -1090,18 +1132,45 @@ export class ListingService {
         reservation_id: reservationId || day?.reservation_id || day?.reservationId || null,
         reservation: reservation || day?.reservation || null,
         guest_name: guestName || day?.guest_name || day?.guestName || null,
-        guest_email: reservation?.guest_email || reservation?.guestEmail || reservation?.guest?.email || null,
-        guest_phone: reservation?.guest_phone || reservation?.guestPhone || reservation?.guest?.phone || null,
+        guest_email:
+          reservation?.guest_email ||
+          reservation?.guestEmail ||
+          reservation?.guest?.email ||
+          guest?.email ||
+          day?.guest_email ||
+          day?.guestEmail ||
+          null,
+        guest_phone:
+          reservation?.guest_phone ||
+          reservation?.guestPhone ||
+          reservation?.phone ||
+          reservation?.guest?.phone ||
+          guest?.phone ||
+          day?.guest_phone ||
+          day?.guestPhone ||
+          null,
         channel_name: reservation?.source || reservation?.channel_name || reservation?.channelName || day?.channel_name || day?.channelName || null,
+        integration_name:
+          reservation?.integration_nickname ??
+          reservation?.integrationNickname ??
+          reservation?.integration_name ??
+          reservation?.integrationName ??
+          day?.integration_name ??
+          day?.integrationName ??
+          null,
         arrival_date: reservation?.checkIn || reservation?.check_in || reservation?.arrival_date || reservation?.arrivalDate || day?.arrival_date || day?.arrivalDate || null,
         departure_date: reservation?.checkOut || reservation?.check_out || reservation?.departure_date || reservation?.departureDate || day?.departure_date || day?.departureDate || null,
+        check_in_time: checkInTime,
+        check_out_time: checkOutTime,
         confirmation_code: reservation?.confirmation_code || reservation?.confirmationCode || day?.confirmation_code || day?.confirmationCode || null,
-        guests: guestCount || day?.guests || null,
-        adults: reservation?.adults || day?.adults || null,
-        children: reservation?.children || day?.children || null,
-        infants: reservation?.infants || day?.infants || null,
-        nights: reservation?.nights || day?.nights || null,
-        total_price: reservation?.total_price || reservation?.totalPrice || reservation?.revenue || day?.total_price || day?.totalPrice || null,
+        guests: reservation?.guests ?? day?.guests ?? null,
+        adults: reservation?.adults ?? day?.adults ?? null,
+        children: reservation?.children ?? day?.children ?? null,
+        infants: reservation?.infants ?? day?.infants ?? null,
+        pets: reservation?.pets ?? day?.pets ?? null,
+        nights: reservation?.nights ?? day?.nights ?? null,
+        total_price: reservation?.total_price ?? reservation?.totalPrice ?? day?.total_price ?? day?.totalPrice ?? null,
+        currency: reservation?.currency ?? reservation?.currency_code ?? day?.currency ?? day?.currency_code ?? null,
       };
     });
   }
