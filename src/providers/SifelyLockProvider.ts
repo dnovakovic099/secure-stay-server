@@ -14,6 +14,51 @@ import logger from "../utils/logger.utils";
 const SIFELY_REQUEST_TIMEOUT_MS = 30_000;
 
 /**
+ * Sifely allows 30 requests a minute per account and rejects the rest outright.
+ * A nightly sweep across the whole fleet blows straight through that, so hold
+ * to a slightly lower ceiling and make callers wait rather than fail. The
+ * window is shared process-wide because the quota is per account, not per
+ * provider instance.
+ */
+const SIFELY_MAX_REQUESTS_PER_MINUTE = 25;
+const RATE_WINDOW_MS = 60_000;
+const recentRequests: number[] = [];
+let rateGate: Promise<void> = Promise.resolve();
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Claims one slot in the rate window, waiting if the last minute is already
+ * full. Claims are serialised so two concurrent callers cannot take the same
+ * slot and both slip through.
+ */
+function claimRequestSlot(): Promise<void> {
+  const claim = async () => {
+    for (;;) {
+      const now = Date.now();
+      while (recentRequests.length && now - recentRequests[0] >= RATE_WINDOW_MS) {
+        recentRequests.shift();
+      }
+      if (recentRequests.length < SIFELY_MAX_REQUESTS_PER_MINUTE) {
+        recentRequests.push(now);
+        return;
+      }
+      await sleep(RATE_WINDOW_MS - (now - recentRequests[0]) + 100);
+    }
+  };
+
+  const next = rateGate.then(claim, claim);
+  rateGate = next.catch(() => undefined);
+  return next;
+}
+
+function isRateLimited(error: any): boolean {
+  const message =
+    error?.response?.data?.message || error?.response?.data?.errmsg || error?.message || "";
+  return /request count limit has been exceeded|too many requests/i.test(message);
+}
+
+/**
  * Sifely Lock Provider — Open API at cus-openapi.sifely.com.
  * Auth is a raw sk- API key in the Authorization header (no Bearer prefix).
  */
@@ -38,15 +83,32 @@ export class SifelyLockProvider implements ILockProvider {
    * Retry a Sifely request once on 504 / connection timeouts. These are
    * transient — usually the lock's gateway is briefly unreachable and a
    * follow-up succeeds. Non-5xx failures aren't retried.
+   *
+   * Rate-limit rejections are waited out rather than retried immediately:
+   * hitting the quota again just burns another slot and turns a delay into a
+   * guest without a code.
    */
   private async requestWithRetry<T = any>(config: AxiosRequestConfig, attempt = 1): Promise<AxiosResponse<T>> {
+    await claimRequestSlot();
     try {
-      return await axios.request<T>({ timeout: SIFELY_REQUEST_TIMEOUT_MS, ...config });
+      const response = await axios.request<T>({ timeout: SIFELY_REQUEST_TIMEOUT_MS, ...config });
+      // Sifely reports the quota in a 200 body, not an HTTP status.
+      if (isRateLimited({ response }) && attempt < 3) {
+        logger.warn(`Sifely rate limit hit; waiting out the window (attempt ${attempt})`);
+        await sleep(RATE_WINDOW_MS / 2);
+        return this.requestWithRetry<T>(config, attempt + 1);
+      }
+      return response;
     } catch (error: any) {
+      if (isRateLimited(error) && attempt < 3) {
+        logger.warn(`Sifely rate limit hit; waiting out the window (attempt ${attempt})`);
+        await sleep(RATE_WINDOW_MS / 2);
+        return this.requestWithRetry<T>(config, attempt + 1);
+      }
       const status = error?.response?.status;
       const isTransient = status === 502 || status === 503 || status === 504 || error?.code === "ECONNABORTED" || error?.code === "ETIMEDOUT";
       if (!isTransient || attempt >= 2) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 750));
+      await sleep(750);
       return this.requestWithRetry<T>(config, attempt + 1);
     }
   }
