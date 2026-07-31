@@ -6,6 +6,7 @@ import { PropertyDevice } from "../entity/PropertyDevice";
 import { SmartLockDevice } from "../entity/SmartLockDevice";
 import { Listing } from "../entity/Listing";
 import { LockProviderFactory } from "../providers/LockProviderFactory";
+import { ILockProvider } from "../interfaces/ILockProvider";
 import logger from "../utils/logger.utils";
 
 /**
@@ -511,18 +512,67 @@ export class SmartLockAccessCodeService {
         lastErrorAt: null,
       });
     } catch (error: any) {
-      accessCode.status = AccessCodeStatus.FAILED;
-      accessCode.errorMessage = error.message || "Failed to set access code";
-      logger.error(`Failed to set access code ${accessCodeId}:`, error);
-      // Surface the failure on the device too, so the Locks page can flag a bad
-      // lock even when the operator isn't looking at that specific code.
-      await this.deviceRepository.update(device.id, {
-        lastError: accessCode.errorMessage,
-        lastErrorAt: new Date(),
-      });
+      const message = error.message || "Failed to set access code";
+
+      // A duplicate rejection means the guest's code is already programmed —
+      // typically staff set it by hand before the sweep ran. That is the
+      // outcome we wanted, so adopt the existing code rather than reporting a
+      // failure and alerting someone about a door that already works.
+      const adopted = /same passcode already exists|passcode already exist/i.test(message)
+        ? await this.adoptExistingCode(accessCode, device, provider)
+        : false;
+
+      if (adopted) {
+        logger.info(
+          `Access code ${accessCodeId} already present on device ${device.id}; adopted existing passcode`
+        );
+        await this.deviceRepository.update(device.id, { lastError: null, lastErrorAt: null });
+      } else {
+        accessCode.status = AccessCodeStatus.FAILED;
+        accessCode.errorMessage = message;
+        logger.error(`Failed to set access code ${accessCodeId}:`, error);
+        // Surface the failure on the device too, so the Locks page can flag a bad
+        // lock even when the operator isn't looking at that specific code.
+        await this.deviceRepository.update(device.id, {
+          lastError: message,
+          lastErrorAt: new Date(),
+        });
+      }
     }
 
     return await this.accessCodeRepository.save(accessCode);
+  }
+
+  /**
+   * Reconciles a code the lock says already exists. Reads the device's current
+   * passcodes and, if the guest's code is genuinely there, records it as set so
+   * it can still be reported to the guest and revoked at checkout.
+   *
+   * Returns false if the code cannot be confirmed, in which case the caller
+   * should treat the original rejection as a real failure.
+   */
+  private async adoptExistingCode(
+    accessCode: AccessCode,
+    device: SmartLockDevice,
+    provider: ILockProvider
+  ): Promise<boolean> {
+    try {
+      const existing = await provider.listAccessCodes(device.externalDeviceId);
+      const match = existing.find((c) => String(c.code) === String(accessCode.code));
+      if (!match) return false;
+
+      accessCode.externalCodeId = match.externalCodeId;
+      accessCode.status = AccessCodeStatus.SET;
+      accessCode.setAt = new Date();
+      accessCode.providerStatus = match.status || "set";
+      accessCode.errorMessage = null;
+      return true;
+    } catch (error: any) {
+      logger.warn(
+        `Could not confirm existing passcode on device ${device.id}: ${error?.message}`
+      );
+      return false;
+    }
   }
 
   /**
