@@ -6,6 +6,22 @@ import { Device } from "../interfaces/ILockProvider";
 import { LockProviderHealthService } from "./LockProviderHealthService";
 import logger from "../utils/logger.utils";
 
+export interface MappingReviewRow {
+  mappingId: number;
+  propertyId: number;
+  propertyName: string | null;
+  deviceId: number;
+  deviceName: string | null;
+  provider: string | null;
+  manufacturer: string | null;
+  locationLabel: string | null;
+  isGuestDoor: boolean;
+  verificationStatus: string;
+  verificationNote: string | null;
+  confirmedBy: string | null;
+  confirmedAt: Date | null;
+}
+
 /**
  * Smart Lock Device Service
  * Manages smart lock devices and property-device mappings
@@ -195,6 +211,74 @@ export class SmartLockDeviceService {
     return await this.propertyDeviceRepository.find({
       relations: ["device", "property"],
     });
+  }
+
+  /**
+   * Every active mapping, for a person to check that each lock really does open
+   * the unit we think it does. Unverified mappings come first because those are
+   * the ones nobody has ever looked at.
+   */
+  async getMappingsForReview(): Promise<MappingReviewRow[]> {
+    const mappings = await this.propertyDeviceRepository.find({
+      where: { isActive: true },
+      relations: ["device", "property"],
+    });
+
+    const order: Record<string, number> = { unverified: 0, evidence_matched: 1, confirmed: 2 };
+
+    return mappings
+      .map((m) => ({
+        mappingId: m.id,
+        propertyId: m.propertyId,
+        propertyName: m.property?.name || null,
+        deviceId: m.deviceId,
+        deviceName: m.device?.deviceName || null,
+        provider: m.device?.provider || null,
+        manufacturer: m.device?.manufacturer || null,
+        locationLabel: m.locationLabel || null,
+        isGuestDoor: m.isGuestDoor,
+        verificationStatus: m.verificationStatus,
+        verificationNote: m.verificationNote,
+        confirmedBy: m.confirmedBy,
+        confirmedAt: m.confirmedAt,
+      }))
+      .sort((a, b) => {
+        const byStatus =
+          (order[a.verificationStatus] ?? 0) - (order[b.verificationStatus] ?? 0);
+        if (byStatus !== 0) return byStatus;
+        return (a.propertyName || "").localeCompare(b.propertyName || "");
+      });
+  }
+
+  /**
+   * Record a rep's decision about a mapping.
+   *
+   * Rejecting deactivates the mapping rather than deleting it: if a lock does
+   * not open the unit we thought, the urgent thing is to stop sending that
+   * unit's guests to it, while keeping the record so nobody re-creates the same
+   * wrong mapping later.
+   */
+  async setMappingVerification(
+    mappingId: number,
+    decision: "confirmed" | "rejected",
+    actor: string,
+    note?: string
+  ): Promise<PropertyDevice> {
+    const mapping = await this.propertyDeviceRepository.findOne({
+      where: { id: mappingId },
+      relations: ["device"],
+    });
+    if (!mapping) {
+      throw new Error(`Mapping ${mappingId} not found`);
+    }
+
+    mapping.verificationStatus = decision;
+    mapping.confirmedBy = actor;
+    mapping.confirmedAt = new Date();
+    if (note) mapping.verificationNote = note;
+    if (decision === "rejected") mapping.isActive = false;
+
+    return await this.propertyDeviceRepository.save(mapping);
   }
 
   /**

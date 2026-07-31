@@ -59,6 +59,11 @@ export interface LockOverviewRow {
   /** The next code due to be pushed to the lock. */
   nextCode: LockOverviewCode | null;
   recentFailure: LockOverviewCode | null;
+  /**
+   * False when the lock has no gateway, so codes can only be entered at the
+   * keypad. Nothing in software fixes this — it needs a bridge installed.
+   */
+  canProgramRemotely: boolean;
   failedCodeCount: number;
   totalCodeCount: number;
   codeState: LockCodeState;
@@ -97,6 +102,30 @@ export interface LockOverviewStats {
 
 /** Below this fraction the lock is close enough to dead to warrant a swap. */
 const LOW_BATTERY_THRESHOLD = 0.25;
+
+/** How long a device-level error stays worth acting on. */
+const STALE_ERROR_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Sifely reports whether a lock is paired to a gateway. Without one the lock is
+ * bluetooth-only, so no API can push a code to it however many times we retry.
+ */
+function canProgramRemotely(device: SmartLockDevice): boolean {
+  if (device.provider !== "sifely") return true;
+  const meta = (device.providerMetadata || {}) as Record<string, any>;
+  return meta.hasGateway === 1;
+}
+
+/**
+ * Whether a lock is failing in a way someone should do something about now, as
+ * opposed to carrying the scar of an error from months ago.
+ */
+function hasLiveError(row: LockOverviewRow): boolean {
+  if (row.failedCodeCount > 0) return true;
+  if (!row.lastError) return false;
+  if (!row.lastErrorAt) return true;
+  return Date.now() - new Date(row.lastErrorAt).getTime() <= STALE_ERROR_MS;
+}
 
 function toCode(code: AccessCode): LockOverviewCode {
   return {
@@ -165,7 +194,11 @@ export class LockOverviewService {
       }
     }
 
-    const listingById = new Map(listings.map((l) => [l.id, l]));
+    // listing_info.id is a bigint, which the driver hands back as a string,
+    // while property_devices.property_id is an int and comes back as a number.
+    // Key on the string form of both so the lookup actually matches — otherwise
+    // every lock shows "Property 300017826" instead of the listing name.
+    const listingById = new Map(listings.map((l) => [String(l.id), l]));
     const settingsByProperty = new Map(settings.map((s) => [s.propertyId, s]));
 
     const codesByDevice = new Map<number, AccessCode[]>();
@@ -176,10 +209,15 @@ export class LockOverviewService {
     }
 
     const now = new Date();
+    const startOfToday = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+    );
+    // Failures on codes with no stay attached age out rather than sticking forever.
+    const staleFailureCutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
     return devices.map((device) => {
       const mapping = mappingByDevice.get(device.id) || null;
-      const listing = mapping ? listingById.get(mapping.propertyId) || null : null;
+      const listing = mapping ? listingById.get(String(mapping.propertyId)) || null : null;
       const propertySettings = mapping
         ? settingsByProperty.get(mapping.propertyId) || null
         : null;
@@ -206,9 +244,14 @@ export class LockOverviewService {
               new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
           )[0] || null;
 
-      const failedCodes = deviceCodes.filter(
-        (code) => code.status === AccessCodeStatus.FAILED
-      );
+      // Only failures that still matter. A code that failed for a stay which
+      // ended in April tells an operator nothing today, and hundreds of them
+      // bury the handful of doors that genuinely need attention right now.
+      const failedCodes = deviceCodes.filter((code) => {
+        if (code.status !== AccessCodeStatus.FAILED) return false;
+        if (code.checkOutDate) return new Date(code.checkOutDate) >= startOfToday;
+        return new Date(code.createdAt) >= staleFailureCutoff;
+      });
 
       let codeState: LockCodeState = "none";
       if (activeCode) codeState = "active";
@@ -247,6 +290,7 @@ export class LockOverviewService {
         activeCode: activeCode ? toCode(activeCode) : null,
         nextCode: nextCode ? toCode(nextCode) : null,
         recentFailure: failedCodes[0] ? toCode(failedCodes[0]) : null,
+        canProgramRemotely: canProgramRemotely(device),
         failedCodeCount: failedCodes.length,
         totalCodeCount: deviceCodes.length,
         codeState,
@@ -318,9 +362,7 @@ export class LockOverviewService {
     }
 
     if (filters.hasError) {
-      result = result.filter(
-        (row) => Boolean(row.lastError) || row.failedCodeCount > 0
-      );
+      result = result.filter(hasLiveError);
     }
 
     if (filters.propertyId !== undefined) {
@@ -402,7 +444,7 @@ export class LockOverviewService {
       offline: rows.filter((r) => !r.isOnline).length,
       unmapped: rows.filter((r) => !r.isMapped).length,
       withActiveCode: rows.filter((r) => r.codeState === "active").length,
-      failing: rows.filter((r) => r.failedCodeCount > 0 || Boolean(r.lastError)).length,
+      failing: rows.filter(hasLiveError).length,
       lowBattery: rows.filter(
         (r) =>
           (r.batteryLevel !== null && r.batteryLevel <= LOW_BATTERY_THRESHOLD) ||
