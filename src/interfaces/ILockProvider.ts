@@ -109,9 +109,13 @@ export interface ILockProvider {
   ): Promise<ProviderAccessCode>;
 
   /**
-   * Deletes an access code
+   * Deletes an access code.
+   *
+   * `externalDeviceId` is required by providers whose delete endpoint is keyed
+   * on the lock as well as the code (Sifely/TTLock). Providers that encode the
+   * lock inside `externalCodeId` ignore it.
    */
-  deleteAccessCode(externalCodeId: string): Promise<void>;
+  deleteAccessCode(externalCodeId: string, externalDeviceId?: string): Promise<void>;
 
   /**
    * Lists all access codes for a device

@@ -50,13 +50,38 @@ function addHours(date: Date, hours: number): Date {
  * would hand out the last 4 of the second number — not the one the guest is
  * told to use at the door. Take the first entry that has enough digits instead.
  */
-export function primaryPhoneLastFour(guestPhone?: string | null): string | null {
+export function primaryPhoneDigits(guestPhone?: string | null): string | null {
   if (!guestPhone) return null;
   for (const candidate of String(guestPhone).split(/[,;/]+/)) {
     const digits = candidate.replace(/\D/g, "");
-    if (digits.length >= 4) return digits.slice(-4);
+    if (digits.length >= 4) return digits;
   }
   return null;
+}
+
+export function primaryPhoneLastFour(guestPhone?: string | null): string | null {
+  const digits = primaryPhoneDigits(guestPhone);
+  return digits ? digits.slice(-4) : null;
+}
+
+/**
+ * Whether a lock will refuse this passcode for being trivially guessable.
+ *
+ * Verified against the live Sifely API on a real lock: 1234, 4321, 1111 and
+ * 0000 are rejected with "Passcode is too simple"; 1212, 8080, 1123, 1233,
+ * 1357 and 2468 are accepted. So the rule is all-identical digits, or a strict
+ * ascending/descending run — not merely repeating a digit somewhere.
+ *
+ * This matters because roughly 1 in 400 phone numbers ends in such a run, and
+ * without this check that guest silently gets a `failed` code and no way in.
+ */
+export function isWeakPasscode(code: string): boolean {
+  if (!/^\d{4,}$/.test(code)) return false;
+  const digits = code.split("").map(Number);
+  if (digits.every((d) => d === digits[0])) return true;
+  const ascending = digits.every((d, i) => i === 0 || d === digits[i - 1] + 1);
+  const descending = digits.every((d, i) => i === 0 || d === digits[i - 1] - 1);
+  return ascending || descending;
 }
 
 /**
@@ -85,16 +110,34 @@ export class SmartLockAccessCodeService {
       return settings.defaultAccessCode;
     }
 
-    // Try to extract last 4 digits from phone
+    // Prefer the last 4 digits of the guest's phone. When those happen to form
+    // a passcode the locks refuse (1234, 0000, ...), slide one digit left
+    // through the same number rather than jumping straight to a random code —
+    // the guest is still given digits from their own phone, and the value is
+    // stable across retries instead of changing on every attempt.
     if (guestPhone && settings?.codeGenerationMode !== CodeGenerationMode.RANDOM) {
-      const lastFour = primaryPhoneLastFour(guestPhone);
-      if (lastFour) {
-        return lastFour;
+      const digits = primaryPhoneDigits(guestPhone);
+      if (digits) {
+        for (let end = digits.length; end >= 4; end--) {
+          const candidate = digits.slice(end - 4, end);
+          if (!isWeakPasscode(candidate)) {
+            if (end !== digits.length) {
+              logger.warn(
+                `[AccessCode] Phone ending ${digits.slice(-4)} is rejected by the locks as too simple; using ${candidate} from the same number instead`
+              );
+            }
+            return candidate;
+          }
+        }
       }
     }
 
-    // Fallback: generate random 4-digit code
-    return Math.floor(1000 + Math.random() * 9000).toString();
+    // Fallback: random 4-digit code the locks will actually accept.
+    let random: string;
+    do {
+      random = Math.floor(1000 + Math.random() * 9000).toString();
+    } while (isWeakPasscode(random));
+    return random;
   }
 
   /**
@@ -559,7 +602,10 @@ export class SmartLockAccessCodeService {
     if (accessCode.externalCodeId && accessCode.status === AccessCodeStatus.SET) {
       const provider = LockProviderFactory.getProvider(accessCode.device.provider);
       try {
-        await provider.deleteAccessCode(accessCode.externalCodeId);
+        await provider.deleteAccessCode(
+          accessCode.externalCodeId,
+          accessCode.device?.externalDeviceId
+        );
         logger.info(`Deleted access code ${accessCodeId} from device`);
       } catch (error: any) {
         logger.error(`Failed to delete access code ${accessCodeId} from provider:`, error);

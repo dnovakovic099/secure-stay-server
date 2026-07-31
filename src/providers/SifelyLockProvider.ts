@@ -297,12 +297,24 @@ export class SifelyLockProvider implements ILockProvider {
    * Deletes an access code
    * Docs: https://apidocs.sifely.com/api-197300858
    */
-  async deleteAccessCode(externalCodeId: string): Promise<void> {
+  async deleteAccessCode(externalCodeId: string, externalDeviceId?: string): Promise<void> {
     try {
       const headers = await this.authHeaders();
 
+      if (!externalDeviceId) {
+        throw new Error(
+          "Sifely passcode deletion requires the lock id; call deleteAccessCode(codeId, deviceId)."
+        );
+      }
+
+      // Sifely rejects this call outright without lockId and deleteType — it
+      // answers HTTP 500 "Required request parameter 'lockId' ... is not
+      // present". deleteType 2 removes the passcode via the gateway, which is
+      // the only path that works without someone standing at the door.
       const queryParams = {
+        lockId: externalDeviceId,
         keyboardPwdId: externalCodeId,
+        deleteType: 2,
       };
 
       const response = await this.requestWithRetry({
@@ -312,12 +324,18 @@ export class SifelyLockProvider implements ILockProvider {
         params: queryParams,
       });
 
+      // Success comes back as {"errcode":0}, failures as either a non-zero
+      // `errcode` or the wrapper `code`. Check both, otherwise a refused
+      // delete looks like a success and the code stays on the door.
       const data = response.data;
       if (data.code !== undefined && data.code !== 0 && data.code !== 200) {
         throw new Error(data.message || "Failed to delete passcode");
       }
+      if (data.errcode !== undefined && data.errcode !== 0) {
+        throw new Error(data.errmsg || `Failed to delete passcode (errcode ${data.errcode})`);
+      }
 
-      logger.info(`Deleted Sifely passcode ${externalCodeId}`);
+      logger.info(`Deleted Sifely passcode ${externalCodeId} from lock ${externalDeviceId}`);
     } catch (error: any) {
       const normalized = this.normalizeSifelyError(error, "deleting passcode");
       logger.error("Error deleting Sifely passcode:", normalized.message);
