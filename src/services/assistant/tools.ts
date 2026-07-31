@@ -54,6 +54,47 @@ const credential = (v: any): string | null => {
     return placeholder.test(bare) ? null : s;
 };
 
+/**
+ * Turn a question into keywords worth a LIKE scan. Drops filler so "how do door
+ * codes work at Scottsdale" searches for door/code rather than matching every
+ * message containing "how". Trailing plurals are trimmed so "codes" finds "code".
+ */
+const STOPWORDS = new Set(
+    ("a an the is are was were be been do does did how what when where which who whom why " +
+        "can could should would will shall may might must i we you they it he she this that these " +
+        "those to for from with without at in on of by about into over under again our your their " +
+        "my me us them there here and or but if then than so as any all some no not out up down " +
+        "get got give tell show find need want know work works working use used using please " +
+        "property listing house home guest").split(" ")
+);
+const keywords = (raw: string): string[] => {
+    const words = String(raw || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter((w) => w.length >= 3 && !STOPWORDS.has(w))
+        .map((w) => (w.length > 4 && w.endsWith("s") ? w.slice(0, -1) : w));
+    return [...new Set(words)].slice(0, 5);
+};
+const matchCount = (text: string, terms: string[]): number => {
+    const t = String(text || "").toLowerCase();
+    return terms.filter((k) => t.includes(k)).length;
+};
+/** ~320 chars centred on the first keyword hit, so the model sees the relevant part. */
+const snippet = (text: string, terms: string[]): string => {
+    const s = String(text || "").replace(/\s+/g, " ").trim();
+    if (s.length <= 320) return s;
+    const lower = s.toLowerCase();
+    let at = -1;
+    for (const k of terms) {
+        const i = lower.indexOf(k);
+        if (i !== -1 && (at === -1 || i < at)) at = i;
+    }
+    if (at === -1) return `${s.slice(0, 320)}…`;
+    const start = Math.max(0, at - 120);
+    return `${start > 0 ? "…" : ""}${s.slice(start, start + 320)}${start + 320 < s.length ? "…" : ""}`;
+};
+
 /** listing_info.checkInTimeStart etc. are stored as an hour integer (0-23). */
 const hour = (h: any): string | null => {
     const n = Number(h);
@@ -222,6 +263,35 @@ export const TOOL_SCHEMAS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
                 properties: {
                     query: { type: "string", description: "The question, in the user's own words." },
                     listingId: { type: "number", description: "Optional: restrict to one property." },
+                },
+                required: ["query"],
+            },
+        },
+    },
+    {
+        type: "function",
+        function: {
+            name: "search_history",
+            description:
+                "Keyword search through what the team has ACTUALLY WRITTEN: guest message threads " +
+                "(including automated templates sent to guests), ticket descriptions, next steps and " +
+                "resolutions, and internal ticket discussion. This is the fallback when the structured " +
+                "records are empty — staff have often explained a procedure to a guest, or worked it out on " +
+                "a ticket, without anyone entering it as a property field. Use it before telling someone " +
+                "you could not find something. Scope with listingId or property when the question is " +
+                "about one house.",
+            parameters: {
+                type: "object",
+                properties: {
+                    query: {
+                        type: "string",
+                        description:
+                            "Keywords to look for, e.g. 'door code' or 'gate remote'. Plain words work " +
+                            "better than a full sentence.",
+                    },
+                    listingId: { type: "number", description: "Restrict to one property." },
+                    property: { type: "string", description: "Property name or nickname, if you have no listingId." },
+                    months: { type: "number", description: "How far back to look. Default 24." },
                 },
                 required: ["query"],
             },
@@ -630,6 +700,169 @@ const handlers: Record<string, Handler> = {
                           "suggest the user add it to the property's knowledge base."
                         : "Ranked by semantic similarity. Low scores mean a loose match; do not present a " +
                           "loose match as a confirmed fact.",
+            },
+            rowCount: hits.length,
+        };
+    },
+
+    async search_history(args, ctx) {
+        requireCapability(ctx.viewer, "property.knowledge", "History search is not available to you.");
+
+        const raw = String(args.query || "").trim();
+        const terms = keywords(raw);
+        if (!terms.length) {
+            return { data: { note: "Give me at least one keyword to search for." }, rowCount: 0 };
+        }
+        // A door code found in an old guest message is still a credential, so make the
+        // audit row say so.
+        if (/\b(code|codes|password|passcode|combo|combination|lockbox|wifi|key ?pad)\b/i.test(raw)) {
+            ctx.returnedCredentials = true;
+        }
+
+        let listingId: number | null = args.listingId ? Number(args.listingId) : null;
+        let listingName: string | null = null;
+        if (!listingId && args.property) {
+            const { listing, ambiguous } = await resolveOne({ property: args.property });
+            if (!listing) return ambiguityResult(ambiguous);
+            listingId = listing.listingId;
+            listingName = listing.name;
+        }
+        const groupIds = new Set<number>();
+        if (listingId) {
+            groupIds.add(listingId);
+            const siblings: any[] = await appDatabase
+                .query(
+                    `SELECT listingId FROM listing_group_map
+                     WHERE groupId = (SELECT groupId FROM listing_group_map WHERE listingId = ? LIMIT 1)`,
+                    [listingId]
+                )
+                .catch(() => []);
+            for (const s of siblings) groupIds.add(Number(s.listingId));
+        }
+
+        const months = Math.min(60, Math.max(1, Math.round(Number(args.months) || 24)));
+        const since = new Date(Date.now() - months * 31 * DAY_MS);
+        const ids = [...groupIds];
+        const anyTerm = (col: string) => `(${terms.map(() => `${col} LIKE ?`).join(" OR ")})`;
+        const likes = terms.map((t) => `%${t}%`);
+
+        // inbox_messages has no index on listingId, so an unscoped search would scan the
+        // whole table. Require a property for the message search and lean on sentAt.
+        const messages: any[] = ids.length
+            ? await appDatabase
+                  .query(
+                      `SELECT m.sentAt, m.direction, m.senderType, m.senderName, m.isAutomatic,
+                              m.body, m.note
+                       FROM inbox_messages m
+                       WHERE m.listingId IN (${ids.map(() => "?").join(",")})
+                         AND m.sentAt >= ?
+                         AND (${anyTerm("m.body")} OR ${anyTerm("m.note")})
+                       ORDER BY m.sentAt DESC
+                       LIMIT 25`,
+                      [...ids, since, ...likes, ...likes]
+                  )
+                  .catch(() => [])
+            : [];
+
+        const issueWhere: string[] = ["i.deleted_at IS NULL", "i.created_at >= ?"];
+        const issueParams: any[] = [since];
+        if (ids.length) {
+            issueWhere.push(
+                `CAST(NULLIF(TRIM(i.listing_id),'') AS UNSIGNED) IN (${ids.map(() => "?").join(",")})`
+            );
+            issueParams.push(...ids);
+        }
+        const textCols = ["i.issue_description", "i.next_steps", "i.resolution", "i.guest_relations_resolution"];
+        issueWhere.push(`(${textCols.map((c) => anyTerm(c)).join(" OR ")})`);
+        for (const _ of textCols) issueParams.push(...likes);
+
+        const [tickets, internal]: any[] = await Promise.all([
+            appDatabase
+                .query(
+                    `SELECT i.id, i.ai_short_title, i.issue_description, i.next_steps, i.resolution,
+                            i.guest_relations_resolution, i.listing_name, i.created_at
+                     FROM issues i
+                     WHERE ${issueWhere.join(" AND ")}
+                     ORDER BY i.created_at DESC LIMIT 15`,
+                    issueParams
+                )
+                .catch(() => []),
+            ids.length
+                ? appDatabase
+                      .query(
+                          `SELECT tm.content, tm.user_name, tm.message_timestamp, i.id AS issueId,
+                                  i.listing_name
+                           FROM thread_messages tm
+                           JOIN issues i ON i.id = tm.gr_task_id
+                           WHERE i.deleted_at IS NULL
+                             AND CAST(NULLIF(TRIM(i.listing_id),'') AS UNSIGNED) IN (${ids.map(() => "?").join(",")})
+                             AND tm.message_timestamp >= ?
+                             AND ${anyTerm("tm.content")}
+                           ORDER BY tm.message_timestamp DESC LIMIT 15`,
+                          [...ids, since, ...likes]
+                      )
+                      .catch(() => [])
+                : [],
+        ]);
+
+        const hits: any[] = [];
+        for (const m of messages) {
+            const text = [m.body, m.note].filter(Boolean).join(" — ");
+            hits.push({
+                source:
+                    Number(m.isAutomatic) === 1
+                        ? "automated message sent to guests"
+                        : m.direction === "incoming"
+                          ? "message from a guest"
+                          : "message a teammate sent a guest",
+                who: m.senderName || m.senderType || null,
+                when: m.sentAt,
+                text: snippet(text, terms),
+                matched: matchCount(text, terms),
+            });
+        }
+        for (const t of tickets) {
+            const text = [t.ai_short_title, t.issue_description, t.next_steps, t.resolution, t.guest_relations_resolution]
+                .filter(Boolean)
+                .join(" — ");
+            hits.push({
+                source: `ticket ${t.id}${t.listing_name ? ` (${t.listing_name})` : ""}`,
+                who: null,
+                when: t.created_at,
+                text: snippet(text, terms),
+                matched: matchCount(text, terms),
+            });
+        }
+        for (const tm of internal) {
+            hits.push({
+                source: `internal discussion on ticket ${tm.issueId}`,
+                who: tm.user_name || null,
+                when: tm.message_timestamp,
+                text: snippet(tm.content, terms),
+                matched: matchCount(tm.content, terms),
+            });
+        }
+        // Most keywords matched first, then most recent — an old message that mentions
+        // every term beats a recent one that happens to contain "code".
+        hits.sort((a, b) => b.matched - a.matched || new Date(b.when).getTime() - new Date(a.when).getTime());
+
+        return {
+            data: {
+                searchedFor: terms,
+                property: listingName ?? (listingId ? `listing ${listingId}` : "all properties"),
+                monthsSearched: months,
+                hits: hits.slice(0, 20),
+                note:
+                    hits.length === 0
+                        ? "Nothing in the message or ticket history mentions these words" +
+                          (ids.length ? " for this property" : "") +
+                          ". Try different keywords, widen months, or drop the property scope before " +
+                          "concluding it is not recorded anywhere."
+                        : "This is what people wrote at the time, not a verified property record. An " +
+                          "automated guest template is reliable for current procedure; a one-off message " +
+                          "from months ago may be stale. Say which one you are quoting and how old it is, " +
+                          "and never present a code found here as confirmed without saying where it came from." +
+                          (ids.length ? "" : " Ticket text only — scope to a property to include guest messages."),
             },
             rowCount: hits.length,
         };

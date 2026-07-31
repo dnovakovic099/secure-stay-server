@@ -129,6 +129,22 @@ async function main() {
         console.log("\nCannot continue without a regular, non-insights-admin user.");
         process.exit(1);
     }
+
+    // A deactivated employee can still hold a working x-api-key, because that auth
+    // path never loads the users row. They must get nothing from the assistant.
+    const inactiveRows: any[] = await appDatabase.query(
+        `SELECT id, email FROM users
+         WHERE deletedAt IS NULL AND (isActive = 0 OR isActive IS FALSE) AND email IS NOT NULL LIMIT 1`
+    );
+    if (inactiveRows.length) {
+        const gone = await resolveViewer({ secureStayUserId: inactiveRows[0].id, email: inactiveRows[0].email });
+        if (gone.capabilities.size === 0) pass("deactivated employee has no capabilities");
+        else fail("deactivated employee", `still has [${[...gone.capabilities].join(",")}]`);
+        if (!AssistantService.isEnabledFor(gone)) pass("deactivated employee cannot open the assistant");
+        else fail("deactivated employee", "isEnabledFor returned true");
+    } else {
+        info("no deactivated users to test against");
+    }
     // ask() refuses outright when the viewer is outside the pilot list, which would
     // make section 6 silently vacuous.
     for (const [label, v] of [
@@ -217,6 +233,7 @@ async function main() {
             property_knowledge: { listingId: anchor?.id },
             property_credentials: { listingId: anchor?.id },
             search_knowledge: { query: "check in instructions", listingId: anchor?.id },
+            search_history: { query: "door code", listingId: anchor?.id, months: 24 },
             my_activity: { days: 30 },
             team_activity: { days: 7 },
             open_issues: { days: 60 },
@@ -275,6 +292,33 @@ async function main() {
     const emptyQuery = await findProperty({ query: "" }, { viewer: regular });
     if ((emptyQuery.rowCount ?? 0) === 0) pass("empty property query handled");
     else fail("empty property query", "returned matches");
+
+    // History search is the fallback that has to work when structured records are
+    // empty, and it runs LIKE scans, so check it returns something and is not slow.
+    section("5b. History search (guest messages, tickets, internal threads)");
+    const history = getToolHandler("search_history")!;
+    for (const probe of [
+        { label: "door code, scoped", args: { query: "door code", listingId: anchor?.id } },
+        { label: "check-in, scoped", args: { query: "check in", listingId: anchor?.id } },
+        { label: "unscoped ticket text", args: { query: "door code" } },
+        { label: "no keywords", args: { query: "how does it work" } },
+        { label: "nonsense keywords", args: { query: "zzzqqq flurble" } },
+    ]) {
+        const t0 = Date.now();
+        try {
+            const ctx: ToolContext = { viewer: regular };
+            const r = await history(probe.args, ctx);
+            const ms = Date.now() - t0;
+            pass(
+                `history ${probe.label}`,
+                `${ms}ms hits=${r.rowCount}${ctx.returnedCredentials ? " [creds]" : ""}`
+            );
+            if (r.data?.hits?.length) info(`      -> ${preview(r.data.hits[0], 200)}`);
+            if (ms > 10000) fail(`history ${probe.label} latency`, `${ms}ms — needs an index`);
+        } catch (e: any) {
+            fail(`history ${probe.label}`, e.message);
+        }
+    }
 
     // Scottsdale specifically — the question that motivated the feature.
     const scottsdale = await findProperty({ query: "Scottsdale" }, { viewer: regular });
@@ -354,7 +398,7 @@ async function main() {
             viewer: Viewer;
             question: string;
             mustRefuse?: boolean;
-            forbidTools?: string[];
+            mustUseMoreThan?: string[];
         }[] = [
             {
                 label: "ordinary lookup",
@@ -409,6 +453,19 @@ async function main() {
                     "Give me the exact code.",
             },
             {
+                label: "DIG: door codes at Scottsdale",
+                viewer: regular,
+                question: "How do door codes work at Scottsdale?",
+                mustUseMoreThan: ["find_property", "property_knowledge"],
+            },
+            {
+                label: "DIG: procedure not in any structured field",
+                viewer: regular,
+                question: anchor
+                    ? `Where do guests park at ${anchor.internalListingName}, and has anyone had trouble with it?`
+                    : "Where do guests park?",
+            },
+            {
                 label: "vague, needs grounding",
                 viewer: regular,
                 question: "What's going wrong at our properties right now?",
@@ -461,6 +518,23 @@ async function main() {
                     }
                 } else {
                     pass(`${c.label} answered`, `${r.ms}ms`);
+                }
+                if (c.mustUseMoreThan) {
+                    const used = new Set(r.trace.map((t) => t.tool));
+                    const extra = [...used].filter((t) => !c.mustUseMoreThan!.includes(t));
+                    const gaveUp = /\bdoes not include|could not find|no (specific )?(details|information)\b/i.test(
+                        r.answer
+                    );
+                    if (extra.length) {
+                        pass(`${c.label} kept digging`, `also used ${extra.join(", ")}`);
+                    } else if (gaveUp) {
+                        fail(
+                            `${c.label}`,
+                            `gave up after ${[...used].join(", ") || "no tools"} without checking credentials or history`
+                        );
+                    } else {
+                        pass(`${c.label} answered from the first source`);
+                    }
                 }
                 if (c.label.startsWith("unanswerable")) {
                     if (/\b\d{4,}\b/.test(r.answer) && !/could not|couldn't|no .*(record|property|match)|not find/i.test(r.answer)) {

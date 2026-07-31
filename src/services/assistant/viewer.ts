@@ -40,6 +40,7 @@ export interface Viewer {
     userName: string | null;
     email: string | null;
     userType: string | null;
+    isActive: boolean;
     isSuperAdmin: boolean;
     isAdmin: boolean;
     isInsightsAdmin: boolean;
@@ -71,21 +72,21 @@ export async function resolveViewer(user: any): Promise<Viewer> {
     try {
         if (userId) {
             const rows: any[] = await appDatabase.query(
-                `SELECT id, firstName, lastName, email, userType, isSuperAdmin
+                `SELECT id, firstName, lastName, email, userType, isSuperAdmin, isActive
                  FROM users WHERE id = ? AND deletedAt IS NULL LIMIT 1`,
                 [userId]
             );
             row = rows[0] || null;
         } else if (typeof user?.id === "string" && user.id.includes("-")) {
             const rows: any[] = await appDatabase.query(
-                `SELECT id, firstName, lastName, email, userType, isSuperAdmin
+                `SELECT id, firstName, lastName, email, userType, isSuperAdmin, isActive
                  FROM users WHERE uid = ? AND deletedAt IS NULL LIMIT 1`,
                 [user.id]
             );
             row = rows[0] || null;
         } else if (email) {
             const rows: any[] = await appDatabase.query(
-                `SELECT id, firstName, lastName, email, userType, isSuperAdmin
+                `SELECT id, firstName, lastName, email, userType, isSuperAdmin, isActive
                  FROM users WHERE email = ? AND deletedAt IS NULL LIMIT 1`,
                 [email]
             );
@@ -116,10 +117,15 @@ export async function resolveViewer(user: any): Promise<Viewer> {
     const isSuperAdmin = Boolean(row?.isSuperAdmin) || userType === "super admin";
     const isAdmin = isSuperAdmin || userType === "admin";
     const isInsightsAdmin = isAdminEmail(email);
+    // verifySession blocks deactivated accounts on the Supabase path but not on the
+    // x-api-key path, where it never loads the users row at all. A deactivated
+    // employee holding an old key must not be able to read the portfolio through
+    // the assistant, so gate on it here too.
+    const isActive = row ? row.isActive !== false && Number(row.isActive) !== 0 : false;
 
-    const capabilities = new Set<Capability>(BASE_CAPABILITIES);
-    if (isAdmin || isInsightsAdmin) capabilities.add("activity.team");
-    if (isSuperAdmin) capabilities.add("payroll.read");
+    const capabilities = new Set<Capability>(isActive ? BASE_CAPABILITIES : []);
+    if (isActive && (isAdmin || isInsightsAdmin)) capabilities.add("activity.team");
+    if (isActive && isSuperAdmin) capabilities.add("payroll.read");
 
     const fullName = row
         ? [row.firstName, row.lastName].filter(Boolean).join(" ").trim()
@@ -130,6 +136,7 @@ export async function resolveViewer(user: any): Promise<Viewer> {
         userName: fullName || email,
         email: email || row?.email || null,
         userType,
+        isActive,
         isSuperAdmin,
         isAdmin,
         isInsightsAdmin,
