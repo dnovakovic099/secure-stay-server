@@ -103,10 +103,14 @@ async function main() {
         return null;
     };
 
-    const superAdmin = await pick(`(isSuperAdmin = 1 OR userType = 'super admin')`);
-    const admin = await pick(`userType = 'admin'`, (v) => v.isAdmin && !v.isSuperAdmin);
+    // isActive = 1 matters: a large share of the users table is deactivated staff who
+    // cannot log in at all, and testing the assistant as one of them tells us nothing
+    // about what a working employee sees.
+    const ACTIVE = "isActive = 1";
+    const superAdmin = await pick(`${ACTIVE} AND (isSuperAdmin = 1 OR userType = 'super admin')`);
+    const admin = await pick(`${ACTIVE} AND userType = 'admin'`, (v) => v.isAdmin && !v.isSuperAdmin);
     const regular = await pick(
-        `COALESCE(userType,'regular') = 'regular' AND COALESCE(isSuperAdmin,0) = 0`,
+        `${ACTIVE} AND COALESCE(userType,'regular') = 'regular' AND COALESCE(isSuperAdmin,0) = 0`,
         (v) => !v.isAdmin && !v.isInsightsAdmin && !!v.userId
     );
 
@@ -272,6 +276,7 @@ async function main() {
     section("5. Property-resolution edge cases");
     const findProperty = getToolHandler("find_property")!;
     const knowledge = getToolHandler("property_knowledge")!;
+    try {
 
     const nonsense = await findProperty({ query: "zzzz-not-a-real-property-9174" }, { viewer: regular });
     if ((nonsense.rowCount ?? 0) === 0) pass("unknown property returns no matches");
@@ -292,6 +297,10 @@ async function main() {
     const emptyQuery = await findProperty({ query: "" }, { viewer: regular });
     if ((emptyQuery.rowCount ?? 0) === 0) pass("empty property query handled");
     else fail("empty property query", "returned matches");
+
+    } catch (e: any) {
+        fail("property-resolution edge cases", e.message);
+    }
 
     // History search is the fallback that has to work when structured records are
     // empty, and it runs LIKE scans, so check it returns something and is not slow.
@@ -321,20 +330,42 @@ async function main() {
     }
 
     // Scottsdale specifically — the question that motivated the feature.
-    const scottsdale = await findProperty({ query: "Scottsdale" }, { viewer: regular });
-    info(`Scottsdale matches: ${scottsdale.rowCount} — ${preview(scottsdale.data?.matches, 240)}`);
-    if ((scottsdale.rowCount ?? 0) > 0) {
-        const first = scottsdale.data.matches[0];
-        const k = await knowledge({ listingId: first.listingId, topic: "check-in" }, { viewer: regular });
-        const hasCheckIn =
-            k.data?.times?.checkIn ||
-            (k.data?.verifiedFacts || []).some((f: any) => /check_in/.test(f.field)) ||
-            (k.data?.knowledgeBase || []).length > 0 ||
-            k.data?.onboardingRecord?.checkIn;
-        if (hasCheckIn) pass("Scottsdale check-in data is reachable");
-        else fail("Scottsdale check-in", `nothing found: ${preview(k.data, 300)}`);
-    } else {
-        info("No Scottsdale property in the portfolio — skipping that specific check.");
+    try {
+        const scottsdale = await findProperty({ query: "Scottsdale" }, { viewer: regular });
+        info(`Scottsdale matches: ${scottsdale.rowCount} — ${preview(scottsdale.data?.matches, 240)}`);
+        if ((scottsdale.rowCount ?? 0) > 0) {
+            const first = scottsdale.data.matches[0];
+            const k = await knowledge({ listingId: first.listingId, topic: "check-in" }, { viewer: regular });
+            const hasCheckIn =
+                k.data?.times?.checkIn ||
+                (k.data?.verifiedFacts || []).some((f: any) => /check_in/.test(f.field)) ||
+                (k.data?.knowledgeBase || []).length > 0 ||
+                k.data?.onboardingRecord?.checkIn;
+            if (hasCheckIn) pass("Scottsdale check-in data is reachable");
+            else fail("Scottsdale check-in", `nothing found: ${preview(k.data, 300)}`);
+
+            // The screenshot case: what can we actually find about door codes there?
+            const dc = await history(
+                { query: "door code keypad lock", listingId: first.listingId },
+                { viewer: regular }
+            );
+            const cred = await getToolHandler("property_credentials")!(
+                { listingId: first.listingId },
+                { viewer: regular }
+            );
+            info(`Scottsdale door-code history hits: ${dc.rowCount}`);
+            for (const h of (dc.data?.hits || []).slice(0, 3)) info(`      -> ${preview(h, 220)}`);
+            info(`Scottsdale credentials: ${preview(cred.data, 300)}`);
+            if ((dc.rowCount ?? 0) > 0 || cred.data?.standardDoorCode || (cred.data?.accessNotes || []).length) {
+                pass("Scottsdale door-code information is reachable somewhere");
+            } else {
+                info("Nothing on door codes for Scottsdale in credentials or history — genuinely not recorded.");
+            }
+        } else {
+            info("No Scottsdale property in the portfolio — skipping that specific check.");
+        }
+    } catch (e: any) {
+        fail("Scottsdale checks", e.message);
     }
 
     // ── 6. end-to-end with hard and adversarial questions ────────────────────
