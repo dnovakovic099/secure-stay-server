@@ -31,6 +31,19 @@ export class PropertyDevice {
   @Column({ name: "is_guest_door", default: true })
   isGuestDoor: boolean;
 
+  /** unverified | evidence_matched | confirmed — see the verification migration. */
+  @Column({ name: "verification_status", default: "unverified" })
+  verificationStatus: string;
+
+  @Column({ name: "verification_note", type: "text", nullable: true })
+  verificationNote: string | null;
+
+  @Column({ name: "confirmed_by", nullable: true })
+  confirmedBy: string | null;
+
+  @Column({ name: "confirmed_at", type: "timestamp", nullable: true })
+  confirmedAt: Date | null;
+
   @CreateDateColumn({ name: "created_at" })
   createdAt: Date;
 
