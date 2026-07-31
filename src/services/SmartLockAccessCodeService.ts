@@ -1,3 +1,4 @@
+import { Brackets } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import { AccessCode, AccessCodeStatus, AccessCodeSource } from "../entity/AccessCode";
 import { PropertyLockSettings, CodeGenerationMode } from "../entity/PropertyLockSettings";
@@ -311,6 +312,9 @@ export class SmartLockAccessCodeService {
     guestPhone?: string;
     reservationId?: number;
     setImmediately?: boolean;
+    startsAt?: Date;
+    endsAt?: Date;
+    setBy?: string;
   }): Promise<AccessCode> {
     const device = await this.deviceRepository.findOne({
       where: { id: params.deviceId },
@@ -318,6 +322,14 @@ export class SmartLockAccessCodeService {
 
     if (!device) {
       throw new Error(`Device not found: ${params.deviceId}`);
+    }
+
+    // Without a start time, a code pushed "now" would inherit a null window and
+    // Sifely rejects windows that begin in the past, so anchor to the present.
+    const startsAt = params.startsAt ?? (params.setImmediately ? new Date() : null);
+
+    if (params.endsAt && startsAt && params.endsAt <= startsAt) {
+      throw new Error("Code end time must be after its start time");
     }
 
     const accessCode = this.accessCodeRepository.create({
@@ -329,6 +341,9 @@ export class SmartLockAccessCodeService {
       guestPhone: params.guestPhone,
       code: params.code,
       codeName: params.codeName,
+      scheduledAt: startsAt,
+      expiresAt: params.endsAt ?? null,
+      setBy: params.setBy,
       status: params.setImmediately
         ? AccessCodeStatus.PENDING
         : AccessCodeStatus.SCHEDULED,
@@ -388,6 +403,9 @@ export class SmartLockAccessCodeService {
       logger.info(`[AccessCode] Using pre-calculated times for code ${accessCodeId}: startsAt=${startsAt.toISOString()}, endsAt=${endsAt.toISOString()}`);
     }
 
+    accessCode.lastAttemptAt = new Date();
+    accessCode.attemptCount = (accessCode.attemptCount || 0) + 1;
+
     try {
       // Sifely locks without a gateway (or with remote disabled) will silently
       // accept the API call and return a keyboardPwdId while never actually
@@ -425,10 +443,20 @@ export class SmartLockAccessCodeService {
       }
 
       logger.info(`Access code ${accessCodeId} set successfully on device ${device.id}`);
+      await this.deviceRepository.update(device.id, {
+        lastError: null,
+        lastErrorAt: null,
+      });
     } catch (error: any) {
       accessCode.status = AccessCodeStatus.FAILED;
       accessCode.errorMessage = error.message || "Failed to set access code";
       logger.error(`Failed to set access code ${accessCodeId}:`, error);
+      // Surface the failure on the device too, so the Locks page can flag a bad
+      // lock even when the operator isn't looking at that specific code.
+      await this.deviceRepository.update(device.id, {
+        lastError: accessCode.errorMessage,
+        lastErrorAt: new Date(),
+      });
     }
 
     return await this.accessCodeRepository.save(accessCode);
@@ -620,8 +648,13 @@ export class SmartLockAccessCodeService {
   }
 
   /**
-   * Get scheduled access codes for today's check-in date
-   * Used by the daily 5 AM EST job
+   * Codes the daily job should push to devices.
+   *
+   * Two populations qualify. Reservation-driven codes are selected by check-in
+   * date, as they always have been. Manual codes created without a reservation
+   * have no check-in date at all, so they are selected once their `scheduledAt`
+   * has passed — otherwise they would sit in `scheduled` forever and the guest
+   * would arrive at a lock that was never programmed.
    */
   async getScheduledCodesForToday(): Promise<AccessCode[]> {
     // Get today's date in EST timezone
@@ -631,6 +664,7 @@ export class SmartLockAccessCodeService {
 
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
+    const now = new Date();
 
     logger.info(`Finding scheduled codes for today: ${today.toISOString()} to ${tomorrow.toISOString()}`);
 
@@ -638,8 +672,17 @@ export class SmartLockAccessCodeService {
       .createQueryBuilder("ac")
       .leftJoinAndSelect("ac.device", "device")
       .where("ac.status = :status", { status: AccessCodeStatus.SCHEDULED })
-      .andWhere("ac.checkInDate >= :today", { today })
-      .andWhere("ac.checkInDate < :tomorrow", { tomorrow })
+      .andWhere(
+        new Brackets((qb) => {
+          qb.where("ac.checkInDate >= :today AND ac.checkInDate < :tomorrow", {
+            today,
+            tomorrow,
+          }).orWhere(
+            "ac.checkInDate IS NULL AND ac.scheduledAt IS NOT NULL AND ac.scheduledAt <= :now",
+            { now }
+          );
+        })
+      )
       .getMany();
   }
 

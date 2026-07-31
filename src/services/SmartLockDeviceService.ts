@@ -3,6 +3,7 @@ import { SmartLockDevice } from "../entity/SmartLockDevice";
 import { PropertyDevice } from "../entity/PropertyDevice";
 import { LockProviderFactory } from "../providers/LockProviderFactory";
 import { Device } from "../interfaces/ILockProvider";
+import { LockProviderHealthService } from "./LockProviderHealthService";
 import logger from "../utils/logger.utils";
 
 /**
@@ -12,6 +13,7 @@ import logger from "../utils/logger.utils";
 export class SmartLockDeviceService {
   private deviceRepository = appDatabase.getRepository(SmartLockDevice);
   private propertyDeviceRepository = appDatabase.getRepository(PropertyDevice);
+  private healthService = new LockProviderHealthService();
 
   /**
    * Sync devices from a lock provider
@@ -28,6 +30,13 @@ export class SmartLockDeviceService {
     for (const device of providerDevices) {
       const syncedDevice = await this.upsertDevice(device);
       syncedDevices.push(syncedDevice);
+    }
+
+    // Best-effort: a bookkeeping failure must not fail an otherwise good sync.
+    try {
+      await this.healthService.recordSync(provider, syncedDevices.length);
+    } catch (error: any) {
+      logger.warn(`Failed to record sync status for ${provider}: ${error?.message}`);
     }
 
     logger.info(`Synced ${syncedDevices.length} devices from ${provider}`);
@@ -71,6 +80,16 @@ export class SmartLockDeviceService {
         providerMetadata: deviceData.providerMetadata,
       });
     }
+
+    // Telemetry is refreshed on every sync. Unlike the descriptive fields above
+    // these use `??` rather than `||` so a legitimate 0 (flat battery, unlocked)
+    // is not discarded as falsy.
+    device.batteryLevel = deviceData.batteryLevel ?? device.batteryLevel;
+    device.batteryStatus = deviceData.batteryStatus ?? device.batteryStatus;
+    device.isLocked = deviceData.isLocked ?? device.isLocked;
+    device.serialNumber = deviceData.serialNumber ?? device.serialNumber;
+    device.imageUrl = deviceData.imageUrl ?? device.imageUrl;
+    device.lastSyncedAt = new Date();
 
     return await this.deviceRepository.save(device);
   }

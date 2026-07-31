@@ -92,6 +92,16 @@ export class AccessCode {
   @Column({ name: "expires_at", type: "timestamp", nullable: true })
   expiresAt: Date;
 
+  /** Operator email for manually pushed codes; null for scheduler-driven ones. */
+  @Column({ name: "set_by", nullable: true })
+  setBy: string;
+
+  @Column({ name: "last_attempt_at", type: "timestamp", nullable: true })
+  lastAttemptAt: Date;
+
+  @Column({ name: "attempt_count", default: 0 })
+  attemptCount: number;
+
   @CreateDateColumn({ name: "created_at" })
   createdAt: Date;
 

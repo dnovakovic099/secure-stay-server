@@ -2,17 +2,227 @@ import { Router, Request, Response } from "express";
 import axios from "axios";
 import { SmartLockDeviceService } from "../services/SmartLockDeviceService";
 import { SmartLockAccessCodeService } from "../services/SmartLockAccessCodeService";
+import { LockOverviewService, LockOverviewQuery } from "../services/LockOverviewService";
+import { LockProviderHealthService } from "../services/LockProviderHealthService";
+import { LockFleetService } from "../services/LockFleetService";
 import { LockProviderFactory } from "../providers/LockProviderFactory";
 import { CodeGenerationMode } from "../entity/PropertyLockSettings";
 import { appDatabase } from "../utils/database.util";
 import { SmartLockDevice } from "../entity/SmartLockDevice";
 import { PropertyDevice } from "../entity/PropertyDevice";
-import { AccessCode } from "../entity/AccessCode";
+import { AccessCode, AccessCodeStatus } from "../entity/AccessCode";
+import verifySession from "../middleware/verifySession";
 import logger from "../utils/logger.utils";
 
 const router = Router();
 const deviceService = new SmartLockDeviceService();
 const accessCodeService = new SmartLockAccessCodeService();
+const overviewService = new LockOverviewService();
+const healthService = new LockProviderHealthService();
+const fleetService = new LockFleetService();
+
+// Every route below programs physical door locks or exposes live guest codes.
+// None of it may be reachable without a session.
+router.use(verifySession);
+
+interface AuthedRequest extends Request {
+  user?: { email?: string; id?: string; secureStayUserId?: number | null };
+}
+
+/** Best-effort operator label for audit fields. */
+function actorLabel(req: AuthedRequest): string | undefined {
+  return req.user?.email || (req.user?.id ? `user:${req.user.id}` : undefined);
+}
+
+/**
+ * `new Date("nonsense")` yields an Invalid Date, which is truthy and survives
+ * every comparison, then throws from `toISOString()` deep inside the provider
+ * call. Reject it at the edge instead.
+ */
+function parseTimestamp(value: unknown, field: string): Date | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = new Date(value as string);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`${field} is not a valid date`);
+  }
+  return parsed;
+}
+
+// =====================
+// Locks Overview Routes
+// Backing endpoints for the dedicated Locks page. These return a single
+// denormalized row per lock so the client never has to stitch devices,
+// mappings, settings, and codes together itself.
+// =====================
+
+/** Accepts `?providers=seam,sifely` or repeated `?providers=` params. */
+function parseList(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  const raw = Array.isArray(value) ? value : String(value).split(",");
+  const items = raw.map((v) => String(v).trim()).filter(Boolean);
+  return items.length ? items : undefined;
+}
+
+function parseBool(value: unknown): boolean | undefined {
+  if (value === undefined || value === "") return undefined;
+  return value === "true" || value === true;
+}
+
+/**
+ * Paginated, searchable lock list
+ * GET /smart-locks/overview
+ */
+router.get("/overview", async (req: Request, res: Response) => {
+  try {
+    const query: LockOverviewQuery = {
+      search: req.query.search ? String(req.query.search) : undefined,
+      providers: parseList(req.query.providers),
+      connectivity: req.query.connectivity
+        ? (String(req.query.connectivity) as any)
+        : undefined,
+      codeState: req.query.codeState ? (String(req.query.codeState) as any) : undefined,
+      mapped: parseBool(req.query.mapped),
+      autoGenerate: parseBool(req.query.autoGenerate),
+      lowBattery: parseBool(req.query.lowBattery),
+      hasError: parseBool(req.query.hasError),
+      propertyId: req.query.propertyId ? parseInt(String(req.query.propertyId)) : undefined,
+      sortBy: req.query.sortBy ? String(req.query.sortBy) : undefined,
+      sortDir: req.query.sortDir === "desc" ? "desc" : "asc",
+      page: req.query.page ? parseInt(String(req.query.page)) : undefined,
+      pageSize: req.query.pageSize ? parseInt(String(req.query.pageSize)) : undefined,
+    };
+
+    const result = await overviewService.query(query);
+
+    return res.json({
+      success: true,
+      data: result.rows,
+      meta: {
+        total: result.total,
+        page: result.page,
+        pageSize: result.pageSize,
+      },
+    });
+  } catch (error: any) {
+    logger.error("Error building lock overview:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to load locks",
+    });
+  }
+});
+
+/**
+ * Fleet-wide summary counters for the page header
+ * GET /smart-locks/overview/stats
+ */
+router.get("/overview/stats", async (_req: Request, res: Response) => {
+  try {
+    const stats = await overviewService.stats();
+    return res.json({ success: true, data: stats });
+  } catch (error: any) {
+    logger.error("Error building lock stats:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to load lock stats",
+    });
+  }
+});
+
+/**
+ * Full detail for one lock, including its code history
+ * GET /smart-locks/overview/:deviceId
+ */
+router.get("/overview/:deviceId", async (req: Request, res: Response) => {
+  try {
+    const deviceId = parseInt(req.params.deviceId);
+    if (Number.isNaN(deviceId)) {
+      return res.status(400).json({ success: false, message: "Invalid device id" });
+    }
+
+    const detail = await overviewService.getDeviceDetail(deviceId);
+    if (!detail) {
+      return res.status(404).json({ success: false, message: "Lock not found" });
+    }
+
+    return res.json({ success: true, data: detail });
+  } catch (error: any) {
+    logger.error("Error loading lock detail:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to load lock detail",
+    });
+  }
+});
+
+// =====================
+// Provider Health Routes
+// =====================
+
+/**
+ * Expected fleet vs devices actually synced, plus documented fixed codes.
+ * GET /smart-locks/fleet
+ */
+router.get("/fleet", async (_req: Request, res: Response) => {
+  try {
+    const coverage = await fleetService.getCoverage();
+    return res.json({ success: true, data: coverage });
+  } catch (error: any) {
+    logger.error("Error loading lock fleet coverage:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to load fleet coverage",
+    });
+  }
+});
+
+/**
+ * Persisted health for every provider (no upstream calls)
+ * GET /smart-locks/provider-status
+ */
+router.get("/provider-status", async (_req: Request, res: Response) => {
+  try {
+    const statuses = await healthService.getAllStatuses();
+    return res.json({ success: true, data: statuses });
+  } catch (error: any) {
+    logger.error("Error getting provider status:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to get provider status",
+    });
+  }
+});
+
+/**
+ * Probe providers now and persist the result
+ * POST /smart-locks/provider-status/refresh
+ * Body: { provider?: string } — omit to probe all providers
+ */
+router.post("/provider-status/refresh", async (req: Request, res: Response) => {
+  try {
+    const { provider } = req.body as { provider?: string };
+
+    if (provider && !LockProviderFactory.isProviderSupported(provider)) {
+      return res.status(400).json({
+        success: false,
+        message: `Unsupported provider: ${provider}`,
+        supportedProviders: LockProviderFactory.getSupportedProviders(),
+      });
+    }
+
+    const results = provider
+      ? [await healthService.checkProvider(provider)]
+      : await healthService.checkAllProviders();
+
+    return res.json({ success: true, data: results });
+  } catch (error: any) {
+    logger.error("Error refreshing provider status:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to refresh provider status",
+    });
+  }
+});
 
 // =====================
 // Lock Provider Routes
@@ -827,7 +1037,7 @@ router.post(
  * Create a manual access code
  * POST /smart-locks/access-codes
  */
-router.post("/access-codes", async (req: Request, res: Response) => {
+router.post("/access-codes", async (req: AuthedRequest, res: Response) => {
   try {
     const {
       deviceId,
@@ -838,6 +1048,8 @@ router.post("/access-codes", async (req: Request, res: Response) => {
       guestPhone,
       reservationId,
       setImmediately,
+      startsAt,
+      endsAt,
     } = req.body;
 
     if (!deviceId || !propertyId || !code || !codeName) {
@@ -845,6 +1057,15 @@ router.post("/access-codes", async (req: Request, res: Response) => {
         success: false,
         message: "deviceId, propertyId, code, and codeName are required",
       });
+    }
+
+    let parsedStartsAt: Date | undefined;
+    let parsedEndsAt: Date | undefined;
+    try {
+      parsedStartsAt = parseTimestamp(startsAt, "startsAt");
+      parsedEndsAt = parseTimestamp(endsAt, "endsAt");
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
     }
 
     const accessCode = await accessCodeService.createManualAccessCode({
@@ -856,6 +1077,9 @@ router.post("/access-codes", async (req: Request, res: Response) => {
       guestPhone,
       reservationId,
       setImmediately,
+      startsAt: parsedStartsAt,
+      endsAt: parsedEndsAt,
+      setBy: actorLabel(req),
     });
 
     return res.json({
@@ -950,6 +1174,96 @@ router.delete("/access-codes/:id", async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to delete access code",
+    });
+  }
+});
+
+/**
+ * Set a code directly on one lock and push it immediately.
+ *
+ * The generic /access-codes route requires the caller to already know the
+ * property mapping. From the Locks page the operator has picked a lock, not a
+ * property, so resolve the mapping here and fail loudly if there isn't one —
+ * a code with no property can't be reconciled against a reservation later.
+ *
+ * POST /smart-locks/devices/:deviceId/set-code
+ */
+router.post("/devices/:deviceId/set-code", async (req: AuthedRequest, res: Response) => {
+  try {
+    const deviceId = parseInt(req.params.deviceId);
+    const { code, codeName, guestName, guestPhone, startsAt, endsAt } = req.body;
+
+    if (Number.isNaN(deviceId)) {
+      return res.status(400).json({ success: false, message: "Invalid device id" });
+    }
+    if (!code || !/^\d{4,10}$/.test(String(code))) {
+      return res.status(400).json({
+        success: false,
+        message: "code must be 4-10 digits",
+      });
+    }
+
+    let parsedStartsAt: Date | undefined;
+    let parsedEndsAt: Date | undefined;
+    try {
+      parsedStartsAt = parseTimestamp(startsAt, "startsAt");
+      parsedEndsAt = parseTimestamp(endsAt, "endsAt");
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+
+    const device = await deviceService.getDeviceById(deviceId);
+    if (!device) {
+      return res.status(404).json({ success: false, message: "Lock not found" });
+    }
+
+    // An inactive mapping means someone deliberately detached this lock from the
+    // property. Falling back to it would program a real door against stale
+    // context, so require an active mapping rather than guessing.
+    const mappings = await deviceService.getPropertiesForDevice(deviceId);
+    const activeMapping = mappings.find((m) => m.isActive);
+    if (!activeMapping) {
+      return res.status(400).json({
+        success: false,
+        message: mappings.length
+          ? "This lock's property mapping is inactive. Re-activate it before setting codes."
+          : "This lock is not mapped to a property yet. Map it first so codes can be tracked against reservations.",
+      });
+    }
+
+    const accessCode = await accessCodeService.createManualAccessCode({
+      deviceId,
+      propertyId: activeMapping.propertyId,
+      code: String(code),
+      codeName: codeName || `Manual code - ${new Date().toLocaleDateString("en-US")}`,
+      guestName,
+      guestPhone,
+      startsAt: parsedStartsAt,
+      endsAt: parsedEndsAt,
+      setImmediately: true,
+      setBy: actorLabel(req),
+    });
+
+    // createManualAccessCode swallows provider errors onto the record so the
+    // audit trail survives; translate that into a real HTTP failure.
+    if (accessCode.status === AccessCodeStatus.FAILED) {
+      return res.status(502).json({
+        success: false,
+        message: accessCode.errorMessage || "The lock rejected this code",
+        data: accessCode,
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: accessCode,
+      message: "Code set on lock",
+    });
+  } catch (error: any) {
+    logger.error("Error setting code on lock:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to set code on lock",
     });
   }
 });

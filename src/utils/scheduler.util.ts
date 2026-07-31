@@ -21,6 +21,9 @@ import { updateMgmtFee } from "../scripts/updateMgmtFee";
 import { DatabaseBackupService } from "../services/DatabaseBackupService";
 import { AccessCodeSchedulerService } from "../services/AccessCodeSchedulerService";
 import { SmartLockAccessCodeService } from "../services/SmartLockAccessCodeService";
+import { SmartLockDeviceService } from "../services/SmartLockDeviceService";
+import { LockProviderHealthService } from "../services/LockProviderHealthService";
+import { LockProviderFactory } from "../providers/LockProviderFactory";
 import { TimeEntryService } from "../services/TimeEntryService";
 import { LatestBookingReportService } from "../services/LatestBookingReportService";
 import { GuestAnalysisService } from "../services/GuestAnalysisService";
@@ -449,6 +452,56 @@ export function scheduleGetReservation() {
         logger.info(`Daily access code processing completed: ${result.processed} set on devices, ${result.failed} failed`);
       } catch (error) {
         logger.error("Error processing scheduled access codes:", error);
+      }
+    }
+  );
+
+  // Lock provider health probe - every 30 minutes
+  // Catches expired or revoked lock credentials on its own schedule instead of
+  // letting the 7 AM code push be the first thing that discovers them, by which
+  // point a guest is already standing at the door.
+  schedule.scheduleJob(
+    "*/30 * * * *",
+    async () => {
+      try {
+        const healthService = new LockProviderHealthService();
+        const results = await healthService.checkAllProviders();
+        const unhealthy = results.filter((r) => r.status === "error" || r.status === "unconfigured");
+        if (unhealthy.length) {
+          logger.warn(
+            `[LockHealth] ${unhealthy.length} provider(s) unhealthy: ${unhealthy
+              .map((r) => `${r.provider} (${r.status}: ${r.error})`)
+              .join("; ")}`
+          );
+        } else {
+          logger.info(`[LockHealth] All ${results.length} lock provider(s) healthy`);
+        }
+      } catch (error) {
+        logger.error("Error running lock provider health check:", error);
+      }
+    }
+  );
+
+  // Lock device sync - every 2 hours
+  // Refreshes online state, battery level, and last-synced timestamps so the
+  // Locks page shows live device health rather than whatever was true at pairing.
+  schedule.scheduleJob(
+    "0 */2 * * *",
+    async () => {
+      try {
+        logger.info("Lock device sync job started...");
+        const deviceService = new SmartLockDeviceService();
+        for (const provider of LockProviderFactory.getSupportedProviders()) {
+          try {
+            const devices = await deviceService.syncDevicesFromProvider(provider);
+            logger.info(`[LockSync] ${provider}: refreshed ${devices.length} device(s)`);
+          } catch (error: any) {
+            // One dead provider must not stop the others from syncing.
+            logger.error(`[LockSync] ${provider} failed: ${error?.message}`);
+          }
+        }
+      } catch (error) {
+        logger.error("Error running lock device sync:", error);
       }
     }
   );

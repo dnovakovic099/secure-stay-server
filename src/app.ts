@@ -11,6 +11,7 @@ import { errorHandler } from "./middleware/error.middleware";
 import appRoutes from "./router/appRoutes";
 import cors from "cors";
 import compression from "compression";
+import { LockProviderHealthService } from "./services/LockProviderHealthService";
 import logger from "./utils/logger.utils";
 
 // 🔹 Global error handlers
@@ -32,6 +33,8 @@ const main = async () => {
   await ensureUpsellPropertyConfigColumns();
   await ensureInboxConversationAiNeedsHumanColumns();
   await ensureInboxMessagePinColumns();
+
+  new LockProviderHealthService().logCredentialReadiness();
 
   const app = express();
   // Disable ETag generation for all responses. This is a pure JSON API: with

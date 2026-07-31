@@ -30,7 +30,10 @@ export class SifelyAuthService {
 
   constructor() {
     this.baseUrl = process.env.SIFELY_BASE_URL || "https://dev-alexa.sifely.com";
-    this.clientId = process.env.SIFELY_CLIENT_ID || "";
+    // Prefer the Sifely-specific client id; fall back to Sciener so a single
+    // developer app can cover both Sifely's portal and TTLock/DD Lock.
+    this.clientId =
+      process.env.SIFELY_CLIENT_ID || process.env.SCIENER_CLIENT_ID || "";
     this.username = process.env.SIFELY_USERNAME || "";
     this.password = process.env.SIFELY_PASSWORD || "";
   }

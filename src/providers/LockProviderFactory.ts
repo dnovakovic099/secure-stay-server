@@ -1,6 +1,8 @@
 import { ILockProvider } from "../interfaces/ILockProvider";
 import { SeamLockProvider } from "./SeamLockProvider";
 import { SifelyLockProvider } from "./SifelyLockProvider";
+import { SchlageLockProvider } from "./SchlageLockProvider";
+import { TTLockLockProvider } from "./TTLockLockProvider";
 
 /**
  * Lock Provider Factory
@@ -16,12 +18,10 @@ export class LockProviderFactory {
   static getProvider(providerName: string): ILockProvider {
     const normalizedName = providerName.toLowerCase();
 
-    // Return cached instance if exists
     if (this.providers.has(normalizedName)) {
       return this.providers.get(normalizedName)!;
     }
 
-    // Create new instance based on provider name
     let provider: ILockProvider;
 
     switch (normalizedName) {
@@ -31,34 +31,30 @@ export class LockProviderFactory {
       case "sifely":
         provider = new SifelyLockProvider();
         break;
-      // Add future providers here:
-      // case "august":
-      //   provider = new AugustLockProvider();
-      //   break;
-      // case "yale":
-      //   provider = new YaleLockProvider();
-      //   break;
+      case "schlage":
+        provider = new SchlageLockProvider();
+        break;
+      case "ttlock":
+        provider = new TTLockLockProvider();
+        break;
       default:
         throw new Error(`Unknown lock provider: ${providerName}`);
     }
 
-    // Cache and return
     this.providers.set(normalizedName, provider);
     return provider;
   }
 
   /**
-   * Get list of supported provider names
+   * Providers we actively sync and health-check.
+   * Seam is still constructible for disconnect/legacy devices but is not in
+   * the active set — per-device pricing was rejected for this fleet.
    */
   static getSupportedProviders(): string[] {
-    return ["seam", "sifely"];
+    return ["sifely", "ttlock", "schlage"];
   }
 
-  /**
-   * Check if a provider is supported
-   */
   static isProviderSupported(providerName: string): boolean {
     return this.getSupportedProviders().includes(providerName.toLowerCase());
   }
 }
-
