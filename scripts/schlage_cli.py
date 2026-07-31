@@ -83,6 +83,19 @@ def list_devices(api) -> list:
     return out
 
 
+def to_utc(value: datetime) -> datetime:
+    """
+    pyschlage builds schedules with datetime.utcfromtimestamp(), which returns a
+    naive datetime that is already UTC. Calling astimezone() on it would make
+    Python assume the host's local zone and shift the instant by that offset, so
+    a code would read back hours away from when it was actually set. Attach UTC
+    rather than convert when the value is naive.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def list_codes(api, device_id: str) -> list:
     locks = {lock.device_id: lock for lock in api.locks()}
     lock = locks.get(device_id)
@@ -94,8 +107,8 @@ def list_codes(api, device_id: str) -> list:
         starts_at = ends_at = None
         schedule = code.schedule
         if schedule is not None and hasattr(schedule, "start") and hasattr(schedule, "end"):
-            starts_at = schedule.start.astimezone(timezone.utc).isoformat()
-            ends_at = schedule.end.astimezone(timezone.utc).isoformat()
+            starts_at = to_utc(schedule.start).isoformat()
+            ends_at = to_utc(schedule.end).isoformat()
         codes.append(
             {
                 "externalCodeId": code.access_code_id,
@@ -119,12 +132,12 @@ def create_code(api, device_id: str, code: str, name: str, starts_at, ends_at) -
 
     access = AccessCode(name=name or "Access Code", code=str(code))
     if starts_at and ends_at:
-        start = datetime.fromisoformat(starts_at.replace("Z", "+00:00"))
-        end = datetime.fromisoformat(ends_at.replace("Z", "+00:00"))
-        if start.tzinfo is None:
-            start = start.replace(tzinfo=timezone.utc)
-        if end.tzinfo is None:
-            end = end.replace(tzinfo=timezone.utc)
+        # TemporarySchedule.to_json() calls .replace(tzinfo=utc) on these, which
+        # overwrites an offset instead of converting it. An aware non-UTC time
+        # would therefore be written to the lock shifted by its offset, so
+        # normalise to UTC here before handing it over.
+        start = to_utc(datetime.fromisoformat(starts_at.replace("Z", "+00:00")))
+        end = to_utc(datetime.fromisoformat(ends_at.replace("Z", "+00:00")))
         access.schedule = TemporarySchedule(start=start, end=end)
 
     lock.add_access_code(access)
