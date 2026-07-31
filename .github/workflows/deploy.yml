@@ -98,7 +98,14 @@ jobs:
             done
 
             echo ">>> Ensuring Schlage Python bridge dependency (pyschlage)..."
-            python3 -m pip install --user --quiet pyschlage || echo "⚠️ pip install pyschlage failed (Schlage sync will report errors until fixed)"
+            if ! python3 -m pip --version >/dev/null 2>&1; then
+              python3 -m ensurepip --user >/dev/null 2>&1 || true
+            fi
+            if python3 -m pip --version >/dev/null 2>&1; then
+              python3 -m pip install --user --quiet pyschlage || echo "⚠️ pip install pyschlage failed (Schlage sync will report errors until fixed)"
+            else
+              echo "⚠️ python3 pip unavailable - Schlage bridge cannot install pyschlage"
+            fi
 
             if [ -n "$REDDIT_CLIENT_ID" ] && [ -n "$REDDIT_CLIENT_SECRET" ]; then
               echo ">>> Upserting Reddit OAuth env vars..."
