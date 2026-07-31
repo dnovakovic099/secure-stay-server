@@ -7,6 +7,11 @@ on:
         description: "Skip the end-to-end model calls (tools + permissions only)"
         type: boolean
         default: false
+      suite:
+        description: "Which suite to run"
+        type: choice
+        default: both
+        options: [both, service, deep]
 
 jobs:
   audit:
@@ -26,4 +31,13 @@ jobs:
             cd /home/ec2-user/secure_stay/secure-stay-server
             FLAGS=""
             if [ "${{ inputs.skip_llm }}" = "true" ]; then FLAGS="--no-llm"; fi
-            npx ts-node src/scripts/auditAssistant.ts $FLAGS
+            SUITE="${{ inputs.suite }}"
+            SUITE="${SUITE:-both}"
+            RC=0
+            if [ "$SUITE" = "both" ] || [ "$SUITE" = "service" ]; then
+              npx ts-node src/scripts/auditAssistant.ts $FLAGS || RC=1
+            fi
+            if [ "$SUITE" = "both" ] || [ "$SUITE" = "deep" ]; then
+              npx ts-node src/scripts/auditAssistantDeep.ts $FLAGS || RC=1
+            fi
+            exit $RC

@@ -1394,7 +1394,8 @@ const handlers: Record<string, Handler> = {
         requireCapability(
             ctx.viewer,
             "payroll.read",
-            "Pay rates and timesheets are restricted to super admins. I cannot show these."
+            "Pay rates and timesheets are restricted to super admins. That includes the caller's own " +
+                "pay, so do not offer to look up their hourly rate — offer their own hours clocked instead."
         );
         const days = clampDays(args.days, 14, 90);
         const since = new Date(Date.now() - days * DAY_MS);
