@@ -33,13 +33,9 @@ export class SifelyAuthService {
     this.apiKey = (process.env.SIFELY_API_KEY || "").trim();
     this.username = process.env.SIFELY_USERNAME || "";
     this.password = process.env.SIFELY_PASSWORD || "";
-    // Their developer portal sends this header; without it, accounts that are
-    // on DEVELOPER (or unsubscribed) with >5 locks get HTTP 402/50504 on every
-    // device call. Harmless once Starter is active.
-    this.appName =
-      process.env.SIFELY_APP_NAME !== undefined
-        ? process.env.SIFELY_APP_NAME
-        : "subscriptions_portal";
+    // Only needed to bypass the device-quota gate on the free Developer plan.
+    // On an active paid plan the API answers without it, so it stays unset.
+    this.appName = process.env.SIFELY_APP_NAME || "";
   }
 
   private hashPassword(password: string): string {
