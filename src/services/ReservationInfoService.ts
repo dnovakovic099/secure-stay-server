@@ -2408,6 +2408,29 @@ export class ReservationInfoService {
     }
     const reservationObj = await this.createReservationObjectFromHostify(reservationInfo, guestInfo);
     await this.saveReservationInfo(reservationObj, "webhook");
+
+    this.pushDoorCodeIfCheckingInToday(reservationId, `hostify_${event}`);
+  }
+
+  /**
+   * Program the smart locks for a booking that checks in today.
+   *
+   * Deliberately not awaited: talking to Sifely/Schlage takes seconds per lock,
+   * and Hostify retries the whole reservation event if the webhook is slow to
+   * answer. The reservation row is already saved at this point, so the worst
+   * case is that the recurring check-in sweep picks it up minutes later.
+   */
+  private pushDoorCodeIfCheckingInToday(reservationId: number, trigger: string): void {
+    void (async () => {
+      try {
+        const { CheckInCodeService } = await import("./CheckInCodeService");
+        await new CheckInCodeService().handleReservationUpserted(reservationId, trigger);
+      } catch (error: any) {
+        logger.error(
+          `[CheckInCodes] Failed to run door-code check for reservation ${reservationId}: ${error?.message}`
+        );
+      }
+    })();
   }
 
   async createReservationObjectFromHostify(reservation: any, guest: any) {

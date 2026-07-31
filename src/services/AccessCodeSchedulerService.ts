@@ -111,11 +111,13 @@ export class AccessCodeSchedulerService {
             continue;
           }
 
-          // Calculate check-in time (from listing or fallback to midnight)
-          const checkInTime = listing?.checkInTimeStart ?? 0; // Fallback: 12 AM (midnight)
-          
-          // Calculate check-out time (from listing or fallback to 11 PM)
-          const checkOutTime = listing?.checkOutTime ?? 23; // Fallback: 11 PM
+          // Leave these undefined when the listing has no configured hours so
+          // createAccessCodesForReservation applies its own 3 PM / 11 AM
+          // defaults. Passing midnight here backdated the activation window and
+          // made this job disagree with the same-day path in CheckInCodeService
+          // about when a code becomes live.
+          const checkInTime = listing?.checkInTimeStart ?? undefined;
+          const checkOutTime = listing?.checkOutTime ?? undefined;
 
           // Create access codes for this reservation 
           const codes = await this.accessCodeService.createAccessCodesForReservation({

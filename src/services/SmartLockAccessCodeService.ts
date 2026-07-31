@@ -42,6 +42,24 @@ function addHours(date: Date, hours: number): Date {
 }
 
 /**
+ * Last 4 digits of the guest's *primary* phone number.
+ *
+ * Hostify returns `guest.phones` as an array and the reservation sync stores it
+ * joined with ", ", so a guest with two numbers reaches us as
+ * "+15551112222, +15553334444". Stripping every non-digit and taking the tail
+ * would hand out the last 4 of the second number — not the one the guest is
+ * told to use at the door. Take the first entry that has enough digits instead.
+ */
+export function primaryPhoneLastFour(guestPhone?: string | null): string | null {
+  if (!guestPhone) return null;
+  for (const candidate of String(guestPhone).split(/[,;/]+/)) {
+    const digits = candidate.replace(/\D/g, "");
+    if (digits.length >= 4) return digits.slice(-4);
+  }
+  return null;
+}
+
+/**
  * Smart Lock Access Code Service
  * Manages access code generation, creation, and tracking
  */
@@ -69,9 +87,9 @@ export class SmartLockAccessCodeService {
 
     // Try to extract last 4 digits from phone
     if (guestPhone && settings?.codeGenerationMode !== CodeGenerationMode.RANDOM) {
-      const digits = guestPhone.replace(/\D/g, "");
-      if (digits.length >= 4) {
-        return digits.slice(-4);
+      const lastFour = primaryPhoneLastFour(guestPhone);
+      if (lastFour) {
+        return lastFour;
       }
     }
 

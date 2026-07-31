@@ -21,6 +21,7 @@ import { updateMgmtFee } from "../scripts/updateMgmtFee";
 import { DatabaseBackupService } from "../services/DatabaseBackupService";
 import { AccessCodeSchedulerService } from "../services/AccessCodeSchedulerService";
 import { SmartLockAccessCodeService } from "../services/SmartLockAccessCodeService";
+import { CheckInCodeService } from "../services/CheckInCodeService";
 import { SmartLockDeviceService } from "../services/SmartLockDeviceService";
 import { LockProviderHealthService } from "../services/LockProviderHealthService";
 import { LockProviderFactory } from "../providers/LockProviderFactory";
@@ -452,6 +453,33 @@ export function scheduleGetReservation() {
         logger.info(`Daily access code processing completed: ${result.processed} set on devices, ${result.failed} failed`);
       } catch (error) {
         logger.error("Error processing scheduled access codes:", error);
+      }
+    }
+  );
+
+  // Same-day check-in code sweep - every 15 minutes
+  // The 6 AM / 7 AM pair only covers reservations that already existed at 6 AM.
+  // A booking made at noon for tonight would otherwise reach a lock that was
+  // never programmed. This sweep is also the retry path for locks that were
+  // offline earlier in the day, and the fallback for reservations that arrive
+  // via the nightly PMS sync rather than a webhook.
+  //
+  // Offset off the hour boundary on purpose: at :00 this would race the 6 AM
+  // generation job and the 7 AM push job over the same reservations, and both
+  // pairs would double-write — duplicate code rows, or two passcodes on a door.
+  schedule.scheduleJob(
+    "7,22,37,52 * * * *",
+    async () => {
+      try {
+        const checkInCodeService = new CheckInCodeService();
+        const result = await checkInCodeService.processTodaysCheckIns();
+        if (result.pushed || result.failed) {
+          logger.info(
+            `[CheckInCodes] Sweep: ${result.pushed} code(s) pushed, ${result.failed} failed, ${result.checked} reservation(s) checked`
+          );
+        }
+      } catch (error) {
+        logger.error("Error running same-day check-in code sweep:", error);
       }
     }
   );

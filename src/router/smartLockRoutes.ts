@@ -5,6 +5,7 @@ import { SmartLockAccessCodeService } from "../services/SmartLockAccessCodeServi
 import { LockOverviewService, LockOverviewQuery } from "../services/LockOverviewService";
 import { LockProviderHealthService } from "../services/LockProviderHealthService";
 import { LockFleetService } from "../services/LockFleetService";
+import { CheckInCodeService } from "../services/CheckInCodeService";
 import { LockProviderFactory } from "../providers/LockProviderFactory";
 import { CodeGenerationMode } from "../entity/PropertyLockSettings";
 import { appDatabase } from "../utils/database.util";
@@ -20,6 +21,7 @@ const accessCodeService = new SmartLockAccessCodeService();
 const overviewService = new LockOverviewService();
 const healthService = new LockProviderHealthService();
 const fleetService = new LockFleetService();
+const checkInCodeService = new CheckInCodeService();
 
 // Every route below programs physical door locks or exposes live guest codes.
 // None of it may be reachable without a session.
@@ -1267,6 +1269,92 @@ router.post("/devices/:deviceId/set-code", async (req: AuthedRequest, res: Respo
     });
   }
 });
+
+// =====================
+// Check-in Code Automation Routes
+// Manual triggers for the same-day door-code brain that otherwise runs from the
+// 15-minute sweep and the Hostify reservation webhook.
+// =====================
+
+/**
+ * Program codes for everyone checking in today.
+ * POST /smart-locks/check-in-codes/run
+ * Body: { dryRun?: boolean, force?: boolean }
+ *   dryRun — report what would happen without touching any lock
+ *   force  — ignore each property's autoGenerateCodes switch
+ */
+router.post("/check-in-codes/run", async (req: Request, res: Response) => {
+  try {
+    const { dryRun, force } = req.body as { dryRun?: boolean; force?: boolean };
+    const result = await checkInCodeService.processTodaysCheckIns({
+      dryRun: dryRun === true,
+      force: force === true,
+    });
+
+    return res.json({
+      success: true,
+      data: result,
+      message: `${result.pushed} code(s) pushed, ${result.failed} failed, ${result.checked} reservation(s) checked`,
+    });
+  } catch (error: any) {
+    logger.error("Error running check-in code job:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to run check-in code job",
+    });
+  }
+});
+
+/**
+ * Program codes for one reservation.
+ * POST /smart-locks/check-in-codes/reservation/:reservationId
+ * Body: { dryRun?: boolean, force?: boolean, onlySameDay?: boolean }
+ */
+router.post(
+  "/check-in-codes/reservation/:reservationId",
+  async (req: Request, res: Response) => {
+    try {
+      const reservationId = parseInt(req.params.reservationId);
+      if (Number.isNaN(reservationId)) {
+        return res.status(400).json({ success: false, message: "Invalid reservation id" });
+      }
+
+      const { dryRun, force, onlySameDay } = req.body as {
+        dryRun?: boolean;
+        force?: boolean;
+        onlySameDay?: boolean;
+      };
+
+      const result = await checkInCodeService.ensureCodesForReservation(reservationId, {
+        trigger: "manual",
+        dryRun: dryRun === true,
+        force: force === true,
+        // Operators run this to fix a specific booking, so default to acting on
+        // it regardless of arrival date rather than silently doing nothing.
+        onlySameDay: onlySameDay === true,
+      });
+
+      return res.json({
+        success: result.outcome !== "failed",
+        data: result,
+        message:
+          result.outcome === "pushed"
+            ? `Code ${result.code} set on ${result.codesPushed} lock(s)`
+            : result.outcome === "scheduled"
+              ? `Code ${result.code} scheduled for ${result.arrivalDate}`
+              : result.outcome === "failed"
+                ? result.errors?.join("; ") || "Failed to set code"
+                : `Skipped: ${result.reason}`,
+      });
+    } catch (error: any) {
+      logger.error("Error running check-in codes for reservation:", error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Failed to run check-in codes for reservation",
+      });
+    }
+  }
+);
 
 /**
  * Get supported providers
