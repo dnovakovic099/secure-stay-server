@@ -94,6 +94,16 @@ interface ListOptions {
     dateTo?: string;
     /** Reservation status bucket: "inquiry" | "confirmed" | "cancelled". */
     reservationStatus?: string | string[];
+    /** Limit the list to conversations with Airbnb case workers. */
+    airbnbSupport?: boolean | string;
+    /** Limit the list to reservations tagged by the Airbnb case detector. */
+    airbnbCase?: string | string[];
+    /**
+     * Default keeps Hostify mirror-listing conversations out of the working
+     * inbox. "off" is the explicit review view for those service_pms = 0
+     * listings.
+     */
+    pmsMode?: "default" | "off" | string;
 }
 
 const toNumberOrNull = (value: any): number | null => {
@@ -328,6 +338,85 @@ export class InboxService {
         _messages: Array<Pick<InboxMessageEntity, "direction" | "senderName" | "body" | "note">>
     ) {
         return /\bairbnb\s*support\b/i.test(conversation?.guestName || "");
+    }
+
+    /**
+     * The same persisted signal that the case detector uses. It deliberately
+     * stays tag-based rather than guessing from guest text: a reservation is
+     * marked only after an Airbnb Support thread supplied a confirmation code
+     * that matched this reservation.
+     */
+    private hasAirbnbSupportCaseTag(value: any) {
+        return this.hasReservationTag(this.parseReservationTags(value), SUPPORT_INVOLVED_TAG);
+    }
+
+    private async getAirbnbSupportCaseForReservation(reservationId: number | string | null | undefined) {
+        const id = Number(reservationId);
+        if (!Number.isFinite(id) || id <= 0) {
+            return { supportInvolved: false, conversation: null, messages: [] as InboxMessageEntity[] };
+        }
+
+        const reservation = await this.reservationRepo.findOne({ where: { id } });
+        if (!reservation) {
+            return { supportInvolved: false, conversation: null, messages: [] as InboxMessageEntity[] };
+        }
+
+        const supportInvolved = this.hasAirbnbSupportCaseTag(reservation.tags);
+        const confirmationCodes = Array.from(
+            new Set(
+                [reservation.confirmation_code, reservation.channelReservationId]
+                    .map((value) => String(value || "").trim())
+                    .filter(Boolean)
+            )
+        );
+
+        // The support conversation itself is normally not assigned a
+        // reservation by Hostify. The reliable link is the confirmation code
+        // in the case-worker thread, which is also what the detector used to
+        // set Support Involved in the first place.
+        if (!confirmationCodes.length) {
+            return { supportInvolved, conversation: null, messages: [] as InboxMessageEntity[] };
+        }
+
+        const caseQuery = this.conversationRepo
+            .createQueryBuilder("supportConversation")
+            .where("supportConversation.isArchived = 0")
+            .andWhere("LOWER(COALESCE(supportConversation.guestName, '')) REGEXP 'airbnb[[:space:]]*support'")
+            .andWhere(
+                new Brackets((b) => {
+                    confirmationCodes.forEach((code, index) => {
+                        const parameter = `supportCode${index}`;
+                        const condition = `(
+                            supportConversation.lastMessageText LIKE :${parameter}
+                            OR EXISTS (
+                                SELECT 1
+                                FROM inbox_messages supportMessage
+                                WHERE supportMessage.threadId = supportConversation.threadId
+                                  AND (
+                                      supportMessage.body LIKE :${parameter}
+                                      OR supportMessage.note LIKE :${parameter}
+                                  )
+                            )
+                        )`;
+                        if (index === 0) b.where(condition, { [parameter]: `%${code}%` });
+                        else b.orWhere(condition, { [parameter]: `%${code}%` });
+                    });
+                })
+            )
+            .orderBy("supportConversation.lastMessageAt", "DESC")
+            .addOrderBy("supportConversation.threadId", "DESC")
+            .limit(1);
+
+        const conversation = await caseQuery.getOne();
+        if (!conversation) {
+            return { supportInvolved, conversation: null, messages: [] as InboxMessageEntity[] };
+        }
+
+        const messages = await this.messageRepo.find({
+            where: { threadId: conversation.threadId },
+            order: { sentAt: "ASC", id: "ASC" },
+        });
+        return { supportInvolved: true, conversation, messages };
     }
 
     private extractHostifyConfirmationCodes(text: string | null | undefined) {
@@ -1493,6 +1582,9 @@ export class InboxService {
             LIMIT 1
         )`;
 
+        const pmsOffMode = String(options.pmsMode || "").toLowerCase() === "off";
+        const airbnbSupportOnly =
+            options.airbnbSupport === true || String(options.airbnbSupport || "").toLowerCase() === "true";
         const qb = this.conversationRepo
             .createQueryBuilder("c")
             .addSelect(latestRealMessageDirectionSubquery, "latestRealMessageDirection")
@@ -1521,7 +1613,18 @@ export class InboxService {
             //    match on listing group alone — that hid every Booking.com /
             //    channel-only guest whenever ANY other guest had a PMS thread
             //    on the same property (Anj / Jean Kozlowski, Jul 2026).
-            .andWhere(
+        if (airbnbSupportOnly) {
+            // Airbnb Support is a distinct case-worker conversation, not a
+            // guest thread. Show every detected support conversation here,
+            // including one attached to a Hostify mirror listing.
+            qb.andWhere("LOWER(COALESCE(c.guestName, '')) REGEXP 'airbnb[[:space:]]*support'");
+        } else if (pmsOffMode) {
+            // Deliberate audit/review mode. These are Hostify's mirror listing
+            // threads, so they stay out of the normal working inbox but remain
+            // accessible when a teammate explicitly opens the PMS-off view.
+            qb.andWhere("lgm.service_pms = 0");
+        } else {
+            qb.andWhere(
                 `(
                     lgm.service_pms = 1
                     OR c.listingId IS NULL
@@ -1555,6 +1658,7 @@ export class InboxService {
             // keeps both threads (Anj / Stephanie, Jul 2026), which inflated
             // CI Today and New inquiries and sent the AI down the dead path.
             .andWhere(NOT_SUPERSEDED_INQUIRY_SQL);
+        }
 
         const channelBuckets = parseListParam(options.channel);
         if (channelBuckets.length) {
@@ -1691,6 +1795,28 @@ export class InboxService {
                             b[method](issueExistsCondition);
                         } else if (bucket === "without" || bucket === "none" || bucket === "no") {
                             b[method](`NOT ${issueExistsCondition}`);
+                        }
+                    });
+                })
+            );
+        }
+
+        const airbnbCaseBuckets = parseListParam(options.airbnbCase).map((value) => value.toLowerCase());
+        if (airbnbCaseBuckets.length) {
+            // Support Involved is only added after a detected Airbnb Support
+            // case names a confirmation code that maps to the reservation.
+            const airbnbCaseExistsCondition = `(
+                c.reservationId IS NOT NULL
+                AND LOWER(COALESCE(r.tags, '')) LIKE '%support involved%'
+            )`;
+            qb.andWhere(
+                new Brackets((b) => {
+                    airbnbCaseBuckets.forEach((bucket, index) => {
+                        const method = index === 0 ? "where" : "orWhere";
+                        if (bucket === "with" || bucket === "has" || bucket === "yes") {
+                            b[method](airbnbCaseExistsCondition);
+                        } else if (bucket === "without" || bucket === "none" || bucket === "no") {
+                            b[method](`NOT ${airbnbCaseExistsCondition}`);
                         }
                     });
                 })
@@ -2011,7 +2137,8 @@ export class InboxService {
         return { channels, repliedByUsers };
     }
 
-    async getConversation(threadId: number) {
+    async getConversation(threadId: number, options: { pmsMode?: "default" | "off" | string } = {}) {
+        const pmsOffMode = String(options.pmsMode || "").toLowerCase() === "off";
         let conversation = await this.conversationRepo.findOne({ where: { threadId } });
         if (!conversation) {
             try {
@@ -2022,23 +2149,23 @@ export class InboxService {
             }
             if (!conversation) return null;
         }
+        const isAirbnbSupportConversation = this.isAirbnbSupportConversation(conversation, []);
 
-        // Refuse to open threads that belong to a mirror channel listing —
-        // these are the duplicate threads the inbox list already hides, so
-        // navigating to one via a bookmarked URL should also 404 rather than
-        // rendering a ghost thread we don't want anyone to reply from.
+        // Refuse to open threads that belong to a mirror channel listing in
+        // the normal inbox. The explicit PMS-off review view is the only
+        // allowed route for opening those otherwise-hidden conversations.
         // ensureListing lazily fetches service_pms from Hostify if we haven't
         // cached it yet, so this stays correct even for brand-new listing IDs
         // that predate the next full listing_group_map rebuild.
         if (conversation.listingId) {
             const servicePms = await this.listingGroupService.ensureListing(conversation.listingId);
-            if (servicePms === 0) return null;
+            if (servicePms === 0 && !pmsOffMode && !isAirbnbSupportConversation) return null;
             // service_pms is genuinely unknown (Hostify returned no value) —
             // treat as a duplicate iff a sibling thread exists on a confirmed
             // PMS listing. Match keys mirror the listConversations filter
             // because Hostify hands out different guestIds per channel for
             // the same real guest.
-            if (servicePms == null) {
+            if (servicePms == null && !pmsOffMode && !isAirbnbSupportConversation) {
                 const groupId = await this.listingGroupService.resolve(conversation.listingId);
                 const pmsSibling = await this.conversationRepo
                     .createQueryBuilder("c2")
@@ -2091,7 +2218,7 @@ export class InboxService {
 
         // Same rule as listConversations: don't open a leftover inquiry when
         // the accepted stay thread is the real one for this guest/day/property.
-        if (await isInquirySupersededByAcceptedStay(conversation)) {
+        if (!pmsOffMode && !isAirbnbSupportConversation && (await isInquirySupersededByAcceptedStay(conversation))) {
             return null;
         }
 
@@ -2165,9 +2292,12 @@ export class InboxService {
             }
         }
 
+        const airbnbCase = await this.getAirbnbSupportCaseForReservation(conversation.reservationId);
+
         return {
             conversation: { ...conversation, parentListingId, aiAutoRespondDisabled },
             messages,
+            airbnbCase,
         };
     }
 

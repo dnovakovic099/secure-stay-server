@@ -2458,11 +2458,23 @@ export class InboxAIService {
 
     /**
      * Check listing / guest / thread mutes that block Hostify auto-respond.
-     * Suggestions still generate; only delivery is suppressed.
+     * Standard mutes leave manual suggestions available; PMS-off mirror listings
+     * are excluded from the webhook automation pipeline altogether.
      */
     async resolveAutosendMute(
         conversation: InboxConversationEntity
     ): Promise<{ disabled: boolean; reason?: string }> {
+        // Hostify mirror listings (service_pms = 0) are deliberately outside
+        // the working inbox. They may be reviewed in the explicit PMS-off
+        // view, but must never enter the automatic response pipeline.
+        if (conversation.listingId != null) {
+            const servicePms = await new ListingGroupService()
+                .ensureListing(Number(conversation.listingId))
+                .catch(() => null);
+            if (servicePms === 0) {
+                return { disabled: true, reason: "pms_off_listing" };
+            }
+        }
         if (Number(conversation.aiAutoRespondDisabled) === 1) {
             return { disabled: true, reason: "thread_autosend_disabled" };
         }
@@ -2582,6 +2594,14 @@ export class InboxAIService {
         try {
             const conversation = await this.conversationRepo.findOne({ where: { threadId } });
             if (!conversation) return { sent: false, reason: "no_conversation" };
+
+            // Do not generate or auto-send shadow replies for PMS-off mirror
+            // listings. They are intentionally available only in the explicit
+            // review inbox and must stay outside automation scope.
+            const initialMute = await this.resolveAutosendMute(conversation);
+            if (initialMute.disabled) {
+                return { sent: false, reason: initialMute.reason || "autosend_muted" };
+            }
 
             // Pure acknowledgment ("thanks!", "sounds good") — nothing to answer,
             // don't spend a generation + verification on it.
