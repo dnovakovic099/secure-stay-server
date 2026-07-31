@@ -60,14 +60,27 @@ jobs:
             # correctly on first deploy (printf path) and silently corrupted on
             # every deploy after (awk path). printf is used on both paths now so
             # values are stored verbatim.
+            # Values are single-quoted because dotenv treats an unquoted '#' as
+            # the start of a comment. SCHLAGE_ACCOUNTS_JSON contains passwords
+            # with '#' in them, so the JSON was silently truncated mid-value —
+            # 238 characters became 77 — and the app reported Schlage as
+            # "credentials not configured" no matter how often the secret was
+            # updated. dotenv takes single-quoted values literally, which also
+            # preserves backslashes.
             upsert_env() {
               key="$1"
               value="$2"
+              case "$value" in
+                *"'"*)
+                  echo "❌ $key contains a single quote and cannot be written to .env safely — not updating it"
+                  return 1
+                  ;;
+              esac
               if [ -f .env ]; then
                 grep -v "^${key}=" .env > .env.tmp 2>/dev/null || true
                 mv .env.tmp .env
               fi
-              printf '%s=%s\n' "$key" "$value" >> .env
+              printf "%s='%s'\n" "$key" "$value" >> .env
             }
 
             # Assistant rollout. Code defaults to OFF, so the widget only appears
