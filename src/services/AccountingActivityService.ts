@@ -75,9 +75,9 @@ export class AccountingActivityService {
     }
 
     private async getActorProfile(uid: string) {
-        const user = await this.usersRepo.findOne({ where: { uid } });
+        const user = await this.usersRepo.findOne({ where: { uid }, withDeleted: true });
         const employee = user
-            ? await this.employeeRepo.findOne({ where: { userId: user.id } })
+            ? await this.employeeRepo.findOne({ where: { userId: user.id }, withDeleted: true })
             : null;
         const photoId = Number(employee?.profilePhoto);
         const photoInfo = Number.isFinite(photoId) && photoId > 0
@@ -85,7 +85,10 @@ export class AccountingActivityService {
             : null;
         return {
             name: user
-                ? [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email || uid
+                ? employee?.preferredName
+                    || [user.firstName, user.lastName].filter(Boolean).join(" ")
+                    || user.email
+                    || uid
                 : uid || "SecureStay",
             avatar: this.buildEmployeePhotoUrl(photoInfo),
         };
@@ -224,10 +227,13 @@ export class AccountingActivityService {
             ...discussionRows.map((row) => row.createdBy),
         ].filter(Boolean)));
         const users = actorIds.length
-            ? await this.usersRepo.find({ where: { uid: In(actorIds) } })
+            ? await this.usersRepo.find({ where: { uid: In(actorIds) }, withDeleted: true })
             : [];
         const employees = users.length
-            ? await this.employeeRepo.find({ where: { userId: In(users.map((user) => user.id)) } })
+            ? await this.employeeRepo.find({
+                where: { userId: In(users.map((user) => user.id)) },
+                withDeleted: true,
+            })
             : [];
         const employeeByUserId = new Map(employees.map((employee) => [employee.userId, employee]));
         const profilePhotoIds = employees
@@ -238,14 +244,22 @@ export class AccountingActivityService {
             : [];
         const profilePhotoById = new Map(profilePhotos.map((file) => [Number(file.id), file]));
         const userByUid = new Map(users.map((user) => [user.uid, user]));
-        const viewer = viewerId ? userByUid.get(viewerId) || await this.usersRepo.findOne({ where: { uid: viewerId } }) : null;
+        const viewer = viewerId
+            ? userByUid.get(viewerId)
+                || await this.usersRepo.findOne({ where: { uid: viewerId }, withDeleted: true })
+            : null;
         const viewerIsAdmin = this.isAdmin(viewer);
         const getActor = (uid: string) => {
             const user = userByUid.get(uid);
             const employee = user ? employeeByUserId.get(user.id) : null;
             const photoInfo = profilePhotoById.get(Number(employee?.profilePhoto));
             return {
-                name: user ? [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email || uid : uid || "System",
+                name: user
+                    ? employee?.preferredName
+                        || [user.firstName, user.lastName].filter(Boolean).join(" ")
+                        || user.email
+                        || uid
+                    : uid || "System",
                 avatar: this.buildEmployeePhotoUrl(photoInfo),
             };
         };

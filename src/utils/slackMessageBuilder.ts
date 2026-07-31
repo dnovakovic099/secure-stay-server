@@ -1623,8 +1623,13 @@ const formatExpenseSlackAmount = (amount: number): string => {
     return `${amountPrefix}${formatCurrency(Math.abs(amount))}`;
 };
 
-const getExpenseSlackDetailUrl = (expenseId: number | string) =>
-    `https://securestay.ai/accounting/transactions/expense?expenseId=${expenseId}&openDetails=1`;
+const getExpenseSlackDetailUrl = (expense: ExpenseEntity) => {
+    if (expense.resolutionId) {
+        return `https://securestay.ai/accounting/transactions/resolution?resolutionId=${expense.resolutionId}`;
+    }
+    const transactionType = Number(expense.amount) > 0 ? "extras" : "expense";
+    return `https://securestay.ai/accounting/transactions/${transactionType}?expenseId=${expense.id}&openDetails=1`;
+};
 
 const formatExpenseSlackRichText = (value?: unknown, fallback = "—") => {
     const formatted = formatSecureStayMarkdownForSlack(value);
@@ -1661,7 +1666,7 @@ export const buildExpenseSlackMessage = (
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*${title}* *<${getExpenseSlackDetailUrl(expense.id)}|View>*`
+                    text: `*${title}* *<${getExpenseSlackDetailUrl(expense)}|View>*`
                 }
             },
             {
@@ -1761,7 +1766,7 @@ export const buildExpenseSlackMessageUpdate = (
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*${typeLabel} Updated: 🏠 ${listingName || 'Unknown Property'}* *<${getExpenseSlackDetailUrl(expense.id)}|View>*`
+                    text: `*${typeLabel} Updated: 🏠 ${listingName || 'Unknown Property'}* *<${getExpenseSlackDetailUrl(expense)}|View>*`
                 }
             },
             {
@@ -1827,7 +1832,7 @@ export const buildExpenseStatusUpdateMessage = (
                 type: "section",
                 text: {
                     type: "mrkdwn",
-                    text: `*${typeLabel} Status Updated* *<${getExpenseSlackDetailUrl(expense.id)}|View>*`
+                    text: `*${typeLabel} Status Updated* *<${getExpenseSlackDetailUrl(expense)}|View>*`
                 }
             },
             {

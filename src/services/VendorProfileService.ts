@@ -741,6 +741,8 @@ export class VendorProfileService {
             totalExpenseCount: expenseUsage?.totalExpenseCount ?? 0,
             activeExpenseCount: expenseUsage?.activeExpenseCount ?? 0,
             totalExpenseAmount: expenseUsage?.totalExpenseAmount ?? 0,
+            totalExpenseIds: expenseUsage?.totalExpenseIds ?? [],
+            activeExpenseIds: expenseUsage?.activeExpenseIds ?? [],
             createdById: profile.createdBy,
             updatedById: profile.updatedBy,
             createdBy: profile.createdBy ? userMap.get(profile.createdBy) || profile.createdBy : profile.createdBy,
