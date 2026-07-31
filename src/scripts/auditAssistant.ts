@@ -14,6 +14,8 @@
  * section) and cleans up the conversations it created.
  */
 
+import "reflect-metadata";
+import "dotenv/config";
 import { appDatabase } from "../utils/database.util";
 import { AssistantService } from "../services/assistant/AssistantService";
 import { TOOL_NAMES, TOOL_SCHEMAS, ToolContext, getToolHandler } from "../services/assistant/tools";
