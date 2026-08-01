@@ -724,6 +724,28 @@ export class QuoInboxService {
             order: { sentAt: "ASC" },
             take: 500,
         });
+        // Messages synced before the Quo user cache was available can have the
+        // correct Quo user id but no display name. Resolve those ids when the
+        // thread is opened so the inbox shows the actual Quo user instead of a
+        // company-level UI fallback. We only persist names returned by Quo.
+        const unresolvedQuoUserIds = Array.from(new Set(
+            messages
+                .filter((message) => message.direction === "outgoing" && !message.senderName && message.quoUserId)
+                .map((message) => String(message.quoUserId))
+        ));
+        if (unresolvedQuoUserIds.length) {
+            const resolvedNames = await Promise.all(
+                unresolvedQuoUserIds.map(async (userId) => [userId, await this.resolveUserName(userId)] as const)
+            );
+            const nameByQuoUserId = new Map(resolvedNames.filter(([, name]) => Boolean(name)));
+            const updates = messages.filter((message) => {
+                const senderName = message.quoUserId ? nameByQuoUserId.get(String(message.quoUserId)) : null;
+                if (!senderName) return false;
+                message.senderName = senderName;
+                return true;
+            });
+            if (updates.length) await this.messageRepo.save(updates);
+        }
         const senderUserIds = Array.from(new Set(
             messages
                 .map((message) => Number(message.sentByUserId))

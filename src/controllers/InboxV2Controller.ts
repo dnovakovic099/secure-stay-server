@@ -76,7 +76,6 @@ export class InboxV2Controller {
                 listingId: request.query.listingId as any,
                 reservationStatus: (request.query.reservationStatus as string) || undefined,
                 searchFields: request.query.searchFields as any,
-                pmsMode: request.query.pms === "off" ? "off" : "default",
             });
             return response.status(200).json({ status: true, data: result });
         } catch (error) {
@@ -91,9 +90,7 @@ export class InboxV2Controller {
                 return response.status(400).json({ status: false, message: "Invalid threadId" });
             }
             const inboxService = new InboxService();
-            const result = await inboxService.getConversation(threadId, {
-                pmsMode: request.query.pms === "off" ? "off" : "default",
-            });
+            const result = await inboxService.getConversation(threadId);
             if (!result) {
                 return response.status(404).json({ status: false, message: "Conversation not found" });
             }

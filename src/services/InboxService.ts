@@ -98,12 +98,6 @@ interface ListOptions {
     airbnbSupport?: boolean | string;
     /** Limit the list to reservations tagged by the Airbnb case detector. */
     airbnbCase?: string | string[];
-    /**
-     * Default keeps Hostify mirror-listing conversations out of the working
-     * inbox. "off" is the explicit review view for those service_pms = 0
-     * listings.
-     */
-    pmsMode?: "default" | "off" | string;
 }
 
 const toNumberOrNull = (value: any): number | null => {
@@ -1582,7 +1576,6 @@ export class InboxService {
             LIMIT 1
         )`;
 
-        const pmsOffMode = String(options.pmsMode || "").toLowerCase() === "off";
         const airbnbSupportOnly =
             options.airbnbSupport === true || String(options.airbnbSupport || "").toLowerCase() === "true";
         const qb = this.conversationRepo
@@ -1615,14 +1608,9 @@ export class InboxService {
             //    on the same property (Anj / Jean Kozlowski, Jul 2026).
         if (airbnbSupportOnly) {
             // Airbnb Support is a distinct case-worker conversation, not a
-            // guest thread. Show every detected support conversation here,
-            // including one attached to a Hostify mirror listing.
-            qb.andWhere("LOWER(COALESCE(c.guestName, '')) REGEXP 'airbnb[[:space:]]*support'");
-        } else if (pmsOffMode) {
-            // Deliberate audit/review mode. These are Hostify's mirror listing
-            // threads, so they stay out of the normal working inbox but remain
-            // accessible when a teammate explicitly opens the PMS-off view.
-            qb.andWhere("lgm.service_pms = 0");
+            // guest thread. It still must not expose a PMS-off mirror listing.
+            qb.andWhere("LOWER(COALESCE(c.guestName, '')) REGEXP 'airbnb[[:space:]]*support'")
+                .andWhere("COALESCE(lgm.service_pms, 1) <> 0");
         } else {
             qb.andWhere(
                 `(
@@ -2137,8 +2125,7 @@ export class InboxService {
         return { channels, repliedByUsers };
     }
 
-    async getConversation(threadId: number, options: { pmsMode?: "default" | "off" | string } = {}) {
-        const pmsOffMode = String(options.pmsMode || "").toLowerCase() === "off";
+    async getConversation(threadId: number) {
         let conversation = await this.conversationRepo.findOne({ where: { threadId } });
         if (!conversation) {
             try {
@@ -2151,21 +2138,20 @@ export class InboxService {
         }
         const isAirbnbSupportConversation = this.isAirbnbSupportConversation(conversation, []);
 
-        // Refuse to open threads that belong to a mirror channel listing in
-        // the normal inbox. The explicit PMS-off review view is the only
-        // allowed route for opening those otherwise-hidden conversations.
+        // Refuse to open threads that belong to a PMS-off mirror channel
+        // listing. They are not part of the SecureStay working inbox.
         // ensureListing lazily fetches service_pms from Hostify if we haven't
         // cached it yet, so this stays correct even for brand-new listing IDs
         // that predate the next full listing_group_map rebuild.
         if (conversation.listingId) {
             const servicePms = await this.listingGroupService.ensureListing(conversation.listingId);
-            if (servicePms === 0 && !pmsOffMode && !isAirbnbSupportConversation) return null;
+            if (servicePms === 0) return null;
             // service_pms is genuinely unknown (Hostify returned no value) —
             // treat as a duplicate iff a sibling thread exists on a confirmed
             // PMS listing. Match keys mirror the listConversations filter
             // because Hostify hands out different guestIds per channel for
             // the same real guest.
-            if (servicePms == null && !pmsOffMode && !isAirbnbSupportConversation) {
+            if (servicePms == null && !isAirbnbSupportConversation) {
                 const groupId = await this.listingGroupService.resolve(conversation.listingId);
                 const pmsSibling = await this.conversationRepo
                     .createQueryBuilder("c2")
@@ -2218,7 +2204,7 @@ export class InboxService {
 
         // Same rule as listConversations: don't open a leftover inquiry when
         // the accepted stay thread is the real one for this guest/day/property.
-        if (!pmsOffMode && !isAirbnbSupportConversation && (await isInquirySupersededByAcceptedStay(conversation))) {
+        if (!isAirbnbSupportConversation && (await isInquirySupersededByAcceptedStay(conversation))) {
             return null;
         }
 
