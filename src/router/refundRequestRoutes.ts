@@ -2,7 +2,7 @@ import { RefundRequestController } from "../controllers/RefundRequestController"
 import { RefundRequestSettingsController } from "../controllers/RefundRequestSettingsController";
 import { Router } from "express";
 import verifySession from "../middleware/verifySession";
-import { validateRefundRequestStatus, validateSaveRefundRequest, validateUpdateRefundRequest } from "../middleware/validation/refundRequest/refundRequest.validation";
+import { validateDismissRefundRequestFlag, validateRefundRequestStatus, validateSaveRefundRequest, validateUpdateRefundRequest } from "../middleware/validation/refundRequest/refundRequest.validation";
 import fileUpload from "../utils/upload.util";
 
 const router = Router();
@@ -36,6 +36,8 @@ router.route('/activity').get(verifySession, refundRequestController.getRefundRe
 router.route('/:reservationId').get(verifySession, refundRequestController.getRefundRequestByReservationId);
 
 router.route('/updatestatus').put(verifySession, validateRefundRequestStatus, refundRequestController.updateRefundRequestStatus);
+
+router.route('/dismiss-flag').put(verifySession, validateDismissRefundRequestFlag, refundRequestController.dismissRefundRequestFlag);
 
 router.route('/getrefundrequestbyid/:id').get(verifySession, refundRequestController.getRefundRequestById);
 

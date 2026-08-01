@@ -250,10 +250,11 @@ const getRefundStatusLabelWithEmoji = (status?: string | null) => {
     const statusKey = normalized.trim().toLowerCase();
     const emoji = statusKey === "pending" ? "🟡"
         : statusKey === "approved" ? "🔵"
-        : statusKey === "for processing" ? "🟢"
-        : statusKey === "paid" ? "✅"
-        : statusKey === "denied" ? "🚫"
-        : statusKey === "cancelled" ? "🔴"
+        : statusKey === "for processing" ? "🟣"
+        : statusKey === "paid" ? "🟢"
+        : statusKey === "partially paid" ? "🟠"
+        : statusKey === "denied" ? "🔴"
+        : statusKey === "cancelled" ? "⚪"
         : "🟡";
     return `${emoji} ${normalized}`;
 };

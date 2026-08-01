@@ -92,4 +92,10 @@ export class RefundRequestEntity {
 
     @Column({ nullable: true })
     deletedBy: string;
+
+    @Column({ type: 'timestamp', nullable: true })
+    flagDismissedAt: Date;
+
+    @Column({ nullable: true })
+    flagDismissedBy: string;
 }

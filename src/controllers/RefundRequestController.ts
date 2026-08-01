@@ -72,7 +72,7 @@ export class RefundRequestController {
     async getRefundRequestList(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const refundRequestService = new RefundRequestService();
-            const { page, limit, status, reservationId, listingId, keyword, keywordField, propertyType, serviceType, chargeToClient, dateType, stayTiming, fromDate, toDate, createdBy, paymentMethod, refundCategory, reviewRating, refundAmountMin, refundAmountMax, expenseEntry, sortRules, excludeRemovedBadReviewRefunds } = request.query;
+            const { page, limit, status, reservationId, listingId, keyword, keywordField, propertyType, serviceType, chargeToClient, dateType, stayTiming, fromDate, toDate, createdBy, paymentMethod, refundCategory, reviewRating, refundAmountMin, refundAmountMax, expenseEntry, sortRules, excludeRemovedBadReviewRefunds, excludeDismissedFlaggedRefunds } = request.query;
             return response.send(await refundRequestService.getRefundRequestList({
                 page: Number(page) || 1,
                 limit: Number(limit) || 10,
@@ -97,6 +97,7 @@ export class RefundRequestController {
                 expenseEntry: expenseEntry as string,
                 sortRules: sortRules as string,
                 excludeRemovedBadReviewRefunds: excludeRemovedBadReviewRefunds as string,
+                excludeDismissedFlaggedRefunds: excludeDismissedFlaggedRefunds as string,
             }));
         } catch (error) {
             return next(error);
@@ -121,6 +122,19 @@ export class RefundRequestController {
 
             await refundRequestService.updateRefundRequestStatus(Number(id), String(status), userId);
             return response.status(200).json({ status: true, message: 'Refund request status updated successfully.' });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async dismissRefundRequestFlag(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const refundRequestService = new RefundRequestService();
+            const userId = request.user.id;
+            const { id } = request.body;
+
+            const refundRequest = await refundRequestService.dismissRefundRequestFlag(Number(id), userId);
+            return response.status(200).json({ status: true, message: 'Refund request removed from flagged cases.', data: refundRequest });
         } catch (error) {
             return next(error);
         }

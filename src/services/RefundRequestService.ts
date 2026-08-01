@@ -1241,8 +1241,8 @@ export class RefundRequestService {
         return { data: events };
     }
 
-    async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; keyword: string; keywordField?: string; propertyType: string; serviceType?: string; chargeToClient?: string; dateType?: string; stayTiming?: string; fromDate?: string; toDate?: string; createdBy?: string; paymentMethod?: string; refundCategory?: string; reviewRating?: string; refundAmountMin?: string; refundAmountMax?: string; expenseEntry?: string; sortRules?: string; excludeRemovedBadReviewRefunds?: string; }) {
-        const { page, limit, status, reservationId, listingId, keyword, keywordField, propertyType, serviceType, chargeToClient, dateType, stayTiming, fromDate, toDate, createdBy, paymentMethod, refundCategory, reviewRating, refundAmountMin, refundAmountMax, expenseEntry, sortRules, excludeRemovedBadReviewRefunds } = query;
+    async getRefundRequestList(query: { page: number, limit: number, status: string, reservationId: string, listingId: string; keyword: string; keywordField?: string; propertyType: string; serviceType?: string; chargeToClient?: string; dateType?: string; stayTiming?: string; fromDate?: string; toDate?: string; createdBy?: string; paymentMethod?: string; refundCategory?: string; reviewRating?: string; refundAmountMin?: string; refundAmountMax?: string; expenseEntry?: string; sortRules?: string; excludeRemovedBadReviewRefunds?: string; excludeDismissedFlaggedRefunds?: string; }) {
+        const { page, limit, status, reservationId, listingId, keyword, keywordField, propertyType, serviceType, chargeToClient, dateType, stayTiming, fromDate, toDate, createdBy, paymentMethod, refundCategory, reviewRating, refundAmountMin, refundAmountMax, expenseEntry, sortRules, excludeRemovedBadReviewRefunds, excludeDismissedFlaggedRefunds } = query;
         const offset = (page - 1) * limit;
 
         const normalizeArray = (value: any): string[] => {
@@ -1268,6 +1268,7 @@ export class RefundRequestService {
         const maxAmount = refundAmountMax !== undefined && refundAmountMax !== null && refundAmountMax !== "" ? Number(refundAmountMax) : null;
         const selectedExpenseEntry = String(expenseEntry || "").trim();
         const shouldExcludeRemovedBadReviewRefunds = ["true", "1", "yes"].includes(String(excludeRemovedBadReviewRefunds || "").trim().toLowerCase());
+        const shouldExcludeDismissedFlaggedRefunds = ["true", "1", "yes"].includes(String(excludeDismissedFlaggedRefunds || "").trim().toLowerCase());
         const removedBadReviewRefundCategory = "refund to remove bad review";
         const removedReviewReservationIds = shouldExcludeRemovedBadReviewRefunds
             ? await (async () => {
@@ -1437,9 +1438,26 @@ export class RefundRequestService {
             if (!shouldExcludeRemovedBadReviewRefunds || !removedReviewReservationIds.length) return;
             qb.andWhere(new Brackets((subQuery) => {
                 subQuery
-                    .where("LOWER(COALESCE(refundRequest.refundCategory, '')) != :removedBadReviewRefundCategory", { removedBadReviewRefundCategory })
+                    .where("CONCAT(',', REPLACE(LOWER(COALESCE(refundRequest.refundCategory, '')), ', ', ','), ',') NOT LIKE :removedBadReviewRefundCategory", { removedBadReviewRefundCategory: `%,${removedBadReviewRefundCategory},%` })
                     .orWhere("refundRequest.reservationId NOT IN (:...removedReviewReservationIds)", { removedReviewReservationIds });
             }));
+        };
+        const applyRefundCategoryFiltersToQuery = (qb: any) => {
+            if (!refundCategoryFilters.length) return;
+            qb.andWhere(new Brackets((subQuery) => {
+                refundCategoryFilters.forEach((category, index) => {
+                    const parameterName = `refundCategoryFilter${index}`;
+                    const expression = "CONCAT(',', REPLACE(LOWER(COALESCE(refundRequest.refundCategory, '')), ', ', ','), ',') LIKE :" + parameterName;
+                    const parameter = { [parameterName]: `%,${category.toLowerCase()},%` };
+                    if (index === 0) subQuery.where(expression, parameter);
+                    else subQuery.orWhere(expression, parameter);
+                });
+            }));
+        };
+        const applyDismissedFlagExclusionToQuery = (qb: any) => {
+            if (shouldExcludeDismissedFlaggedRefunds) {
+                qb.andWhere("refundRequest.flagDismissedAt IS NULL");
+            }
         };
 
         if (propertyTypes.length > 0 || serviceTypes.length > 0) {
@@ -1499,10 +1517,6 @@ export class RefundRequestService {
             whereConditions.paymentMethod = In(paymentMethodFilters);
         }
 
-        if (refundCategoryFilters.length) {
-            whereConditions.refundCategory = In(refundCategoryFilters);
-        }
-
         if (minAmount !== null && maxAmount !== null && !Number.isNaN(minAmount) && !Number.isNaN(maxAmount)) {
             whereConditions.refundAmount = Between(minAmount, maxAmount);
         } else if (minAmount !== null && !Number.isNaN(minAmount)) {
@@ -1552,9 +1566,8 @@ export class RefundRequestService {
             if (paymentMethodFilters.length) {
                 qb.andWhere("refundRequest.paymentMethod IN (:...paymentMethodFilters)", { paymentMethodFilters });
             }
-            if (refundCategoryFilters.length) {
-                qb.andWhere("refundRequest.refundCategory IN (:...refundCategoryFilters)", { refundCategoryFilters });
-            }
+            applyRefundCategoryFiltersToQuery(qb);
+            applyDismissedFlagExclusionToQuery(qb);
             if (minAmount !== null && maxAmount !== null && !Number.isNaN(minAmount) && !Number.isNaN(maxAmount)) {
                 qb.andWhere("refundRequest.refundAmount BETWEEN :minAmount AND :maxAmount", { minAmount, maxAmount });
             } else if (minAmount !== null && !Number.isNaN(minAmount)) {
@@ -1613,7 +1626,7 @@ export class RefundRequestService {
             whereConditions.checkOut = Between(mitigationFromDate, easternToday);
         }
 
-        if (shouldExcludeRemovedBadReviewRefunds && removedReviewReservationIds.length) {
+        if (shouldExcludeRemovedBadReviewRefunds || refundCategoryFilters.length || shouldExcludeDismissedFlaggedRefunds) {
             const qb = this.refundRequestRepo.createQueryBuilder("refundRequest");
 
             if (statusFilters.length) {
@@ -1645,9 +1658,8 @@ export class RefundRequestService {
             if (paymentMethodFilters.length) {
                 qb.andWhere("refundRequest.paymentMethod IN (:...paymentMethodFilters)", { paymentMethodFilters });
             }
-            if (refundCategoryFilters.length) {
-                qb.andWhere("refundRequest.refundCategory IN (:...refundCategoryFilters)", { refundCategoryFilters });
-            }
+            applyRefundCategoryFiltersToQuery(qb);
+            applyDismissedFlagExclusionToQuery(qb);
             if (minAmount !== null && maxAmount !== null && !Number.isNaN(minAmount) && !Number.isNaN(maxAmount)) {
                 qb.andWhere("refundRequest.refundAmount BETWEEN :minAmount AND :maxAmount", { minAmount, maxAmount });
             } else if (minAmount !== null && !Number.isNaN(minAmount)) {
@@ -1828,6 +1840,30 @@ export class RefundRequestService {
         );
       }
       return refundRequest
+    }
+
+    async dismissRefundRequestFlag(id: number, userId: string) {
+        const refundRequest = await this.refundRequestRepo.findOne({ where: { id } });
+        if (!refundRequest) {
+            throw CustomErrorHandler.notFound('Refund request not found');
+        }
+
+        const previousFlagDismissedAt = refundRequest.flagDismissedAt;
+        refundRequest.flagDismissedAt = new Date();
+        refundRequest.flagDismissedBy = userId;
+        refundRequest.updatedBy = userId;
+        const savedRefundRequest = await this.refundRequestRepo.save(refundRequest);
+
+        await this.logRefundRequestChanges(savedRefundRequest.reservationId, userId, {
+            refundFlagDismissed: { old: previousFlagDismissedAt ?? null, new: savedRefundRequest.flagDismissedAt },
+        });
+        await this.recordRefundRequestSystemUpdate(savedRefundRequest, "Refund request removed from flagged cases.", userId, {
+            refundRequestId: savedRefundRequest.id,
+            refundFlagDismissedAt: savedRefundRequest.flagDismissedAt,
+            refundFlagDismissedBy: savedRefundRequest.flagDismissedBy,
+        });
+
+        return await this.decorateRefundRequests(savedRefundRequest);
     }
 
     async updateRefundRequestApprovedBy(id: number, approvedBy: string, userId: string) {

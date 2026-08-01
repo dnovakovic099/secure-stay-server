@@ -2,7 +2,6 @@ import { Request, Response, NextFunction } from "express";
 import Joi from "joi";
 
 const REFUND_REQUEST_STATUS_OPTIONS = ["Pending", "Approved", "For Processing", "Paid", "Partially Paid", "Denied", "Cancelled"];
-const REFUND_REQUEST_CATEGORY_OPTIONS = ["Refund for 5-star", "Refund for No Review", "Refund to Remove Bad Review", "Others"];
 const refundBreakdownItemSchema = Joi.object({
     id: Joi.string().optional().allow(null, ''),
     label: Joi.string().optional().allow(null, ''),
@@ -30,7 +29,7 @@ export const validateSaveRefundRequest = (request: Request, response: Response, 
         checkOut: Joi.date().required(),
         issueId: Joi.string().optional().allow(null, ''),
         explaination: Joi.string().required(),
-        refundCategory: Joi.string().optional().allow(null, '').valid(...REFUND_REQUEST_CATEGORY_OPTIONS, null, ''),
+        refundCategory: Joi.string().optional().allow(null, ''),
         refundAmount: Joi.number().min(0).required(),
         requestedBy: Joi.string().optional().allow(null, ''),
         status: Joi.string().required().valid(...REFUND_REQUEST_STATUS_OPTIONS),
@@ -62,7 +61,7 @@ export const validateUpdateRefundRequest = (request: Request, response: Response
         checkOut: Joi.date().required(),
         issueId: Joi.string().optional().allow(null, ''),
         explaination: Joi.string().required(),
-        refundCategory: Joi.string().optional().allow(null, '').valid(...REFUND_REQUEST_CATEGORY_OPTIONS, null, ''),
+        refundCategory: Joi.string().optional().allow(null, ''),
         refundAmount: Joi.number().min(0).required(),
         requestedBy: Joi.string().optional().allow(null, ''),
         status: Joi.string().required().valid(...REFUND_REQUEST_STATUS_OPTIONS),
@@ -89,6 +88,19 @@ export const validateRefundRequestStatus = (request: Request, response: Response
         id: Joi.number().required(),
         status: Joi.string().required().valid(...REFUND_REQUEST_STATUS_OPTIONS),
         approvedBy: Joi.string().optional().allow(null, ''),
+    });
+
+    const { error } = schema.validate(request.body);
+    if (error) {
+        return next(error);
+    }
+
+    next();
+};
+
+export const validateDismissRefundRequestFlag = (request: Request, response: Response, next: NextFunction) => {
+    const schema = Joi.object({
+        id: Joi.number().required(),
     });
 
     const { error } = schema.validate(request.body);
