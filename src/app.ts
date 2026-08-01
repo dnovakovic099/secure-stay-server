@@ -52,10 +52,12 @@ const main = async () => {
   app.use(compression());
   app.use(cors());
 
-  // JSON parser with special webhook exception
+  // JSON parser with special webhook exception.
+  // Hostify (SNS) delivers text/plain payloads; parse as text at the app level
+  // so req.body is a string by the time the webhook logger middleware runs.
   app.use((req, res, next) => {
     if (req.path.includes('/webhook/hostify_v1')) {
-      return next();
+      return express.text({ type: '*/*' })(req, res, next);
     }
     express.json({ limit: "50mb" })(req, res, next);
   });

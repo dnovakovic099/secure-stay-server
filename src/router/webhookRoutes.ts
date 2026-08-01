@@ -34,7 +34,7 @@ router.route('/slack-interactivity-webhook').post(bodyParser.urlencoded({ extend
 
 router.route('/hostbuddy-webhook').post(unifiedWebhookController.handleHostBuddyWebhook);
 
-router.route('/hostify_v1').post(bodyParser.text({ type: "*/*" }), unifiedWebhookController.handleHostifyWebhook);
+router.route('/hostify_v1').post(unifiedWebhookController.handleHostifyWebhook);
 
 // Slack Events API endpoint for receiving thread replies
 router.route('/slack-events-webhook').post(unifiedWebhookController.handleSlackEventsWebhook);
