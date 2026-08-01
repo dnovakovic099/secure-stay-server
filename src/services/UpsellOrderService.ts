@@ -30,6 +30,7 @@ export class UpsellOrderService {
         "type",
         "description",
         "payment_method",
+        "payment_link",
         "booking_id",
         "arrival_date",
         "departure_date",
@@ -209,6 +210,7 @@ export class UpsellOrderService {
             arrival_date: 'arrival_date',
             departure_date: 'departure_date',
             description: 'description',
+            payment_link: 'payment_link',
         };
         const keywordFields = Object.keys(keywordFieldMap);
         const selectedKeywordField = keywordFields.includes(String(keywordField || '')) ? String(keywordField) : 'all';
