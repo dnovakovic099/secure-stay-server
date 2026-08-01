@@ -16,10 +16,15 @@ import {
  * Persists the log after res.finish so latency is not affected.
  * Skips logging its own /webhook/webhook-logs endpoints to avoid recursion.
  */
+const SKIP_URL_SUBSTRINGS = [
+    "/webhook/webhook-logs",
+    "/webhook/slack-events-webhook",
+];
+
 export function webhookLoggerMiddleware(req: Request, res: Response, next: NextFunction) {
     try {
-        // Never log the log-viewer endpoints themselves
-        if (req.originalUrl?.includes("/webhook/webhook-logs")) {
+        const originalUrl = req.originalUrl || "";
+        if (SKIP_URL_SUBSTRINGS.some((s) => originalUrl.includes(s))) {
             return next();
         }
 
