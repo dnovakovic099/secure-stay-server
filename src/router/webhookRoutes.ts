@@ -3,6 +3,8 @@ import { UnifiedWebhookController } from "../controllers/UnifiedWebhookControlle
 import { ZapierWebhookController } from "../controllers/ZapierWebhookController";
 import { ThreadController } from "../controllers/ThreadController";
 import { EscalationSettingsController } from "../controllers/EscalationSettingsController";
+import { WebhookLogController } from "../controllers/WebhookLogController";
+import { webhookLoggerMiddleware } from "../middleware/webhookLogger.middleware";
 import bodyParser from "body-parser"
 import verifyMobileSession from "../middleware/verifyMobileSession";
 import verifySession from "../middleware/verifySession";
@@ -12,6 +14,18 @@ const unifiedWebhookController = new UnifiedWebhookController();
 const zapierWebhookController = new ZapierWebhookController();
 const threadController = new ThreadController();
 const escalationSettingsController = new EscalationSettingsController();
+const webhookLogController = new WebhookLogController();
+
+// Log all incoming webhook traffic (request + response) to webhook_logs.
+// Runs before route handlers; the log write is deferred to res.finish so
+// it never adds latency. Redacts secrets before touching the DB.
+router.use(webhookLoggerMiddleware);
+
+// Webhook logs viewer (behind session auth)
+router.route('/webhook-logs').get(verifySession, webhookLogController.list);
+router.route('/webhook-logs/sources').get(verifySession, webhookLogController.sources);
+router.route('/webhook-logs/event-types').get(verifySession, webhookLogController.eventTypes);
+router.route('/webhook-logs/:id').get(verifySession, webhookLogController.detail);
 
 router.route('/ha-unified-webhook').post(unifiedWebhookController.handleWebhookResponse);
 router.route('/stripe').post(unifiedWebhookController.handleStripeWebhook);

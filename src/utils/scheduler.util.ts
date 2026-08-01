@@ -44,6 +44,7 @@ import { QuoInboxService } from "../services/QuoInboxService";
 import { QuoItemDetectionService } from "../services/QuoItemDetectionService";
 import { RefundRequestService } from "../services/RefundRequestService";
 import { InboxService } from "../services/InboxService";
+import { webhookLogService } from "../services/WebhookLogService";
 
 
 export function scheduleGetReservation() {
@@ -1110,6 +1111,20 @@ export function scheduleGetReservation() {
           channel: OPENAI_HEALTHCHECK_SLACK_USER_ID,
           text: slackText,
         });
+      }
+    }
+  );
+
+  // Nightly cleanup of webhook logs older than 15 days.
+  // Runs at 03:15 America/New_York to avoid peak load.
+  schedule.scheduleJob(
+    { hour: 3, minute: 15, tz: "America/New_York" },
+    async () => {
+      try {
+        const deleted = await webhookLogService.cleanupOldLogs(15);
+        logger.info(`[Scheduler] Webhook log cleanup removed ${deleted} rows older than 15 days`);
+      } catch (err: any) {
+        logger.error(`[Scheduler] Webhook log cleanup failed: ${err?.message}`);
       }
     }
   );

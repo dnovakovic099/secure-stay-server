@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS webhook_logs (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  direction VARCHAR(16) NOT NULL,
+  source VARCHAR(64) NOT NULL,
+  event_type VARCHAR(128) NULL,
+  url VARCHAR(1024) NOT NULL,
+  method VARCHAR(10) NOT NULL,
+  status_code SMALLINT NULL,
+  request_headers JSON NULL,
+  request_query JSON NULL,
+  request_body MEDIUMTEXT NULL,
+  response_headers JSON NULL,
+  response_body MEDIUMTEXT NULL,
+  duration_ms INT NULL,
+  error_message TEXT NULL,
+  remote_ip VARCHAR(64) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  INDEX idx_webhook_logs_direction_created (direction, created_at),
+  INDEX idx_webhook_logs_source_created (source, created_at),
+  INDEX idx_webhook_logs_status (status_code),
+  INDEX idx_webhook_logs_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
