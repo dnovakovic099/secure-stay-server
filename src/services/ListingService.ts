@@ -231,7 +231,7 @@ export class ListingService {
       contactPhone1: data?.contactPhone1 || "",
       contactLanguage: data?.contactLanguage || "",
       propertyLicenseNumber: data?.propertyLicenseNumber || "",
-      tags: data?.tags || null,
+      tags: this.formatHostifyTags(data?.tags) || null,
       integration_id: data?.integration_id || data?.fs_integration_type || data?.target_id || data?.channel_account_id || null,
 
     };
