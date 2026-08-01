@@ -465,6 +465,45 @@ export class InboxService {
             .getOne();
     }
 
+    private async getReservationLinkedToAirbnbSupportConversation(
+        conversation: InboxConversationEntity,
+        messages: Array<Pick<InboxMessageEntity, "body" | "note">>
+    ) {
+        if (!this.isAirbnbSupportConversation(conversation, [])) return null;
+
+        const confirmationCodes = this.extractHostifyConfirmationCodesFromMessages(conversation, messages);
+        for (const confirmationCode of confirmationCodes) {
+            const reservation = await this.findReservationByConfirmationCode(confirmationCode);
+            if (reservation) return reservation;
+        }
+        return null;
+    }
+
+    /** SecureStay workflow metadata, deliberately separate from Hostify fields. */
+    async updateAirbnbCaseMetadata(
+        threadId: number,
+        patch: { status?: unknown; refundStatus?: unknown }
+    ) {
+        const conversation = await this.conversationRepo.findOne({ where: { threadId } });
+        if (!conversation) throw new CustomErrorHandler(404, "Conversation not found");
+        if (!this.isAirbnbSupportConversation(conversation, [])) {
+            throw new CustomErrorHandler(400, "Conversation is not an Airbnb Support case");
+        }
+        const caseStatuses = new Set(["New", "In Progress", "Closed"]);
+        const refundStatuses = new Set(["No Refund", "Partially Refunded", "Fully Refunded", "N/A"]);
+        if (patch.status !== undefined) {
+            const status = String(patch.status || "").trim();
+            if (!caseStatuses.has(status)) throw new CustomErrorHandler(400, "Invalid Airbnb case status");
+            conversation.airbnbCaseStatus = status;
+        }
+        if (patch.refundStatus !== undefined) {
+            const refundStatus = String(patch.refundStatus || "").trim();
+            if (!refundStatuses.has(refundStatus)) throw new CustomErrorHandler(400, "Invalid Airbnb refund status");
+            conversation.airbnbRefundStatus = refundStatus;
+        }
+        return this.conversationRepo.save(conversation);
+    }
+
     private async processAirbnbSupportConfirmationCodes(
         conversation: InboxConversationEntity,
         messages: InboxMessageEntity[]
@@ -2279,11 +2318,20 @@ export class InboxService {
         }
 
         const airbnbCase = await this.getAirbnbSupportCaseForReservation(conversation.reservationId);
+        const relatedReservation = await this.getReservationLinkedToAirbnbSupportConversation(conversation, messages);
+        const relatedReservationConversation = relatedReservation?.id
+            ? await this.conversationRepo.findOne({
+                where: { reservationId: Number(relatedReservation.id) },
+                order: { lastMessageAt: "DESC", threadId: "DESC" },
+            })
+            : null;
 
         return {
             conversation: { ...conversation, parentListingId, aiAutoRespondDisabled },
             messages,
             airbnbCase,
+            relatedReservationId: relatedReservation?.id ?? null,
+            relatedReservationThreadId: relatedReservationConversation?.threadId ?? null,
         };
     }
 

@@ -26,6 +26,11 @@ router.use((request, response, next) => {
 // Conversation list + thread detail (read from local DB)
 router.get("/conversations", verifySession, inboxV2Controller.listConversations);
 router.get("/conversations/:threadId", verifySession, inboxV2Controller.getConversation);
+router.patch(
+    "/conversations/:threadId/airbnb-case",
+    verifySession,
+    inboxV2Controller.updateAirbnbCaseMetadata
+);
 
 // Send a reply (delivers to Hostify + records local attribution)
 router.post("/conversations/:threadId/reply", verifySession, inboxV2Controller.reply);

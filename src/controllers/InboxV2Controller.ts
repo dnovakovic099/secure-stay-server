@@ -100,6 +100,22 @@ export class InboxV2Controller {
         }
     }
 
+    async updateAirbnbCaseMetadata(request: Request, response: Response, next: NextFunction) {
+        try {
+            const threadId = Number(request.params.threadId);
+            if (!Number.isFinite(threadId)) {
+                return response.status(400).json({ status: false, message: "Invalid threadId" });
+            }
+            const result = await new InboxService().updateAirbnbCaseMetadata(threadId, {
+                status: request.body?.status,
+                refundStatus: request.body?.refundStatus,
+            });
+            return response.status(200).json({ status: true, data: result });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async reply(request: CustomRequest, response: Response, next: NextFunction) {
         try {
             const threadId = Number(request.params.threadId);

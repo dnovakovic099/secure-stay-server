@@ -187,6 +187,14 @@ export class InboxConversationEntity {
     @Column({ type: "tinyint", nullable: true })
     rescueMoodAtActivate: number | null;
 
+    // SecureStay operational metadata for an Airbnb Support case. These are
+    // deliberately not Hostify reservation fields.
+    @Column({ length: 24, nullable: true })
+    airbnbCaseStatus: string | null;
+
+    @Column({ length: 32, nullable: true })
+    airbnbRefundStatus: string | null;
+
     @CreateDateColumn({ type: "timestamp" })
     createdAt: Date;
 
