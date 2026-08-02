@@ -104,14 +104,20 @@ export class ExpenseService {
     }
 
     private async attachSlackPermalink(expense: ExpenseEntity) {
-        const slackMessage = await this.slackMessageRepo.findOne({
-            where: { entityType: "expense", entityId: expense.id },
-            order: { id: "DESC" },
-        });
+        const [slackMessage, reservation] = await Promise.all([
+            this.slackMessageRepo.findOne({
+                where: { entityType: "expense", entityId: expense.id },
+                order: { id: "DESC" },
+            }),
+            expense.reservationId
+                ? this.reservationInfoRepo.findOne({ where: { id: Number(expense.reservationId) } })
+                : null,
+        ]);
 
         return {
             ...expense,
             expenseId: expense.id,
+            channelName: reservation?.channelName || null,
             slackThreadPermalink: this.buildSlackPermalink(slackMessage),
         };
     }
@@ -783,6 +789,13 @@ export class ExpenseService {
         });
 
         const issueService = new IssuesService();
+        const expenseReservationIds = Array.from(new Set(
+            expenses.map((expense) => Number(expense.reservationId)).filter((id) => Number.isFinite(id) && id > 0)
+        ));
+        const reservations = expenseReservationIds.length
+            ? await this.reservationInfoRepo.find({ where: { id: In(expenseReservationIds) } })
+            : [];
+        const reservationById = new Map(reservations.map((reservation) => [Number(reservation.id), reservation]));
 
         const data = await Promise.all(
             expenses.map(async (expense) => {
@@ -850,6 +863,7 @@ export class ExpenseService {
                     issuesList: issueList,
                     createdBy: createdBy,
                     guestName: expense.guestName,
+                    channelName: reservationById.get(Number(expense.reservationId))?.channelName || null,
                     llCover: expense.llCover,
                     comesFrom: expense.comesFrom,
                 };

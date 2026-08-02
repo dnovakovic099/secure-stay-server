@@ -528,6 +528,13 @@ export class ResolutionService {
               GROUP BY id
               `);
         const resolutionIds = resolutions.map((resolution) => resolution.id);
+        const reservationIds = Array.from(new Set(
+            resolutions.map((resolution) => Number(resolution.reservationId)).filter((id) => Number.isFinite(id) && id > 0)
+        ));
+        const reservations = reservationIds.length
+            ? await this.reservationInfoRepository.find({ where: { id: In(reservationIds) } })
+            : [];
+        const reservationById = new Map(reservations.map((reservation) => [Number(reservation.id), reservation]));
         const linkedExpenses = resolutionIds.length
             ? await this.expenseRepo.find({ where: { resolutionId: In(resolutionIds) } })
             : [];
@@ -559,6 +566,7 @@ export class ResolutionService {
                 listingName: listing?.internalListingName,
                 propertyType: this.extractPropertyType(listing),
                 serviceType: this.extractServiceType(listing),
+                channelName: reservationById.get(Number(resolution.reservationId))?.channelName || null,
                 createdBy: userMap.get(resolution.createdBy) || resolution.createdBy,
                 updatedBy: userMap.get(resolution.updatedBy) || resolution.updatedBy,
                 slackThreadPermalink: this.buildSlackPermalink(linkedExpense ? slackMessageByExpenseId.get(linkedExpense.id) : null),
@@ -578,7 +586,7 @@ export class ResolutionService {
             throw CustomErrorHandler.notFound(`Resolution with id ${resolutionId} not found`);
         }
 
-        const [createdByUser, updatedByUser, listing, linkedExpense] = await Promise.all([
+        const [createdByUser, updatedByUser, listing, linkedExpense, reservation] = await Promise.all([
             resolution.createdBy ? this.usersRepo.findOne({ where: { uid: resolution.createdBy } }) : null,
             resolution.updatedBy ? this.usersRepo.findOne({ where: { uid: resolution.updatedBy } }) : null,
             this.listingInfoRepository.findOne({ where: { id: Number(resolution.listingMapId) } }),
@@ -586,6 +594,9 @@ export class ResolutionService {
                 where: { resolutionId: resolution.id },
                 order: { updatedAt: "DESC" },
             }),
+            resolution.reservationId
+                ? this.reservationInfoRepository.findOne({ where: { id: Number(resolution.reservationId) } })
+                : null,
         ]);
         const slackMessage = linkedExpense
             ? await this.slackMessageRepo.findOne({
@@ -599,6 +610,7 @@ export class ResolutionService {
             listingName: listing?.internalListingName,
             propertyType: this.extractPropertyType(listing),
             serviceType: this.extractServiceType(listing),
+            channelName: reservation?.channelName || null,
             createdBy: createdByUser ? `${createdByUser.firstName} ${createdByUser.lastName}` : resolution.createdBy,
             updatedBy: updatedByUser ? `${updatedByUser.firstName} ${updatedByUser.lastName}` : resolution.updatedBy,
             slackThreadPermalink: this.buildSlackPermalink(slackMessage),
