@@ -1192,6 +1192,9 @@ export class InboxService {
             conversation.answered = 0;
         } else if (direction === "outgoing") {
             conversation.answered = 1;
+            // Replies often land here from Hostify/Airbnb rather than Inbox v2
+            // sendReply — clear the handoff pin the same way a local reply does.
+            this.clearAiNeedsHumanFields(conversation);
         }
         try {
             conversation = await this.conversationRepo.save(conversation);
@@ -1210,6 +1213,7 @@ export class InboxService {
                 winner.answered = 0;
             } else if (direction === "outgoing") {
                 winner.answered = 1;
+                this.clearAiNeedsHumanFields(winner);
             }
             conversation = await this.conversationRepo.save(winner);
         }
@@ -1407,6 +1411,22 @@ export class InboxService {
     }
 
     /**
+     * Drop the Inbox "AI Needs Team" / AI handoff pin. Returns true when the
+     * conversation was changed so callers can decide whether to save.
+     *
+     * sendReply already cleared this; Hostify webhook/sync paths did not, so a
+     * human reply from Airbnb/Hostify left the violet badge stuck.
+     */
+    private clearAiNeedsHumanFields(conversation: InboxConversationEntity): boolean {
+        if (Number(conversation.aiNeedsHuman) !== 1) return false;
+        conversation.aiNeedsHuman = 0;
+        conversation.aiNeedsHumanKind = null;
+        conversation.aiNeedsHumanReason = null;
+        conversation.aiNeedsHumanAt = null;
+        return true;
+    }
+
+    /**
      * Keep the list preview + answered flag honest after sync.
      * Hostify's thread `preview`/`answered` fields lag (and Hostify notes like
      * "Pre-approval sent" must not put a thread back into awaiting-reply).
@@ -1429,6 +1449,11 @@ export class InboxService {
                 const nextAnswered = latestGuestOrHost.direction === "outgoing" ? 1 : 0;
                 if (Number(conversation.answered) !== nextAnswered) {
                     conversation.answered = nextAnswered;
+                    dirty = true;
+                }
+                // Heal sticky AI handoff badges: once the latest guest/host
+                // message is ours, a human (or autosend) has taken the thread.
+                if (nextAnswered === 1 && this.clearAiNeedsHumanFields(conversation)) {
                     dirty = true;
                 }
             }
@@ -2475,12 +2500,7 @@ export class InboxService {
         conversation.answered = 1;
         conversation.unread = 0;
         // Human took the thread — clear AI Needs Team pin.
-        if (Number(conversation.aiNeedsHuman) === 1) {
-            conversation.aiNeedsHuman = 0;
-            conversation.aiNeedsHumanKind = null;
-            conversation.aiNeedsHumanReason = null;
-            conversation.aiNeedsHumanAt = null;
-        }
+        this.clearAiNeedsHumanFields(conversation);
         await this.conversationRepo.save(conversation);
 
         // Best-effort: reconcile the real Hostify message id/history shortly after.
