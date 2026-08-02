@@ -1830,6 +1830,12 @@ export class ReservationInfoService {
       || await this.reservationInfoRepository.findOne({ where: { id: reservationId } });
     if (!reservation) return;
 
+    const listing = reservation.listingMapId
+      ? await this.listingInfoRepository.findOne({ where: { id: reservation.listingMapId } })
+      : null;
+    const propertyType = ListingService.extractPropertyTypeFromTags(listing?.tags);
+    if (propertyType === "Own" || propertyType === "Arb") return;
+
     const upcomingReservations = await this.getUpcomingReservationsForDisputeRisk(reservation);
     const disputeRiskTotalPaid = this.getDisputeRiskTotalPaid(reservation);
     const coveringResult = this.getDisputeRiskCoveringReservations(upcomingReservations, disputeRiskTotalPaid);

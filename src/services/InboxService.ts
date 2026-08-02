@@ -539,6 +539,7 @@ export class InboxService {
                 );
 
                 if (reviewCheckout?.id) {
+                    await slackService.syncRootMessageForReviewCheckout(reviewCheckout.id);
                     await new ReviewService().createReviewCheckoutUpdate(reviewCheckout.id, updateText, "SecureStay");
                 }
 
