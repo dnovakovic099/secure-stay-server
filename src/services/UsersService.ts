@@ -103,18 +103,38 @@ export class UsersService {
 
 
     async checkUserForGoogleLogin(email: string, uid: string) {
-        const isExist = await this.usersRepository.findOne({
+        // Prefer exact email+uid match, then email-only (Google may re-issue a uid).
+        const byEmailAndUid = await this.usersRepository.findOne({
             where: {
                 email: email,
                 uid: uid
             }
         });
 
-        if (!isExist) {
-            return false;
-        } else {
+        if (byEmailAndUid) {
             return true;
         }
+
+        const byEmail = await this.usersRepository.findOne({
+            where: {
+                email: email
+            }
+        });
+
+        if (!byEmail) {
+            return false;
+        }
+
+        // Keep the SecureStay user row linked to the current Supabase uid.
+        if (byEmail.uid !== uid) {
+            byEmail.uid = uid;
+            if (!byEmail.authProvider) {
+                byEmail.authProvider = 'google';
+            }
+            await this.usersRepository.save(byEmail);
+        }
+
+        return true;
     }
 
     async checkUserEmail(email: string) {
