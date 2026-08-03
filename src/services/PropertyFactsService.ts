@@ -4,6 +4,7 @@ import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { PropertyFactEntity } from "../entity/PropertyFact";
 import { PropertyFactProposalEntity } from "../entity/PropertyFactProposal";
+import { AIMessageFeedbackEntity } from "../entity/AIMessageFeedback";
 import {
     PROPERTY_FACT_FIELDS,
     PROPERTY_FACT_FIELD_KEYS,
@@ -218,6 +219,62 @@ export class PropertyFactsService {
             });
         }
         return row;
+    }
+
+    /**
+     * End-of-day sweep: analyze recent chat feedback (ANY rating or target
+     * type, as long as the rep wrote something) for stable property facts and
+     * file them as pending proposals on the Verified Facts page.
+     *
+     * The immediate path in recordFeedback only covers downvote+text; this
+     * catches everything else ("we do accept events" left as a note on an
+     * upvote, general feedback, sent-reply reviews) and retries rows the
+     * immediate path missed (e.g. transient OpenAI failures). Each feedback
+     * row is stamped factSweepAt after one analysis so it is never re-sent to
+     * the extractor, and rows that already produced proposals are skipped.
+     */
+    async sweepFeedbackProposals(
+        opts: { sinceDays?: number; limit?: number } = {}
+    ): Promise<{ scanned: number; proposed: number }> {
+        const since = new Date();
+        since.setDate(since.getDate() - (opts.sinceDays ?? 3));
+        const feedbackRepo = appDatabase.getRepository(AIMessageFeedbackEntity);
+        const rows = await feedbackRepo
+            .createQueryBuilder("f")
+            .where("f.createdAt >= :since", { since })
+            .andWhere("f.factSweepAt IS NULL")
+            .andWhere("f.listingId IS NOT NULL")
+            .andWhere("(COALESCE(f.correctedResponse, '') <> '' OR COALESCE(f.feedbackText, '') <> '')")
+            .orderBy("f.createdAt", "ASC")
+            .take(opts.limit ?? 50)
+            .getMany();
+
+        let proposed = 0;
+        for (const f of rows) {
+            const correction = (f.correctedResponse || f.feedbackText || "").trim();
+            if (correction) {
+                const already = await this.proposalRepo.findOne({
+                    where: { sourceType: "feedback", sourceId: f.id },
+                });
+                if (!already) {
+                    proposed += await this.proposeFromCorrection({
+                        listingId: Number(f.listingId),
+                        aiText: f.originalMessage,
+                        correctionText: correction,
+                        sourceType: "feedback",
+                        sourceId: f.id,
+                    });
+                }
+            }
+            f.factSweepAt = new Date();
+            await feedbackRepo.save(f);
+        }
+        if (rows.length) {
+            logger.info(
+                `[PropertyFacts] feedback sweep: ${rows.length} row(s) analyzed, ${proposed} proposal(s) filed`
+            );
+        }
+        return { scanned: rows.length, proposed };
     }
 
     /**

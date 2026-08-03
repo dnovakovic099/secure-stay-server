@@ -46,5 +46,10 @@ export class AIMessageFeedbackEntity {
     @Column({ type: "text", nullable: true }) feedbackText: string | null;
     @Column({ type: "mediumtext", nullable: true }) correctedResponse: string | null;
 
+    /** When the nightly Verified Facts sweep analyzed this row (null = not yet). */
+    @Index()
+    @Column({ type: "datetime", nullable: true })
+    factSweepAt: Date | null;
+
     @Index() @CreateDateColumn({ type: "timestamp" }) createdAt: Date;
 }

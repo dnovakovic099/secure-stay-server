@@ -922,6 +922,17 @@ export class InboxAIAuditService {
             logger.info("[InboxAIAudit] extraction disabled via AI_NIGHTLY_AUDIT_ENABLED=false");
         }
 
+        // End-of-day Verified Facts pass: any chat feedback a rep wrote text on
+        // (regardless of thumbs rating) is analyzed for stable property facts
+        // and filed as pending proposals on the listing's Verified Facts page.
+        let fbSweep = { scanned: 0, proposed: 0 };
+        try {
+            const { PropertyFactsService } = await import("./PropertyFactsService");
+            fbSweep = await new PropertyFactsService().sweepFeedbackProposals();
+        } catch (e: any) {
+            logger.error(`[InboxAIAudit] feedback fact sweep failed: ${e.message}`);
+        }
+
         // Safety net: seed Knowledge Base for any listing that has an inbox
         // conversation but no KB yet (new reservations arrive on fresh Hostify
         // child IDs). Keeps listing grounding complete without manual reseeds.
@@ -957,6 +968,7 @@ export class InboxAIAuditService {
                 `match-quality backfilled=${mqBf.backfilled}, ` +
                 `relevance backfilled=${relBf.backfilled}, ` +
                 `learning prompts auto-resolved=${learnRes.resolved}, ` +
+                `feedback fact sweep=${fbSweep.proposed}/${fbSweep.scanned}, ` +
                 `new exemplars embedded=${emb.embedded}`
         );
     }
