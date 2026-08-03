@@ -160,6 +160,7 @@ export class VendorProfileService {
                 trustLevel INT NULL,
                 speed INT NULL,
                 costRating INT NULL,
+                strikes INT NULL,
                 website_name VARCHAR(255) NULL,
                 website_link VARCHAR(2048) NULL,
                 notes TEXT NULL,
@@ -244,6 +245,7 @@ export class VendorProfileService {
         await this.addColumnIfMissing("vendor_assignments", "trustLevel", "INT NULL");
         await this.addColumnIfMissing("vendor_assignments", "speed", "INT NULL");
         await this.addColumnIfMissing("vendor_assignments", "costRating", "INT NULL");
+        await this.addColumnIfMissing("vendor_assignments", "strikes", "INT NULL");
         await this.addColumnIfMissing("vendor_assignments", "website_name", "VARCHAR(255) NULL");
         await this.addColumnIfMissing("vendor_assignments", "website_link", "VARCHAR(2048) NULL");
         await this.addColumnIfMissing("vendor_assignments", "notes", "TEXT NULL");
@@ -523,6 +525,7 @@ export class VendorProfileService {
             { key: "trustLevel", label: "Trust Level", nextValue: next.trustLevel },
             { key: "speed", label: "Speed", nextValue: next.speed },
             { key: "costRating", label: "Cost Rating", nextValue: next.costRating },
+            { key: "strikes", label: "Strikes", nextValue: next.strikes },
             { key: "website_name", label: "Website Name", nextValue: next.website_name },
             { key: "website_link", label: "Website Link", nextValue: next.website_link },
             { key: "notes", label: "Assignment Notes", nextValue: next.notes },

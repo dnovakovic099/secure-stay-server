@@ -77,6 +77,9 @@ export class VendorAssignment {
     @Column({ type: "int", nullable: true })
     costRating: number | null;
 
+    @Column({ type: "int", nullable: true })
+    strikes: number | null;
+
     @Column({ type: "varchar", length: 255, nullable: true })
     website_name: string | null;
 
