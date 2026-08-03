@@ -72,6 +72,29 @@ export class PropertyFactsController {
         }
     }
 
+    /**
+     * Push verified facts to Hostify listing settings.
+     * Body { dryRun: true } returns the mapped payload without calling Hostify.
+     */
+    async pushHostify(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const listingId = toNum(request.params.listingId);
+            if (listingId == null) {
+                return response.status(400).json({ status: false, message: "listingId is required" });
+            }
+            const service = new PropertyFactsService();
+            const data = await service.pushToHostify(listingId, {
+                dryRun: request.body?.dryRun === true,
+            });
+            return response.status(200).json({ status: true, data });
+        } catch (error: any) {
+            return response.status(502).json({
+                status: false,
+                message: error?.message || "Hostify push failed",
+            });
+        }
+    }
+
     /** Pending proposals, optionally portfolio-wide (no listingId). */
     async listProposals(request: Request, response: Response, next: NextFunction) {
         try {

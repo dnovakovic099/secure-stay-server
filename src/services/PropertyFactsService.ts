@@ -10,6 +10,12 @@ import {
     factFieldLabel,
 } from "../config/propertyFactFields";
 import { ListingGroupService } from "./ListingGroupService";
+import { Hostify } from "../client/Hostify";
+import {
+    buildHostifyListingUpdate,
+    MappedFact,
+    SkippedFact,
+} from "../helpers/propertyFactsHostifyMapper";
 
 /**
  * PropertyFactsService — the Verified Property Facts layer.
@@ -92,6 +98,61 @@ export class PropertyFactsService {
         row.verifiedByUserId = userId ?? null;
         row.verifiedAt = new Date();
         return this.factRepo.save(row);
+    }
+
+    // ------------------------------------------------------------------
+    // Push to Hostify
+    // ------------------------------------------------------------------
+
+    /**
+     * Push VERIFIED facts to Hostify's listing settings (POST /listings/update).
+     * Only fact fields with a Hostify equivalent that parse cleanly are sent;
+     * the rest are reported as skipped so staff can see exactly what happened.
+     * With dryRun the mapped payload is returned without calling Hostify —
+     * used by the UI to show a confirmation preview.
+     */
+    async pushToHostify(
+        listingId: number,
+        opts: { dryRun?: boolean } = {}
+    ): Promise<{
+        dryRun: boolean;
+        listingId: number;
+        mapped: MappedFact[];
+        skipped: SkippedFact[];
+        hostify?: any;
+    }> {
+        const canonical = await this.canonicalId(listingId);
+        const rows = await this.factRepo.find({
+            where: { listingId: canonical, status: "verified" },
+        });
+        const values: Record<string, string> = {};
+        for (const r of rows) {
+            if (r.value && r.value.trim()) values[r.fieldKey] = r.value.trim();
+        }
+        const { payload, mapped, skipped } = buildHostifyListingUpdate(values);
+
+        if (opts.dryRun) {
+            return { dryRun: true, listingId, mapped, skipped };
+        }
+        if (!mapped.length) {
+            throw new Error("No verified facts map to Hostify listing fields");
+        }
+        const apiKey = process.env.HOSTIFY_API_KEY || "";
+        if (!apiKey) {
+            throw new Error("HOSTIFY_API_KEY is not configured");
+        }
+        // Push to the listing the user is viewing (not the canonical group id):
+        // that's the actual Hostify listing whose settings should change.
+        const hostify = await new Hostify().updateListing(apiKey, {
+            listing_id: listingId,
+            ...payload,
+        });
+        logger.info(
+            `[PropertyFacts] Pushed ${mapped.length} field(s) to Hostify listing ${listingId}: ${mapped
+                .map((m) => `${m.param}=${m.value}`)
+                .join(", ")}`
+        );
+        return { dryRun: false, listingId, mapped, skipped, hostify };
     }
 
     // ------------------------------------------------------------------

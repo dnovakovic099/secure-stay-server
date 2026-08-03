@@ -10,6 +10,7 @@ router.get("/", verifySession, controller.get);
 router.get("/proposals", verifySession, controller.listProposals);
 router.post("/proposals/:id/review", verifySession, controller.reviewProposal);
 router.post("/:id/verify", verifySession, controller.verify);
+router.post("/:listingId/push-hostify", verifySession, controller.pushHostify);
 router.put("/:listingId/:fieldKey", verifySession, controller.upsert);
 
 export default router;

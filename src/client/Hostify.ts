@@ -434,6 +434,35 @@ export class Hostify {
         }
     }
 
+    /**
+     * Update listing settings (fees, times, policies...).
+     * POST /listings/update with listing_id + only the fields being changed.
+     */
+    async updateListing(apiKey: string, payload: Record<string, any>) {
+        try {
+            const url = "https://api-rms.hostify.com/listings/update";
+            const response = await axios.post(url, payload, {
+                headers: {
+                    "x-api-key": apiKey,
+                    "Content-Type": "application/json",
+                },
+            });
+            const data = response.data || null;
+            // Hostify sometimes returns HTTP 200 with success:false — treat as failure.
+            if (data && data.success === false) {
+                const errMsg = data.error || data.message || "Hostify rejected the listing update";
+                logger.error(`Hostify listing update rejected for listing ${payload.listing_id}: ${errMsg}`);
+                throw new Error(errMsg);
+            }
+            return data;
+        } catch (error: any) {
+            const apiErr = error?.response?.data?.error || error?.response?.data?.message;
+            logger.error(`Error updating listing ${payload.listing_id}:`, apiErr || error.message);
+            if (apiErr) throw new Error(apiErr);
+            throw error;
+        }
+    }
+
     async getListingImages(apiKey: string, listingId: string) {
         try {
             const url = `https://api-rms.hostify.com/listings/photos/${listingId}`;
