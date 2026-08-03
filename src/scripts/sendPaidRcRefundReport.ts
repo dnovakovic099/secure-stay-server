@@ -6,7 +6,6 @@ type CliOptions = {
   asOf?: string;
   force: boolean;
   dryRun: boolean;
-  includeGroupDm: boolean;
   recordExternalSend: boolean;
   channel?: string;
 };
@@ -16,7 +15,6 @@ function readCliOptions(): CliOptions {
   const options: CliOptions = {
     force: false,
     dryRun: false,
-    includeGroupDm: false,
     recordExternalSend: false,
   };
 
@@ -31,8 +29,6 @@ function readCliOptions(): CliOptions {
       options.force = true;
     } else if (arg === "--dry-run") {
       options.dryRun = true;
-    } else if (arg === "--include-group-dm") {
-      options.includeGroupDm = true;
     } else if (arg === "--record-external-send") {
       options.recordExternalSend = true;
     } else if (arg === "--channel") {
@@ -65,7 +61,6 @@ async function main() {
   const result = await new RefundRequestService().sendWeeklyPaidRcRefundReport(parseAsOfDate(options.asOf), {
     force: options.force,
     dryRun: options.dryRun,
-    includeGroupDm: options.includeGroupDm,
     channel: options.channel,
     recordExternalSend: options.recordExternalSend,
   });
