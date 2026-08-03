@@ -531,7 +531,10 @@ export class InboxV2Controller {
             if (!Number.isFinite(threadId)) {
                 return response.status(400).json({ status: false, message: "Invalid threadId" });
             }
-            const data = await new AIProposedActionService().listForThread(threadId, {
+            const service = new AIProposedActionService();
+            // Backfill Verified-Facts / cleaner steps for open early/late pins.
+            await service.ensureScheduleRecommendationsForThread(threadId);
+            const data = await service.listForThread(threadId, {
                 includeResolved: request.query.includeResolved === "true",
             });
             return response.status(200).json({ status: true, data });
