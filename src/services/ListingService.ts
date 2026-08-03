@@ -689,27 +689,123 @@ export class ListingService {
   //   await entityManager.save(ListingAmenities, listingAmenitiesObj);
   // }
 
+  private async getFirstListingImageUrls(listingIds: number[]) {
+    const ids = Array.from(
+      new Set(listingIds.map((id) => Number(id)).filter((id) => Number.isFinite(id)))
+    );
+    const out = new Map<string, string>();
+    if (!ids.length) return out;
+
+    try {
+      const rows: Array<{ listingId: number; thumbnailUrl: string | null; url: string | null }> =
+        await appDatabase.query(
+          `SELECT li.listingId, li.thumbnailUrl, li.url
+             FROM listing_image li
+             JOIN (
+               SELECT listingId, MIN(COALESCE(sortOrder, 999999)) AS minOrder
+                 FROM listing_image
+                WHERE listingId IN (${ids.map(() => "?").join(",")})
+                GROUP BY listingId
+             ) m ON m.listingId = li.listingId
+                  AND COALESCE(li.sortOrder, 999999) = m.minOrder`,
+          ids
+        );
+
+      for (const row of rows) {
+        const key = String(row.listingId);
+        if (out.has(key)) continue;
+        const imageUrl = row.thumbnailUrl || row.url;
+        if (imageUrl) out.set(key, imageUrl);
+      }
+    } catch (error: any) {
+      logger.warn(`getFirstListingImageUrls failed: ${error?.message || error}`);
+    }
+
+    return out;
+  }
+
   async getListings(userId: string, includeDeleted: boolean = false) {
+    // Overview payload only — skip description/hostifyUsersJson and the full images join.
+    // Those made /listing/getlistings multi‑MB and multi‑second on All Listings.
     const query = this.listingRepository
       .createQueryBuilder("listing")
-      .leftJoinAndSelect("listing.images", "listingImages");
+      .select([
+        "listing.id",
+        "listing.name",
+        "listing.externalListingName",
+        "listing.internalListingName",
+        "listing.propertyType",
+        "listing.roomType",
+        "listing.address",
+        "listing.country",
+        "listing.countryCode",
+        "listing.state",
+        "listing.city",
+        "listing.street",
+        "listing.zipcode",
+        "listing.lat",
+        "listing.lng",
+        "listing.checkInTimeStart",
+        "listing.checkInTimeEnd",
+        "listing.checkOutTime",
+        "listing.timeZoneName",
+        "listing.guests",
+        "listing.personCapacity",
+        "listing.ownerName",
+        "listing.ownerEmail",
+        "listing.ownerPhone",
+        "listing.ownerId",
+        "listing.ownerContractId",
+        "listing.ownerContractName",
+        "listing.ownerCompanyId",
+        "listing.ownerCompanyName",
+        "listing.bedroomsNumber",
+        "listing.bathroomsNumber",
+        "listing.guestBathroomsNumber",
+        "listing.cleaningFee",
+        "listing.tags",
+        "listing.integration_id",
+        "listing.currencyCode",
+        "listing.price",
+        "listing.startDate",
+        "listing.deletedAt",
+      ]);
 
     if (includeDeleted) {
       query.withDeleted();
     }
 
     const listings = await query.getMany();
-    const hostifyApiKey = process.env.HOSTIFY_API_KEY;
+    const firstImageByListingId = await this.getFirstListingImageUrls(
+      listings.map((listing) => Number(listing.id))
+    );
 
-    if (!hostifyApiKey) return listings.map((listing) => this.normalizeListingOverview(listing));
+    const listingsWithThumb = listings.map((listing: any) => {
+      const imageUrl = firstImageByListingId.get(String(listing.id)) || null;
+      return {
+        ...listing,
+        picture: imageUrl,
+        imageUrl,
+        // Keep a tiny images array for older UI that reads images[0].url
+        images: imageUrl ? [{ url: imageUrl }] : [],
+      };
+    });
+
+    const hostifyApiKey = process.env.HOSTIFY_API_KEY;
+    if (!hostifyApiKey) {
+      return listingsWithThumb.map((listing) => this.normalizeListingOverview(listing));
+    }
 
     try {
       const integrations = await this.hostifyClient.getIntegrations(hostifyApiKey);
+      const integrationsById = new Map(
+        (integrations || []).map((integration: any) => [String(integration.id), integration])
+      );
 
-      const enriched = listings.map((listing: any) => {
-        const integration = integrations.find((i: any) =>
-          this.getListingIntegrationLookupIds(listing).includes(String(i.id))
-        );
+      const enriched = listingsWithThumb.map((listing: any) => {
+        const integration = this.getListingIntegrationLookupIds(listing)
+          .map((integrationId) => integrationsById.get(integrationId))
+          .find(Boolean);
 
         return {
           ...listing,
@@ -721,7 +817,7 @@ export class ListingService {
       return enriched.map((listing) => this.normalizeListingOverview(listing));
     } catch (error) {
       logger.error("Error enriching listings with integrations:", error);
-      return listings.map((listing) => this.normalizeListingOverview(listing));
+      return listingsWithThumb.map((listing) => this.normalizeListingOverview(listing));
     }
   }
 
