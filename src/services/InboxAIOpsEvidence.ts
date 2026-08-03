@@ -167,6 +167,18 @@ export function detectOpsStateClaims(reply: string): OpsClaim[] {
     );
     scan(progressRe, "progress");
 
+    // "the team is already working on it", "we're handling it", "they're taking
+    // care of it" — progress claims with no explicit ops verb. These carried the
+    // Aug 2026 audit's top failure (locked-out guest told "the team is already
+    // working on it" with nothing logged) and the pattern above misses them
+    // because nothing from OPS_ACTION_STEMS follows "working".
+    const genericProgressRe = new RegExp(
+        `\\b(?:${SUBJECT}\\s+(?:is|are|was|were)|i['’]m|we['’]re|they['’]re)\\s+` +
+            `(?:already\\s+|currently\\s+|now\\s+)?(?:working\\s+on|handling|taking\\s+care\\s+of)\\b`,
+        "gi"
+    );
+    scan(genericProgressRe, "progress");
+
     // "will be delivered", "they'll be set up", "we'll have it ready"
     const futureRe = new RegExp(
         `\\b(?:will\\s+be|they['’]ll\\s+be|it['’]ll\\s+be|we['’]ll\\s+have)\\s+(?:\\w+\\s+){0,3}(?:${ops}(?:ed|d)?|ready|waiting)\\b`,

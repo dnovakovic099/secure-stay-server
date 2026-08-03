@@ -61,7 +61,12 @@ import {
     renderAssertPolicyBlock,
     renderEarlyLateCheckPolicy,
 } from "./InboxAIAssertPolicy";
-import { unsupportedOpsClaims } from "./InboxAIOpsEvidence";
+import {
+    guestMakesNewRequest,
+    OpsClaim,
+    OpsEvidence,
+    unsupportedOpsClaims,
+} from "./InboxAIOpsEvidence";
 import { stripDashes } from "./InboxAIReplyFormat";
 import { selectRelevant } from "./AIMemoryPolicy";
 import { AIMemoryService } from "./AIMemoryService";
@@ -91,7 +96,7 @@ import { hasActiveNoResponseNeededNote } from "./InboxNoResponseNeeded";
  * human via the escalation keyword safety net.
  */
 
-export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v8.0"; // v8.0: ops-ledger completion gate
+export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v8.1"; // v8.1: just-in-time ops status block + AI repair of unsupported ops claims
 const INBOX_AI_MODEL = process.env.AI_MESSAGING_MODEL || "gpt-4.1";
 
 // How long a finished ops item stays in the ledger. Long enough that the bot can
@@ -649,6 +654,27 @@ export class InboxAIService {
             return null;
         }
 
+        // Pure acknowledgment ("Thank you.", "Amen!") — nothing to answer. The
+        // auto-respond pipeline already skips these before it gets here; this
+        // covers the thread-open path (Aug audit: 53 junk drafts in 2 days).
+        // Deliberate staff asks (force / instructions) still generate.
+        if (autoTriggered && targetMessage && InboxAIService.isPureAcknowledgment(targetMessage.body || "")) {
+            logger.info(`[InboxAI] skip suggestion thread=${threadId}: ack_only`);
+            return null;
+        }
+
+        // Platform system events (SUPPLIER_CANCELLED_BOOKING and friends) are
+        // webhook tokens, not guest messages — there is nothing to reply to on
+        // any non-staff path, including the auto-respond shadow pipeline.
+        if (
+            !instructions &&
+            targetMessage &&
+            InboxAIService.isPlatformEventToken(targetMessage.body || "")
+        ) {
+            logger.info(`[InboxAI] skip suggestion thread=${threadId}: platform_event`);
+            return null;
+        }
+
         // Self-heal listing knowledge: if this conversation is on a listing we've
         // never seeded (e.g. a new reservation arriving on a fresh Hostify child
         // ID), pull its Knowledge Base from Hostify on the spot so THIS reply is
@@ -739,7 +765,7 @@ export class InboxAIService {
         // (b) Anti-invention net: flag codes/prices in the reply that do not appear
         //     verbatim anywhere in the provided context (history + listing block).
         const contextHaystack = (context + " " + messages.map((m) => m.body || "").join(" ")).toLowerCase();
-        const reply = output.suggested_reply || "";
+        let reply = output.suggested_reply || "";
         const leaks: string[] = [];
         for (const tok of reply.match(/\b\d{4,8}#?/g) || []) {
             const digits = tok.replace(/\D/g, "");
@@ -770,25 +796,52 @@ export class InboxAIService {
         //      under way, or approved. The ops ledger in the context is the only
         //      authority; a request the guest just made cannot already be handled,
         //      because ticket detection runs minutes behind this reply.
-        const actionClaims = unsupportedOpsClaims({
+        const opsEvidence: OpsEvidence = {
+            hasCompleted: /\[ops_confirm_ok\]/i.test(context),
+            hasOpenWork: /\[ops_open_work\]/i.test(context),
+        };
+        const opsApprovalOnRecord = /\[ops_approved_on_record\]/i.test(context);
+        let actionClaims = unsupportedOpsClaims({
             reply,
             guestText: guestAskText,
-            evidence: {
-                hasCompleted: /\[ops_confirm_ok\]/i.test(context),
-                hasOpenWork: /\[ops_open_work\]/i.test(context),
-            },
-            approvalOnRecord: /\[ops_approved_on_record\]/i.test(context),
+            evidence: opsEvidence,
+            approvalOnRecord: opsApprovalOnRecord,
         });
         if (actionClaims.length) {
-            warnings.push(
-                `Reply states operational work is done/under way/approved with nothing in the ops ledger to support it: ${actionClaims
-                    .map((c) => `"${c.text}" (${c.kind})`)
-                    .join("; ")}. Rephrase as a commitment ("I'm getting this to the team") or confirm it actually happened.`
-            );
+            // Repair pass (Aug audit: largest mistake class). Rewrite the false
+            // state claims into commitments instead of shipping a warned draft
+            // the reps must discard wholesale. Escalation stays on either way —
+            // the underlying request still needs a human to actually act.
+            const repaired = await this.repairUnsupportedOpsClaims({
+                reply,
+                guestText: guestAskText,
+                claims: actionClaims,
+                evidence: opsEvidence,
+                approvalOnRecord: opsApprovalOnRecord,
+            });
             output.escalation_required = true;
-            output.escalation_reason = output.escalation_reason
-                ? `${output.escalation_reason}; unsupported_ops_claim`
-                : `unsupported_ops_claim:${actionClaims.map((c) => c.kind).join("|")}`;
+            if (repaired != null) {
+                reply = repaired;
+                output.suggested_reply = repaired;
+                warnings.push(
+                    `Auto-rephrased ops-state claims as commitments (nothing in the ops ledger supported them): ${actionClaims
+                        .map((c) => `"${c.text}"`)
+                        .join("; ")}.`
+                );
+                output.escalation_reason = output.escalation_reason
+                    ? `${output.escalation_reason}; unsupported_ops_claim_repaired`
+                    : `unsupported_ops_claim_repaired:${actionClaims.map((c) => c.kind).join("|")}`;
+                actionClaims = [];
+            } else {
+                warnings.push(
+                    `Reply states operational work is done/under way/approved with nothing in the ops ledger to support it: ${actionClaims
+                        .map((c) => `"${c.text}" (${c.kind})`)
+                        .join("; ")}. Rephrase as a commitment ("I'm getting this to the team") or confirm it actually happened.`
+                );
+                output.escalation_reason = output.escalation_reason
+                    ? `${output.escalation_reason}; unsupported_ops_claim`
+                    : `unsupported_ops_claim:${actionClaims.map((c) => c.kind).join("|")}`;
+            }
         }
         const codesAllowed = stayAllowsAccessCodes(stageLine) || guestReportsLockout(guestAskText || conversation.lastMessageText || "");
         const paymentStateMatch = context.match(/payment_state:\s*(paid|due|failed|auth_required|unknown)/i);
@@ -1071,6 +1124,73 @@ export class InboxAIService {
             };
         } catch (err: any) {
             logger.warn(`[InboxAIService] reply verifier failed: ${err.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * AI repair pass for unsupported ops-state claims — the largest mistake
+     * class in the Aug 2026 audit ("the team is already working on it" when
+     * nothing is logged). Rewrites ONLY the offending phrases into honest
+     * commitments and keeps every other sentence verbatim, then re-runs the
+     * deterministic gate on the result so a bad rewrite can never slip through.
+     * Returns the repaired reply, or null when the rewrite failed the gate or
+     * the call errored (caller keeps the warned original).
+     */
+    private async repairUnsupportedOpsClaims(params: {
+        reply: string;
+        guestText: string;
+        claims: OpsClaim[];
+        evidence: OpsEvidence;
+        approvalOnRecord?: boolean;
+    }): Promise<string | null> {
+        if (!params.reply.trim() || !process.env.OPENAI_API_KEY) return null;
+        try {
+            const completion = await Promise.race([
+                this.getClient().chat.completions.create({
+                    model: INBOX_AI_MODEL,
+                    temperature: 0,
+                    response_format: { type: "json_object" },
+                    messages: [
+                        {
+                            role: "system",
+                            content:
+                                "You repair drafted replies to guests of a short-term-rental company. " +
+                                "The draft falsely states that operational work is finished, under way, approved, or scheduled — no such work has been logged. " +
+                                'Rewrite ONLY the offending phrases into honest commitments, e.g. "The team is already working on it" becomes "I\'m getting this to the team right away and we\'ll follow up". ' +
+                                "Keep every other sentence exactly as written: same language, tone, greeting, and facts. " +
+                                "Do not add new facts, prices, codes, clock times, ETAs, or promises of specific outcomes. " +
+                                'Return STRICT JSON: {"reply": "<the full repaired reply>"}',
+                        },
+                        {
+                            role: "user",
+                            content: [
+                                `Guest's message:\n${params.guestText || "(none)"}`,
+                                `Drafted reply to repair:\n${params.reply}`,
+                                `Unsupported claims to rephrase as commitments:\n${params.claims
+                                    .map((c) => `- "${c.text}" (${c.kind})`)
+                                    .join("\n")}`,
+                            ].join("\n\n"),
+                        },
+                    ],
+                }),
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
+            ]);
+            if (!completion) return null;
+            const parsed = JSON.parse(completion.choices[0]?.message?.content?.trim() || "{}");
+            const repaired = this.stripDashes(String(parsed.reply || "").trim());
+            if (!repaired) return null;
+            // The rewrite must actually clear the gate — not trade one unsupported
+            // claim for another.
+            const remaining = unsupportedOpsClaims({
+                reply: repaired,
+                guestText: params.guestText,
+                evidence: params.evidence,
+                approvalOnRecord: params.approvalOnRecord,
+            });
+            return remaining.length ? null : repaired;
+        } catch (err: any) {
+            logger.warn(`[InboxAIService] ops-claim repair failed: ${err.message}`);
             return null;
         }
     }
@@ -1788,6 +1908,10 @@ export class InboxAIService {
         if (opts.persistOnly && !opts.force && InboxAIService.isPureAcknowledgment(targetQuo.body || "")) {
             return null;
         }
+        // Platform event tokens never carry a question — skip on all non-staff paths.
+        if (!opts.instructions && InboxAIService.isPlatformEventToken(targetQuo.body || "")) {
+            return null;
+        }
 
         // Draft "as of" the guest message: drop anything sent after it (e.g. the
         // team's reply when they beat the debounce timer). Keeps shadow drafts
@@ -1942,7 +2066,7 @@ export class InboxAIService {
 
         // Anti-invention net: flag codes/prices not present in the context.
         const haystack = (context + " " + messages.map((m) => m.body || "").join(" ")).toLowerCase();
-        const reply = output.suggested_reply || "";
+        let reply = output.suggested_reply || "";
         const leaks: string[] = [];
         for (const tok of reply.match(/\b\d{4,8}#?/g) || []) {
             const digits = tok.replace(/\D/g, "");
@@ -1963,25 +2087,50 @@ export class InboxAIService {
         // Ops-ledger gate — critical on PM threads, where "I've blocked off 7/19"
         // to an owner (self-score AND verifier 100 in the July audit) would
         // otherwise go out as fact when nobody has touched the calendar.
-        const actionClaims = unsupportedOpsClaims({
+        const quoOpsEvidence: OpsEvidence = {
+            hasCompleted: /\[ops_confirm_ok\]/i.test(context),
+            hasOpenWork: /\[ops_open_work\]/i.test(context),
+        };
+        const quoApprovalOnRecord = /\[ops_approved_on_record\]/i.test(context);
+        let actionClaims = unsupportedOpsClaims({
             reply,
             guestText: quoGuest,
-            evidence: {
-                hasCompleted: /\[ops_confirm_ok\]/i.test(context),
-                hasOpenWork: /\[ops_open_work\]/i.test(context),
-            },
-            approvalOnRecord: /\[ops_approved_on_record\]/i.test(context),
+            evidence: quoOpsEvidence,
+            approvalOnRecord: quoApprovalOnRecord,
         });
         if (actionClaims.length) {
-            warnings.push(
-                `Reply states operational work is done/under way/approved with nothing in the ops ledger to support it: ${actionClaims
-                    .map((c) => `"${c.text}" (${c.kind})`)
-                    .join("; ")}. Rephrase as a commitment or confirm it actually happened.`
-            );
+            // Same repair pass as the Hostify inbox — rewrite the false state
+            // claims into commitments; escalation stays on so a human acts.
+            const repaired = await this.repairUnsupportedOpsClaims({
+                reply,
+                guestText: quoGuest,
+                claims: actionClaims,
+                evidence: quoOpsEvidence,
+                approvalOnRecord: quoApprovalOnRecord,
+            });
             output.escalation_required = true;
-            output.escalation_reason = output.escalation_reason
-                ? `${output.escalation_reason}; unsupported_ops_claim`
-                : `unsupported_ops_claim:${actionClaims.map((c) => c.kind).join("|")}`;
+            if (repaired != null) {
+                reply = repaired;
+                output.suggested_reply = repaired;
+                warnings.push(
+                    `Auto-rephrased ops-state claims as commitments (nothing in the ops ledger supported them): ${actionClaims
+                        .map((c) => `"${c.text}"`)
+                        .join("; ")}.`
+                );
+                output.escalation_reason = output.escalation_reason
+                    ? `${output.escalation_reason}; unsupported_ops_claim_repaired`
+                    : `unsupported_ops_claim_repaired:${actionClaims.map((c) => c.kind).join("|")}`;
+                actionClaims = [];
+            } else {
+                warnings.push(
+                    `Reply states operational work is done/under way/approved with nothing in the ops ledger to support it: ${actionClaims
+                        .map((c) => `"${c.text}" (${c.kind})`)
+                        .join("; ")}. Rephrase as a commitment or confirm it actually happened.`
+                );
+                output.escalation_reason = output.escalation_reason
+                    ? `${output.escalation_reason}; unsupported_ops_claim`
+                    : `unsupported_ops_claim:${actionClaims.map((c) => c.kind).join("|")}`;
+            }
         }
         const quoPayMatch = context.match(/payment_state:\s*(paid|due|failed|auth_required|unknown)/i);
         const quoUnsafe = detectUnsafeAsserts(reply, {
@@ -2618,6 +2767,9 @@ export class InboxAIService {
                 if (ackTarget && InboxAIService.isPureAcknowledgment(ackTarget.body || "")) {
                     return { sent: false, reason: "ack_only" };
                 }
+                if (ackTarget && InboxAIService.isPlatformEventToken(ackTarget.body || "")) {
+                    return { sent: false, reason: "platform_event" };
+                }
             } catch {
                 /* non-fatal — fall through to normal generation */
             }
@@ -3171,8 +3323,24 @@ export class InboxAIService {
             "weekend", "noted", "understood", "yes", "yep", "yup", "sure", "all", "love", "appreciate", "appreciated",
             "that", "this", "was", "bye", "goodbye", "see", "then", "soon", "have", "a", "nice", "day", "one", "cool",
             "gotcha", "welcome", "my", "pleasure", "anytime", "of", "course", "sweet", "well", "same", "likewise",
+            "amen", "most",
         ]);
         return words.every((w) => ACK.has(w));
+    }
+
+    /**
+     * Platform system-event tokens (Vrbo/Airbnb webhook payloads that land in
+     * the thread as if they were guest messages): SUPPLIER_CANCELLED_BOOKING,
+     * VAS_CART, PURCHASE_RECEIPT, ... There is no guest text to answer, but the
+     * Aug 2026 audit found 9 drafts in 2 days pouring emotional apologies into
+     * a single SUPPLIER_CANCELLED_BOOKING event. Strict shape: ALL-CAPS words
+     * joined by underscores, nothing else — a real guest message never looks
+     * like this.
+     */
+    static isPlatformEventToken(text: string): boolean {
+        const t = String(text || "").trim();
+        if (!t || t.length > 60) return false;
+        return /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/.test(t);
     }
 
     private scanForEscalation(text: string): string | null {
@@ -5525,6 +5693,24 @@ export class InboxAIService {
         if (targetMessage) {
             lines.push("## Latest guest message to answer");
             lines.push((targetMessage.body || "").trim() || "(no text)");
+            // Just-in-time ops-status constraint (Aug audit: the top mistake was
+            // claiming work is done/under way for a request that just arrived).
+            // A static rule buried in the system prompt was not enough — this
+            // puts the constraint directly next to the message being answered,
+            // mirroring the deterministic ops-ledger gate that runs post-draft.
+            const isGuestTurn =
+                targetMessage.direction === "incoming" && !Number(targetMessage.isAutomatic);
+            if (isGuestTurn && guestMakesNewRequest(targetMessage.body || "")) {
+                lines.push("");
+                lines.push("## Ops status for this request (hard constraint)");
+                lines.push(
+                    "The message above contains a NEW request that arrived just now. No work for it has been logged, " +
+                        "started, scheduled, or approved — a request the guest just made is never already handled. " +
+                        "In THIS reply do NOT claim any operational work is done, under way, arranged, confirmed, or " +
+                        'coming at a specific time. Acknowledge and COMMIT instead ("I\'m getting this to the team ' +
+                        'right away and we\'ll follow up"), and set escalation_required=true so the team actually sees it.'
+                );
+            }
         } else {
             lines.push("## Task");
             lines.push("There is no unanswered guest message; draft a helpful, context-appropriate reply or a check-in follow-up.");
