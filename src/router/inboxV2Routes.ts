@@ -102,7 +102,11 @@ router.post("/auto-messages/rules", verifySession, autoMessageController.createR
 router.put("/auto-messages/rules/:id", verifySession, autoMessageController.updateRule);
 router.delete("/auto-messages/rules/:id", verifySession, autoMessageController.deleteRule);
 router.get("/auto-messages/logs", verifySession, autoMessageController.listLogs);
+router.get("/auto-messages/logs/:id", verifySession, autoMessageController.getLog);
+router.post("/auto-messages/logs/:id/send", verifySession, autoMessageController.sendSkippedNow);
+router.post("/auto-messages/logs/:id/dismiss", verifySession, autoMessageController.dismissSkipped);
 router.post("/auto-messages/run", verifySession, autoMessageController.runNow);
+router.post("/auto-messages/preview", verifySession, autoMessageController.previewRule);
 
 // Learning prompts (bot-raised knowledge-gap questions for staff to answer)
 router.get("/conversations/:threadId/learning-prompt", verifySession, inboxV2Controller.getLearningPrompt);

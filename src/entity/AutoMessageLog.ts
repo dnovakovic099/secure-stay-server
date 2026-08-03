@@ -48,6 +48,14 @@ export class AutoMessageLogEntity {
     @Column({ type: "datetime", nullable: true })
     sentAt: Date | null;
 
+    /**
+     * When set, staff explicitly dismissed the skipped-message bubble in the
+     * thread (the "cancel / minimize" action). The bubble in the inbox
+     * collapses to a one-liner instead of showing full body + actions.
+     */
+    @Column({ type: "datetime", nullable: true })
+    dismissedAt: Date | null;
+
     @CreateDateColumn({ type: "timestamp" })
     createdAt: Date;
 }

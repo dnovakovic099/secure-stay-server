@@ -43,6 +43,27 @@ const TRIGGER_TYPES = [
     "one_time",
 ] as const;
 
+/** Shape returned per-match in a dry-run sweep. */
+export interface DryRunPreview {
+    ruleId: number;
+    ruleName: string;
+    triggerType: string;
+    threadId: number;
+    guestName: string | null;
+    listingName: string | null;
+    channel: string | null;
+    checkin: string | null;
+    checkout: string | null;
+    reservationStatus: string | null;
+    dedupeKey: string;
+    renderedBody: string;
+    wouldSend: boolean;
+    /** would_send | would_skip | would_skip_ai | would_fail */
+    status: "would_send" | "would_skip" | "would_skip_ai" | "would_fail";
+    skipReason?: string;
+    ai?: { used: boolean; proceed: boolean; reason?: string; adaptedBody?: string };
+}
+
 /** Statuses that mean "this is (still) just an inquiry". */
 const INQUIRY_STATUSES = ["inquiry", "inquiry_preapproved", "preapproved", "offer", "pending"];
 
@@ -183,15 +204,107 @@ export class AutoMessageService {
         return (res.affected || 0) > 0;
     }
 
-    async listLogs(opts: { ruleId?: number; threadId?: number; limit?: number } = {}) {
+    // -------------------------------------------------------------------------
+    // Staff actions on a skipped-message bubble in the inbox thread.
+    // The red bubble in /messages/inbox-v2 exposes Send / Edit / Cancel.
+    // -------------------------------------------------------------------------
+
+    /**
+     * Send-anyway: staff overrides the AI skip and pushes the drafted (or
+     * supplied) message to the guest. Marks the log as "sent" so future
+     * sweeps can't re-fire the same slot.
+     */
+    async sendSkippedNow(logId: number, overrideBody?: string): Promise<AutoMessageLogEntity> {
+        const log = await this.logRepo.findOne({ where: { id: logId } });
+        if (!log) throw new Error(`Auto-message log ${logId} not found`);
+        if (log.status === "sent") throw new Error("Message already sent");
+        const conversation = await this.conversationRepo.findOne({ where: { threadId: Number(log.threadId) } });
+        if (!conversation) throw new Error(`Conversation for thread ${log.threadId} not found`);
+        const rule = await this.ruleRepo.findOne({ where: { id: log.ruleId } });
+        const body = (overrideBody ?? log.messageBody ?? "").trim();
+        if (!body) throw new Error("Message body is empty");
+        try {
+            await new InboxService().sendAutomatedReply(Number(log.threadId), body, {
+                senderName: `Automated · ${rule?.name || "manual override"}`.slice(0, 100),
+            });
+            log.status = "sent";
+            log.sentAt = new Date();
+            log.messageBody = body;
+            log.error = null;
+            log.dismissedAt = null;
+            return await this.logRepo.save(log);
+        } catch (err: any) {
+            log.status = "failed";
+            log.error = String(err.message || err).slice(0, 2000);
+            await this.logRepo.save(log);
+            throw err;
+        }
+    }
+
+    /** Cancel/minimize: staff acknowledges the skip; bubble collapses in the inbox. */
+    async dismissSkipped(logId: number): Promise<AutoMessageLogEntity> {
+        const log = await this.logRepo.findOne({ where: { id: logId } });
+        if (!log) throw new Error(`Auto-message log ${logId} not found`);
+        log.dismissedAt = new Date();
+        return this.logRepo.save(log);
+    }
+
+    async getLog(logId: number): Promise<AutoMessageLogEntity | null> {
+        return this.logRepo.findOne({ where: { id: logId } });
+    }
+
+    async listLogs(
+        opts: {
+            ruleId?: number;
+            threadId?: number;
+            status?: string;
+            limit?: number;
+            offset?: number;
+        } = {}
+    ) {
         const where: any = {};
         if (opts.ruleId) where.ruleId = opts.ruleId;
         if (opts.threadId) where.threadId = opts.threadId;
-        return this.logRepo.find({
+        if (opts.status) where.status = opts.status;
+        const take = Math.min(Math.max(opts.limit || 100, 1), 500);
+        const skip = Math.max(opts.offset || 0, 0);
+        const [rows, total] = await this.logRepo.findAndCount({
             where,
             order: { createdAt: "DESC" },
-            take: Math.min(Math.max(opts.limit || 100, 1), 500),
+            take,
+            skip,
         });
+        // Join conversation + rule details so the activity page can show
+        // guest / listing / dates / channel without N+1 calls from the frontend.
+        const threadIds = Array.from(new Set(rows.map((r) => Number(r.threadId)).filter(Boolean)));
+        const ruleIds = Array.from(new Set(rows.map((r) => Number(r.ruleId)).filter(Boolean)));
+        const [convos, rules] = await Promise.all([
+            threadIds.length
+                ? this.conversationRepo.find({ where: { threadId: In(threadIds) } })
+                : Promise.resolve([]),
+            ruleIds.length ? this.ruleRepo.find({ where: { id: In(ruleIds) } }) : Promise.resolve([]),
+        ]);
+        const convoByThread = new Map(convos.map((c) => [Number(c.threadId), c]));
+        const ruleById = new Map(rules.map((r) => [r.id, r]));
+        const enriched = rows.map((r) => {
+            const c = convoByThread.get(Number(r.threadId));
+            const rule = ruleById.get(r.ruleId);
+            return {
+                ...r,
+                ruleName: rule?.name || null,
+                triggerType: rule?.triggerType || null,
+                guestName: c?.guestName || null,
+                listingName: c?.listingName || null,
+                listingId: c?.listingId ?? null,
+                channel: c?.channel || null,
+                checkin: c?.checkin || null,
+                checkout: c?.checkout || null,
+                nights: c?.nights ?? null,
+                reservationStatus: c?.reservationStatus || null,
+                reservationId: c?.reservationId ?? null,
+            };
+        });
+        return { data: enriched, total, limit: take, offset: skip };
     }
 
     private validate(input: AutoMessageRuleInput) {
@@ -286,12 +399,68 @@ export class AutoMessageService {
         return true;
     }
 
+    /** matchesFilters, but returns the first reason it would reject — used by preview UI. */
+    private explainFilterFailure(rule: AutoMessageRuleEntity, c: InboxConversationEntity): string | null {
+        if (c.isArchived) return "Conversation is archived";
+        const listingIds = this.csv(rule.listingIds);
+        if (listingIds.length && (!c.listingId || !listingIds.includes(String(c.listingId)))) {
+            return `Listing ${c.listingId ?? "(none)"} not in the rule's property list`;
+        }
+        const channels = this.csv(rule.channels);
+        if (channels.length && !channels.includes(String(c.channel || "").toLowerCase())) {
+            return `Channel "${c.channel || "(none)"}" not in the rule's channel list`;
+        }
+        if (rule.minNights != null && (c.nights == null || c.nights < rule.minNights)) {
+            return `Stay is ${c.nights ?? "?"} nights, below minNights=${rule.minNights}`;
+        }
+        if (rule.maxNights != null && (c.nights == null || c.nights > rule.maxNights)) {
+            return `Stay is ${c.nights ?? "?"} nights, above maxNights=${rule.maxNights}`;
+        }
+        if (rule.skipIfGuestReplied && Number(c.answered) === 0 && rule.triggerType !== "inquiry_winback") {
+            return "Guest is waiting on a reply from us (skipIfGuestReplied)";
+        }
+        const status = String(c.reservationStatus || "").toLowerCase().replace(/[\s-]/g, "_");
+        if (DEAD_STATUSES.includes(status)) return `Reservation status "${status}" is a dead status`;
+        const wanted = this.csv(rule.reservationStatuses).map((s) => s.replace(/[\s-]/g, "_"));
+        if (wanted.length && !wanted.includes(status)) {
+            return `Reservation status "${status}" not in the rule's status list`;
+        }
+        return null;
+    }
+
     /**
      * Evaluate every enabled rule and deliver anything due. Called by the cron
      * (and by the manual "Run now" endpoint). Never throws.
+     *
+     * When opts.dryRun is true: rules are evaluated exactly as a live sweep,
+     * templates are rendered, AI adapt-at-send-time runs (real OpenAI cost),
+     * but **no Hostify send and no log rows are written** — so staff can
+     * preview outcomes without touching guests or poisoning the idempotency
+     * ledger. The returned `previews` array carries per-match detail.
      */
-    async processDueMessages(): Promise<{ evaluated: number; sent: number; failed: number; skipped: number }> {
-        const result = { evaluated: 0, sent: 0, failed: 0, skipped: 0 };
+    async processDueMessages(
+        opts: { dryRun?: boolean } = {}
+    ): Promise<{
+        evaluated: number;
+        sent: number;
+        failed: number;
+        skipped: number;
+        dryRun?: boolean;
+        previews?: DryRunPreview[];
+    }> {
+        const dryRun = !!opts.dryRun;
+        const result: {
+            evaluated: number;
+            sent: number;
+            failed: number;
+            skipped: number;
+            dryRun?: boolean;
+            previews?: DryRunPreview[];
+        } = { evaluated: 0, sent: 0, failed: 0, skipped: 0 };
+        if (dryRun) {
+            result.dryRun = true;
+            result.previews = [];
+        }
         if (!AutoMessageService.isEnabled()) return result;
 
         let rules: AutoMessageRuleEntity[] = [];
@@ -309,13 +478,21 @@ export class AutoMessageService {
             try {
                 const due = await this.findDueConversations(rule, et);
                 for (const { conversation, dedupeKey } of due) {
+                    if (dryRun) {
+                        const preview = await this.buildPreview(rule, conversation, dedupeKey);
+                        result.previews!.push(preview);
+                        if (preview.wouldSend) result.sent++;
+                        else if (preview.status === "would_fail") result.failed++;
+                        else result.skipped++;
+                        continue;
+                    }
                     const ok = await this.deliver(rule, conversation, dedupeKey);
                     if (ok === "sent") result.sent++;
                     else if (ok === "failed") result.failed++;
                     else result.skipped++;
                 }
-                // One-time rules disable themselves after delivery.
-                if (rule.triggerType === "one_time" && due.length) {
+                // One-time rules disable themselves after delivery. Skip in dry-run.
+                if (!dryRun && rule.triggerType === "one_time" && due.length) {
                     rule.enabled = 0;
                     await this.ruleRepo.save(rule);
                 }
@@ -323,13 +500,138 @@ export class AutoMessageService {
                 logger.error(`[AutoMessage] rule ${rule.id} (${rule.name}) failed: ${err.message}`);
             }
         }
-        if (result.sent || result.failed) {
+        if (!dryRun && (result.sent || result.failed)) {
             logger.info(
                 `[AutoMessage] sweep complete — evaluated=${result.evaluated} sent=${result.sent} ` +
                 `failed=${result.failed} skipped=${result.skipped}`
             );
         }
         return result;
+    }
+
+    /**
+     * Preview a single rule against a single thread. Used by the editor's
+     * "Test on thread" panel. Runs the same filter + render + AI pipeline as a
+     * live sweep but never sends and never writes to auto_message_log.
+     *
+     * `rule` may be a persisted entity or an in-progress form: any object
+     * shaped like AutoMessageRuleEntity works, since we only read fields.
+     */
+    async previewRule(
+        rule: Partial<AutoMessageRuleEntity> & { messageTemplate: string; triggerType: string },
+        threadId: number
+    ): Promise<{
+        filtersPassed: boolean;
+        filterReason?: string;
+        conversation?: {
+            threadId: number;
+            guestName: string | null;
+            listingName: string | null;
+            channel: string | null;
+            checkin: string | null;
+            checkout: string | null;
+            reservationStatus: string | null;
+        };
+        renderedBody?: string;
+        ai?: { used: boolean; proceed: boolean; reason?: string; adaptedBody?: string };
+        wouldSend: boolean;
+    }> {
+        const c = await this.conversationRepo.findOne({ where: { threadId } });
+        if (!c) {
+            return { filtersPassed: false, filterReason: `No conversation for thread ${threadId}`, wouldSend: false };
+        }
+        const convoSummary = {
+            threadId: Number(c.threadId),
+            guestName: c.guestName || null,
+            listingName: c.listingName || null,
+            channel: c.channel || null,
+            checkin: c.checkin || null,
+            checkout: c.checkout || null,
+            reservationStatus: c.reservationStatus || null,
+        };
+        const filterReason = this.explainFilterFailure(rule as AutoMessageRuleEntity, c);
+        if (filterReason) {
+            return { filtersPassed: false, filterReason, conversation: convoSummary, wouldSend: false };
+        }
+        const renderedBody = this.renderTemplate(rule.messageTemplate, c);
+        const useAi = !!String(rule.aiDirective || "").trim() || !!Number(rule.aiSkipIfInappropriate);
+        if (!useAi) {
+            return { filtersPassed: true, conversation: convoSummary, renderedBody, wouldSend: true };
+        }
+        try {
+            const adapted = await this.adaptMessageAtSendTime(rule as AutoMessageRuleEntity, c, renderedBody);
+            return {
+                filtersPassed: true,
+                conversation: convoSummary,
+                renderedBody,
+                ai: {
+                    used: true,
+                    proceed: adapted.proceed,
+                    reason: adapted.skipReason,
+                    adaptedBody: adapted.proceed ? adapted.body : undefined,
+                },
+                wouldSend: adapted.proceed,
+            };
+        } catch (err: any) {
+            // Fail-open matches live sweep behaviour.
+            return {
+                filtersPassed: true,
+                conversation: convoSummary,
+                renderedBody,
+                ai: { used: true, proceed: true, reason: `AI adapt errored: ${err?.message}` },
+                wouldSend: true,
+            };
+        }
+    }
+
+    /** Dry-run version of deliver(): runs render + AI decision, returns preview shape. */
+    private async buildPreview(
+        rule: AutoMessageRuleEntity,
+        conversation: InboxConversationEntity,
+        dedupeKey: string
+    ): Promise<DryRunPreview> {
+        const renderedBody = this.renderTemplate(rule.messageTemplate, conversation);
+        const base: DryRunPreview = {
+            ruleId: rule.id,
+            ruleName: rule.name,
+            triggerType: rule.triggerType,
+            threadId: Number(conversation.threadId),
+            guestName: conversation.guestName || null,
+            listingName: conversation.listingName || null,
+            channel: conversation.channel || null,
+            checkin: conversation.checkin || null,
+            checkout: conversation.checkout || null,
+            reservationStatus: conversation.reservationStatus || null,
+            dedupeKey,
+            renderedBody,
+            wouldSend: !!renderedBody,
+            status: renderedBody ? "would_send" : "would_skip",
+        };
+        if (!renderedBody) {
+            base.skipReason = "Rendered message is empty";
+            return base;
+        }
+        const useAi = !!String(rule.aiDirective || "").trim() || !!Number(rule.aiSkipIfInappropriate);
+        if (!useAi) return base;
+        try {
+            const adapted = await this.adaptMessageAtSendTime(rule, conversation, renderedBody);
+            base.ai = {
+                used: true,
+                proceed: adapted.proceed,
+                reason: adapted.skipReason,
+                adaptedBody: adapted.proceed ? adapted.body : undefined,
+            };
+            if (!adapted.proceed) {
+                base.wouldSend = false;
+                base.status = "would_skip_ai";
+                base.skipReason = adapted.skipReason;
+            } else if (adapted.body?.trim() && adapted.body.trim() !== renderedBody) {
+                base.renderedBody = adapted.body.trim();
+            }
+        } catch (err: any) {
+            base.ai = { used: true, proceed: true, reason: `AI adapt errored: ${err?.message}` };
+        }
+        return base;
     }
 
     private timeReached(rule: AutoMessageRuleEntity, hhmm: string): boolean {
@@ -457,7 +759,7 @@ export class AutoMessageService {
                     log.error = reason.slice(0, 2000);
                     log.messageBody = body;
                     await this.logRepo.save(log);
-                    await this.recordScheduleSkipInThread(conversation, rule, reason);
+                    await this.recordScheduleSkipInThread(conversation, rule, reason, log.id);
                     await this.notifyScheduleSkip(rule, conversation, reason);
                     logger.info(
                         `[AutoMessage] rule ${rule.id} skipped for thread ${conversation.threadId}: ${reason}`
@@ -591,11 +893,16 @@ export class AutoMessageService {
         return { proceed: true, body: message || draftBody };
     }
 
-    /** Local system bubble so the thread shows why a scheduled send aborted. */
+    /**
+     * Local system bubble so the thread shows why a scheduled send aborted.
+     * The bubble stores the log id in `note` (JSON) so the frontend can
+     * look up the drafted body and expose Send / Edit / Cancel actions.
+     */
     private async recordScheduleSkipInThread(
         conversation: InboxConversationEntity,
         rule: AutoMessageRuleEntity,
-        reason: string
+        reason: string,
+        logId?: number
     ): Promise<void> {
         try {
             const messageRepo = appDatabase.getRepository(InboxMessageEntity);
@@ -606,7 +913,7 @@ export class AutoMessageService {
                 reservationId: conversation.reservationId,
                 listingId: conversation.listingId,
                 body,
-                note: null,
+                note: logId ? JSON.stringify({ autoMessageLogId: logId, ruleName: rule.name }) : null,
                 direction: "system",
                 senderType: "system",
                 senderName: "Scheduled message",
