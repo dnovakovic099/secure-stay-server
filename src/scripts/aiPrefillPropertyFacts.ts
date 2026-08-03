@@ -292,6 +292,8 @@ async function main() {
             `${skippedNoKnowledge} properties skipped for lack of source material`
     );
     await appDatabase.destroy();
+    // Module side-effects (Redis clients) keep the event loop alive — exit explicitly.
+    process.exit(0);
 }
 
 main().catch((err) => {

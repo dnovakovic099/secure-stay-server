@@ -338,6 +338,8 @@ export class AICopilotController {
                 inquirySalesRules: b.inquirySalesRules,
                 inquiryAutoRespondEnabled:
                     typeof b.inquiryAutoRespondEnabled === "boolean" ? b.inquiryAutoRespondEnabled : undefined,
+                airbnbSupportAutoRespondEnabled:
+                    typeof b.airbnbSupportAutoRespondEnabled === "boolean" ? b.airbnbSupportAutoRespondEnabled : undefined,
                 selfServiceTroubleshootingEnabled:
                     typeof b.selfServiceTroubleshootingEnabled === "boolean" ? b.selfServiceTroubleshootingEnabled : undefined,
                 earlyCheckinHandling: b.earlyCheckinHandling,

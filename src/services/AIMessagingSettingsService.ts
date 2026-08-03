@@ -110,6 +110,7 @@ export interface AIMessagingSettingsPatch {
     autosendDelayMinutes?: number;
     inquirySalesRules?: string | null;
     inquiryAutoRespondEnabled?: boolean;
+    airbnbSupportAutoRespondEnabled?: boolean;
     selfServiceTroubleshootingEnabled?: boolean;
     earlyCheckinHandling?: EarlyLateCheckHandling | string;
     lateCheckoutHandling?: EarlyLateCheckHandling | string;
@@ -283,6 +284,7 @@ export class AIMessagingSettingsService {
         }
         if (patch.inquirySalesRules !== undefined) row.inquirySalesRules = patch.inquirySalesRules ?? null;
         if (patch.inquiryAutoRespondEnabled !== undefined) row.inquiryAutoRespondEnabled = patch.inquiryAutoRespondEnabled ? 1 : 0;
+        if (patch.airbnbSupportAutoRespondEnabled !== undefined) row.airbnbSupportAutoRespondEnabled = patch.airbnbSupportAutoRespondEnabled ? 1 : 0;
         if (patch.selfServiceTroubleshootingEnabled !== undefined) row.selfServiceTroubleshootingEnabled = patch.selfServiceTroubleshootingEnabled ? 1 : 0;
         if (patch.earlyCheckinHandling !== undefined) {
             row.earlyCheckinHandling = normalizeEarlyLateHandling(patch.earlyCheckinHandling);

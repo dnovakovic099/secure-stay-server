@@ -278,6 +278,9 @@ export class AICommunicationRulesService {
                 ]
                     .join("")
                     .trim(),
+                meta: {
+                    airbnbSupportAutoRespondEnabled: settings.airbnbSupportAutoRespondEnabled !== 0,
+                },
             },
             {
                 id: "self_service",
@@ -465,6 +468,7 @@ export class AICommunicationRulesService {
                     `Min confidence: ${settings.autosendMinConfidence}`,
                     `Tiered autosend: ${settings.autosendTierEnabled === 1 ? "ON" : "OFF"}`,
                     `Inquiry auto-respond: ${settings.inquiryAutoRespondEnabled === 1 ? "ON" : "OFF"}`,
+                    `Airbnb Support auto-respond: ${settings.airbnbSupportAutoRespondEnabled !== 0 ? "ON" : "OFF"}`,
                     `Proposed actions: ${settings.proposedActionsEnabled !== 0 ? "ON" : "OFF"}`,
                     `Rescue Copilot: ${settings.rescueCopilotEnabled !== 0 ? "ON" : "OFF"}`,
                     `Item detection: ${settings.itemDetectionEnabled === 1 ? "ON" : "OFF"}`,

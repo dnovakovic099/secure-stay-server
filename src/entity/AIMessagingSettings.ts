@@ -125,6 +125,13 @@ export class AIMessagingSettingsEntity {
     @Column({ type: "tinyint", default: 0 })
     inquiryAutoRespondEnabled: number;
 
+    // Allow auto-send on Airbnb Support (platform case worker) threads. Case
+    // conversations are high-stakes and some teams want every reply reviewed
+    // by a human, so this is a dedicated opt-out. Defaults ON to preserve the
+    // pre-existing behavior where support threads followed the main toggle.
+    @Column({ type: "tinyint", default: 1 })
+    airbnbSupportAutoRespondEnabled: number;
+
     // ---- Guest self-service troubleshooting ----
     // When ON, the assistant walks guests through documented fixes (router
     // restart, breaker location, lock steps) step-by-step BEFORE the team

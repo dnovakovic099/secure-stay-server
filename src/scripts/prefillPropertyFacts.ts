@@ -93,6 +93,7 @@ async function main() {
 
     logger.info(`[prefill] done — ${written} field values written (unverified, existing values untouched)`);
     await appDatabase.destroy();
+    process.exit(0);
 }
 
 main().catch((err) => {

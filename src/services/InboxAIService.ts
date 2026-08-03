@@ -374,6 +374,7 @@ export class InboxAIService {
             delayedMinConfidence: Number(settings?.autosendDelayedMinConfidence ?? 85),
             delayMinutes: Number(settings?.autosendDelayMinutes ?? 5),
             inquiryAutoRespondEnabled: Boolean(settings?.inquiryAutoRespondEnabled),
+            airbnbSupportAutoRespondEnabled: (settings?.airbnbSupportAutoRespondEnabled ?? 1) !== 0,
         };
     }
 
@@ -2813,6 +2814,25 @@ export class InboxAIService {
                 return this.autosendSkip(threadId, suggestion.id, "inquiry_autosend_disabled");
             }
 
+            // Airbnb Support (case worker) threads have their own opt-out: when
+            // OFF the assistant still drafts replies for human review but never
+            // auto-sends to Airbnb Support, even with the main toggle on.
+            if (settings && !settings.airbnbSupportAutoRespondEnabled) {
+                try {
+                    const msgs = await this.messageRepo.find({
+                        where: { threadId },
+                        order: { sentAt: "ASC", id: "ASC" },
+                    });
+                    if (this.isAirbnbSupportThread(conversation, msgs)) {
+                        return this.autosendSkip(threadId, suggestion.id, "airbnb_support_autosend_disabled");
+                    }
+                } catch (err: any) {
+                    logger.warn(
+                        `[InboxAIService] airbnb-support autosend gate failed (thread ${threadId}): ${err?.message}`
+                    );
+                }
+            }
+
             // ---- Confidence tier decision ----
             // Tiered mode: instant send at the top tier; a delayed, human-vetoable
             // send in the middle tier; draft-only below. Legacy mode: one bar.
@@ -2948,6 +2968,16 @@ export class InboxAIService {
                 ) {
                     await cancel("inquiry_autosend_disabled");
                     continue;
+                }
+                if (settings && !settings.airbnbSupportAutoRespondEnabled) {
+                    const threadMsgs = await this.messageRepo.find({
+                        where: { threadId },
+                        order: { sentAt: "ASC", id: "ASC" },
+                    });
+                    if (this.isAirbnbSupportThread(conversation, threadMsgs)) {
+                        await cancel("airbnb_support_autosend_disabled");
+                        continue;
+                    }
                 }
                 const lastMsg = await this.messageRepo.findOne({
                     where: { threadId },
