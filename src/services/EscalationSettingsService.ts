@@ -418,6 +418,38 @@ export class EscalationSettingsService {
     }
 
     /**
+     * Authoritative GR Tasks AI gate for a specific event.
+     * Any missing setting or settings lookup failure disables AI.
+     */
+    async isAIEnabledForEvent(event: Pick<ZapierTriggerEvent, 'slackChannel' | 'event'>): Promise<boolean> {
+        try {
+            const setting = await this.resolveSettingsForEvent(event);
+            return setting?.isActive === true && setting?.aiEnabled === true;
+        } catch (error) {
+            logger.warn('[EscalationSettingsService] Failed to resolve AI setting; AI remains disabled:', error);
+            return false;
+        }
+    }
+
+    /**
+     * The AI Manager Assistant has no single task/event, so it is enabled only
+     * when Escalation Settings contains at least one active, AI-enabled rule.
+     */
+    async isAnyAIEnabled(): Promise<boolean> {
+        try {
+            await this.ensureTable();
+            const rows = await appDatabase.query(
+                'SELECT 1 FROM escalation_settings WHERE is_active = ? AND ai_enabled = ? LIMIT 1',
+                [true, true]
+            );
+            return Array.isArray(rows) && rows.length > 0;
+        } catch (error) {
+            logger.warn('[EscalationSettingsService] Failed to check global AI setting; AI remains disabled:', error);
+            return false;
+        }
+    }
+
+    /**
      * Update settings for a specific key
      */
     async updateSettings(key: string, updates: UpdateSettingsDto, updatedByUserId?: number): Promise<EscalationSettings> {

@@ -9,12 +9,14 @@ import { Between, In, Like } from 'typeorm';
 import logger from '../utils/logger.utils';
 import OpenAI from 'openai';
 import axios from 'axios';
+import { EscalationSettingsService } from '../services/EscalationSettingsService';
 
 const logRepo = appDatabase.getRepository(AIEscalationLog);
 const eventRepo = appDatabase.getRepository(ZapierTriggerEvent);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
 const REPORT_TIME_ZONE = 'America/New_York';
+const escalationSettingsService = new EscalationSettingsService();
 
 const getOpenAI = () => {
     if (!OPENAI_API_KEY) return null;
@@ -917,6 +919,7 @@ export const assistantChat = async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'question is required' });
         }
 
+        const aiEnabled = await escalationSettingsService.isAnyAIEnabled();
         const rows = await getPerformanceRows(Number(days));
         const q = question.toLowerCase();
 
@@ -963,7 +966,7 @@ export const assistantChat = async (req: Request, res: Response) => {
                 .join('\n');
         }
 
-        const openai = getOpenAI();
+        const openai = aiEnabled ? getOpenAI() : null;
         if (openai) {
             try {
                 const response = await openai.chat.completions.create({
@@ -991,7 +994,8 @@ export const assistantChat = async (req: Request, res: Response) => {
         res.json({
             dataScope,
             rows: factualSummary,
-            answer
+            answer,
+            aiEnabled
         });
     } catch (error) {
         logger.error('[AILogController] Error in assistant chat:', error);

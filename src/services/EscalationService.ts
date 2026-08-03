@@ -157,15 +157,11 @@ export class EscalationService {
     private async isEscalationActiveForEvent(event: Pick<ZapierTriggerEvent, 'slackChannel' | 'event' | 'id'>): Promise<boolean> {
         try {
             const settings = await this.settingsService.resolveSettingsForEvent(event);
-            if (settings?.isActive === false) {
-                // logger.info(`[EscalationService] Escalation setting inactive for event ${event.id} (${settings.settingKey})`);
-                return false;
-            }
+            return settings?.isActive === true;
         } catch (error) {
             logger.warn(`[EscalationService] Failed to resolve escalation settings for event ${event.id}: ${error}`);
+            return false;
         }
-
-        return true;
     }
 
     /**
@@ -711,6 +707,10 @@ export class EscalationService {
         threadTs: string,
         event: ZapierTriggerEvent
     ): Promise<string> {
+        if (!(await this.settingsService.isAIEnabledForEvent(event))) {
+            return '';
+        }
+
         // Fetch thread replies from Slack
         const threadMessages = await this.getSlackThreadReplies(channelId, threadTs);
 

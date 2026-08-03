@@ -284,6 +284,16 @@ You still hold the line on guest outcomes, but you give more room for reasonable
         };
     }
 
+    private getDisabledSettings(): AISettings {
+        return {
+            ...this.getDefaultSettings(),
+            aiEnabled: false,
+            useAIForDecisions: false,
+            replyWhenTagged: false,
+            enableCompletionReview: false,
+        };
+    }
+
     async getSettingsForTask(event: ZapierTriggerEvent): Promise<AISettings> {
         const defaults = this.getDefaultSettings();
 
@@ -312,10 +322,10 @@ You still hold the line on guest outcomes, but you give more room for reasonable
                 };
             }
         } catch (error) {
-            logger.warn('[AIEscalationManager] Error fetching AI settings, using defaults:', error);
+            logger.warn('[AIEscalationManager] Error fetching AI settings; AI remains disabled:', error);
         }
 
-        return defaults;
+        return this.getDisabledSettings();
     }
 
     async analyzeAndDecide(taskId: number): Promise<AIDecision> {
@@ -443,7 +453,7 @@ You still hold the line on guest outcomes, but you give more room for reasonable
         if (!event) return null;
 
         const aiSettings = await this.getSettingsForTask(event);
-        if (!aiSettings.enableCompletionReview) return null;
+        if (!aiSettings.aiEnabled || !aiSettings.useAIForDecisions || !aiSettings.enableCompletionReview) return null;
 
         const context = await this.getTaskContext(taskId, aiSettings);
         if (!context) return null;
@@ -612,7 +622,7 @@ Rules:
             if (!event) return null;
 
             const settings = await this.getSettingsForTask(event);
-            if (!settings.replyWhenTagged) {
+            if (!settings.aiEnabled || !settings.replyWhenTagged) {
                 return null;
             }
 
