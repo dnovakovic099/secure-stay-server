@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { appDatabase } from "../../utils/database.util";
 import { RetrievalService } from "../RetrievalService";
 import { Viewer, requireCapability } from "./viewer";
+import { factFieldLabel } from "../../config/propertyFactFields";
 
 /**
  * The assistant's tool layer.
@@ -289,6 +290,29 @@ export const TOOL_SCHEMAS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
                         type: "string",
                         description:
                             "Optional focus, e.g. 'check-in', 'parking', 'pets', 'pool'. Narrows the result.",
+                    },
+                },
+            },
+        },
+    },
+    {
+        type: "function",
+        function: {
+            name: "verified_facts_drafting_context",
+            description:
+                "Read-only research bundle for the specialized Verified Facts drafting workflow. Use when an " +
+                "employee wants help deciding or drafting what to paste into a Verified Facts topic. Returns current " +
+                "Verified Facts (including Hostify values and internal guidance), listing/KB/onboarding knowledge, " +
+                "approved learned information, and linked Upsell policy. It never saves or verifies anything. Resolve " +
+                "the property first, then use search_history for the requested topic when this bundle is incomplete.",
+            parameters: {
+                type: "object",
+                properties: {
+                    listingId: { type: "number", description: "Preferred, from find_property." },
+                    property: { type: "string", description: "Property name if there is no listingId." },
+                    topic: {
+                        type: "string",
+                        description: "The Verified Facts topic being drafted, e.g. pool heating or early check-in.",
                     },
                 },
             },
@@ -672,6 +696,70 @@ const handlers: Record<string, Handler> = {
                     "guest verbatim. If nothing here answers the question, say so and suggest search_knowledge.",
             },
             rowCount: (facts as any[]).length + (kb as any[]).length,
+        };
+    },
+
+    async verified_facts_drafting_context(args, ctx) {
+        requireCapability(ctx.viewer, "property.knowledge", "Property knowledge is not available to you.");
+        const { listing, ambiguous } = await resolveOne(args);
+        if (!listing) return ambiguityResult(ambiguous);
+
+        const topic = String(args.topic || "").trim();
+        const groupIds = [...new Set([listing.listingId, listing.groupId].filter((id): id is number => id != null))];
+        const placeholders = groupIds.map(() => "?").join(",");
+        const [knowledge, facts, learned, upsells] = await Promise.all([
+            handlers.property_knowledge({ listingId: listing.listingId, topic }, ctx),
+            appDatabase.query(
+                `SELECT fieldKey, value, hostifyValue, internalInstructions, status, source, verifiedAt, updatedAt
+                 FROM property_facts
+                 WHERE listingId IN (${placeholders})
+                 ORDER BY FIELD(status,'verified','unverified'), fieldKey`,
+                groupIds
+            ).catch(() => []),
+            appDatabase.query(
+                `SELECT scope, listingId, topic, factType, memoryType, visibility, question, answer,
+                        decisionRationale, frequency, source, lastSeenAt, validUntil
+                 FROM ai_learned_facts
+                 WHERE status = 'approved' AND supersededByFactId IS NULL
+                   AND (scope = 'portfolio' OR listingId IN (${placeholders}))
+                   ${topic ? "AND (topic LIKE ? OR question LIKE ? OR answer LIKE ?)" : ""}
+                 ORDER BY COALESCE(lastSeenAt, updatedAt) DESC
+                 LIMIT 30`,
+                topic ? [...groupIds, `%${topic}%`, `%${topic}%`, `%${topic}%`] : groupIds
+            ).catch(() => []),
+            handlers.upsell_policy({ listingId: listing.listingId }, ctx).catch(() => ({ data: { policies: [] } })),
+        ]);
+
+        const factRows = (facts as any[]).map((fact) => ({
+            fieldKey: fact.fieldKey,
+            label: factFieldLabel(String(fact.fieldKey)),
+            guestShareableInformation: fact.value || null,
+            hostifyValue: fact.hostifyValue || null,
+            internalOnlyGuidance: fact.internalInstructions || null,
+            status: fact.status,
+            source: fact.source,
+            verifiedAt: fact.verifiedAt,
+            updatedAt: fact.updatedAt,
+        }));
+
+        return {
+            data: {
+                property: listing,
+                requestedTopic: topic || null,
+                currentVerifiedFacts: factRows,
+                storedPropertyKnowledge: knowledge.data,
+                approvedLearnedInformation: learned,
+                linkedUpsellPolicy: upsells.data,
+                draftingRules: {
+                    noWrite:
+                        "This tool only researches. It does not save, verify, publish, or push the drafted text.",
+                    authority:
+                        "Verified facts outrank approved supporting knowledge. Treat message history as evidence to label and verify, not automatic truth.",
+                    output:
+                        "Draft separate Hostify value, Guest-shareable information, and Internal-only AI guidance sections. Use numbered RULE / END RULE blocks for independent conditions and scope each OTHERWISE inside its rule.",
+                },
+            },
+            rowCount: factRows.length + (learned as any[]).length,
         };
     },
 

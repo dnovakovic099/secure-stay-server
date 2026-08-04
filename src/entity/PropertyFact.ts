@@ -32,6 +32,15 @@ export class PropertyFactEntity {
 
     @Column({ type: "text", nullable: true }) value: string | null;
 
+    /**
+     * Strict, normalized value used only by the Hostify listing update.
+     * Kept separate from `value`, which remains the free-text fact/AI notes.
+     */
+    @Column({ type: "varchar", length: 64, nullable: true }) hostifyValue: string | null;
+
+    /** Staff-only guidance for the AI; never guest-shareable content. */
+    @Column({ type: "text", nullable: true }) internalInstructions: string | null;
+
     @Index() @Column({ length: 16, default: "unverified" }) status: string;
 
     /** Where the current value came from: hostify | intake | upsells | parking | correction | manual */

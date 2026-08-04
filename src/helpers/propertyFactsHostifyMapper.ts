@@ -1,16 +1,5 @@
 import { factFieldLabel } from "../config/propertyFactFields";
 
-/**
- * Maps Verified Property Facts (short free text) onto the typed parameters of
- * Hostify's POST /listings/update.
- *
- * Only a subset of the fact catalog has a Hostify listing field AND can be
- * parsed deterministically from staff-written text; everything else stays in
- * SecureStay only. Fields that are mappable but whose text can't be parsed
- * with confidence are returned as `skipped` with a human-readable reason so
- * the UI can show exactly what will / won't be pushed.
- */
-
 export interface MappedFact {
     fieldKey: string;
     label: string;
@@ -26,46 +15,30 @@ export interface SkippedFact {
     reason: string;
 }
 
-const NA_RE = /^(n\/?a\b|none\b|not applicable)/i;
+export type HostifyField = {
+    param: string;
+    type: "money" | "select";
+    options?: readonly string[];
+    integer?: boolean;
+};
 
-/** "$25.75/night", "150", "no fee" → number (0 for none), null if unparseable. */
-function parseMoney(text: string): number | null {
-    const t = text.trim();
-    if (NA_RE.test(t) || /^no\b/i.test(t) || /\bno (extra |additional )?(fee|charge|cost|deposit)\b/i.test(t)) {
-        return 0;
-    }
-    const m = t.replace(/,/g, "").match(/\$?\s*(\d+(?:\.\d+)?)/);
-    return m ? Number(m[1]) : null;
+export interface HostifyFactConflict {
+    fieldKey: string;
+    label: string;
+    param: string;
+    secureStayValue: string;
+    hostifyValue: string;
 }
 
-/** Yes/no policy text → 1/0, null if unclear. Negatives are checked first. */
-function parseYesNo(text: string): 0 | 1 | null {
-    const t = text.trim().toLowerCase();
-    if (NA_RE.test(t)) return null;
-    if (/(not allowed|not permitted|prohibited|forbidden|no pets|no smoking|^no\b)/.test(t)) return 0;
-    if (/(^yes\b|allowed|permitted|welcome|\bok\b|okay)/.test(t)) return 1;
-    return null;
-}
-
-/**
- * "4 PM", "16:00", "flexible" → "HH:00" | "flexible", null if unparseable.
- * Hostify accepts whole hours only, so times with minutes are rejected.
- */
-function parseTime(text: string): string | null {
-    if (/flexible/i.test(text)) return "flexible";
-    const m = text.match(/(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?/i);
-    if (!m) return null;
-    let h = Number(m[1]);
-    const minutes = m[2] ? Number(m[2]) : 0;
-    const ampm = m[3]?.toLowerCase();
-    if (h > 24 || minutes >= 60) return null;
-    if (ampm?.startsWith("p") && h < 12) h += 12;
-    if (ampm?.startsWith("a") && h === 12) h = 0;
-    if (minutes !== 0) return null;
-    return `${String(h).padStart(2, "0")}:00`;
-}
-
-const CANCEL_POLICIES = [
+const CHECK_IN_TIMES = [
+    ...Array.from({ length: 18 }, (_, i) => `${String(i + 8).padStart(2, "0")}:00`),
+    "flexible",
+] as const;
+const CHECK_OUT_TIMES = [
+    ...Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, "0")}:00`),
+    "flexible",
+] as const;
+const CANCELLATION_POLICIES = [
     "super_strict_60",
     "super_strict_30",
     "strict_or_non_refundable",
@@ -77,105 +50,102 @@ const CANCEL_POLICIES = [
     "flexible",
 ] as const;
 
-/** Match staff text against Hostify's cancel_policy enum (combos first). */
-function parseCancelPolicy(text: string): string | null {
-    const t = text.trim().toLowerCase().replace(/[_-]/g, " ").replace(/\s+/g, " ");
-    for (const policy of CANCEL_POLICIES) {
-        const phrase = policy.replace(/_/g, " ");
-        if (t.includes(phrase)) return policy;
+/** Only entries in this catalog can be sent to Hostify. */
+export const HOSTIFY_FACT_FIELDS: Record<string, HostifyField> = {
+    check_in_time: { param: "checkin_start", type: "select", options: CHECK_IN_TIMES },
+    check_out_time: { param: "checkout", type: "select", options: CHECK_OUT_TIMES },
+    cleaning_fee: { param: "cleaning_fee", type: "money", integer: true },
+    pet_fee: { param: "pets_fee", type: "money" },
+    extra_guest_fee: { param: "extra_person", type: "money", integer: true },
+    deposit_direct: { param: "security_deposit", type: "money", integer: true },
+    pets_allowed: { param: "pets_allowed", type: "select", options: ["1", "0"] },
+    smoking: { param: "smoking_allowed", type: "select", options: ["1", "0"] },
+    cancellation_policy: { param: "cancel_policy", type: "select", options: CANCELLATION_POLICIES },
+};
+
+export function normalizeHostifyActualValue(fieldKey: string, raw: unknown): string | null {
+    if (raw == null || String(raw).trim() === "") return null;
+    const config = HOSTIFY_FACT_FIELDS[fieldKey];
+    if (!config) return null;
+    if (config.type === "money") {
+        const value = Number(raw);
+        return Number.isFinite(value) && value >= 0 ? String(value) : null;
     }
-    // "Strict or non-refundable" style with punctuation stripped differently
-    for (const base of ["strict", "moderate", "flexible"]) {
-        if (new RegExp(`\\b${base}\\b.*non refundable`).test(t)) return `${base}_or_non_refundable`;
+    if (fieldKey === "check_in_time" || fieldKey === "check_out_time") {
+        if (String(raw).toLowerCase() === "flexible") return "flexible";
+        const match = String(raw).match(/^(\d{1,2}):/);
+        if (match) return `${String(Number(match[1])).padStart(2, "0")}:00`;
+        const hour = Number(raw);
+        if (Number.isInteger(hour) && hour >= 0 && hour <= 25) return `${String(hour).padStart(2, "0")}:00`;
+        return null;
     }
-    for (const base of ["firm", "strict", "moderate", "flexible"]) {
-        if (new RegExp(`\\b${base}\\b`).test(t)) return base;
+    if (fieldKey === "pets_allowed" || fieldKey === "smoking") {
+        if (raw === true || String(raw).toLowerCase() === "true") return "1";
+        if (raw === false || String(raw).toLowerCase() === "false") return "0";
     }
-    return null;
+    return String(raw).trim();
 }
 
-type Converter = (text: string) => { value: string | number } | { reason: string };
+export function findHostifyFactConflicts(
+    facts: Array<{ fieldKey: string; hostifyValue: string | null }>,
+    hostifyListing: Record<string, unknown>
+): HostifyFactConflict[] {
+    const conflicts: HostifyFactConflict[] = [];
+    for (const fact of facts) {
+        const config = HOSTIFY_FACT_FIELDS[fact.fieldKey];
+        if (!config || !fact.hostifyValue?.trim()) continue;
+        const secureStayValue = validateHostifyFactValue(fact.fieldKey, fact.hostifyValue);
+        if (!Object.prototype.hasOwnProperty.call(hostifyListing || {}, config.param)) continue;
+        const hostifyValue = normalizeHostifyActualValue(fact.fieldKey, hostifyListing?.[config.param]);
+        if (secureStayValue != null && secureStayValue !== (hostifyValue ?? "")) {
+            conflicts.push({
+                fieldKey: fact.fieldKey,
+                label: factFieldLabel(fact.fieldKey),
+                param: config.param,
+                secureStayValue,
+                hostifyValue: hostifyValue ?? "",
+            });
+        }
+    }
+    return conflicts;
+}
 
-const inHourRange = (time: string, min: number, max: number) => {
-    if (time === "flexible") return true;
-    const h = Number(time.slice(0, 2));
-    return h >= min && h <= max;
-};
+export function validateHostifyFactValue(fieldKey: string, raw: unknown): string | null {
+    const config = HOSTIFY_FACT_FIELDS[fieldKey];
+    if (!config) {
+        if (raw == null || String(raw).trim() === "") return null;
+        throw new Error(`${factFieldLabel(fieldKey)} does not map to Hostify`);
+    }
+    if (raw == null || String(raw).trim() === "") return null;
+    const value = String(raw).trim();
+    if (config.type === "select") {
+        if (!config.options?.includes(value)) {
+            throw new Error(`Invalid Hostify value for ${factFieldLabel(fieldKey)}`);
+        }
+        return value;
+    }
+    const number = Number(value);
+    if (!Number.isFinite(number) || number < 0) {
+        throw new Error(`${factFieldLabel(fieldKey)} must be a non-negative amount`);
+    }
+    if (config.integer && !Number.isInteger(number)) {
+        throw new Error(`${factFieldLabel(fieldKey)} must be a whole-dollar amount`);
+    }
+    return String(number);
+}
 
-/** fact fieldKey → Hostify param + parser. Only entries here ever get pushed. */
-const FIELD_MAP: Record<string, { param: string; convert: Converter }> = {
-    check_in_time: {
-        param: "checkin_start",
-        convert: (text) => {
-            const time = parseTime(text);
-            if (!time) return { reason: "Couldn't read a whole-hour time (e.g. \"4 PM\" or \"16:00\")" };
-            if (!inHourRange(time, 8, 25)) return { reason: `Hostify accepts check-in between 08:00 and 25:00 (got ${time})` };
-            return { value: time };
-        },
-    },
-    check_out_time: {
-        param: "checkout",
-        convert: (text) => {
-            const time = parseTime(text);
-            if (!time) return { reason: "Couldn't read a whole-hour time (e.g. \"11 AM\" or \"11:00\")" };
-            if (!inHourRange(time, 0, 23)) return { reason: `Hostify accepts checkout between 00:00 and 23:00 (got ${time})` };
-            return { value: time };
-        },
-    },
-    cleaning_fee: {
-        param: "cleaning_fee",
-        convert: (text) => {
-            const n = parseMoney(text);
-            return n == null ? { reason: "Couldn't read a dollar amount" } : { value: Math.round(n) };
-        },
-    },
-    pet_fee: {
-        param: "pets_fee",
-        convert: (text) => {
-            const n = parseMoney(text);
-            return n == null ? { reason: "Couldn't read a dollar amount" } : { value: n };
-        },
-    },
-    extra_guest_fee: {
-        param: "extra_person",
-        convert: (text) => {
-            const n = parseMoney(text);
-            return n == null ? { reason: "Couldn't read a dollar amount" } : { value: Math.round(n) };
-        },
-    },
-    deposit_direct: {
-        param: "security_deposit",
-        convert: (text) => {
-            const n = parseMoney(text);
-            return n == null ? { reason: "Couldn't read a dollar amount" } : { value: Math.round(n) };
-        },
-    },
-    pets_allowed: {
-        param: "pets_allowed",
-        convert: (text) => {
-            const v = parseYesNo(text);
-            return v == null ? { reason: "Couldn't interpret as yes/no" } : { value: v };
-        },
-    },
-    smoking: {
-        param: "smoking_allowed",
-        convert: (text) => {
-            const v = parseYesNo(text);
-            return v == null ? { reason: "Couldn't interpret as yes/no" } : { value: v };
-        },
-    },
-    cancellation_policy: {
-        param: "cancel_policy",
-        convert: (text) => {
-            const policy = parseCancelPolicy(text);
-            return policy == null
-                ? { reason: "Doesn't match a Hostify policy (strict, moderate, flexible, firm...)" }
-                : { value: policy };
-        },
-    },
-};
+/** Human-readable form supplied to the guest AI alongside staff notes. */
+export function formatHostifyFactValueForAI(fieldKey: string, value: string): string {
+    if (["cleaning_fee", "pet_fee", "extra_guest_fee", "deposit_direct"].includes(fieldKey)) {
+        return `$${value}`;
+    }
+    if (fieldKey === "pets_allowed") return value === "1" ? "Yes — pets allowed" : "No — pets not allowed";
+    if (fieldKey === "smoking") return value === "1" ? "Yes — smoking allowed" : "No — smoking not allowed";
+    if (fieldKey === "cancellation_policy") return value.replace(/_/g, " ");
+    return value;
+}
 
-export function buildHostifyListingUpdate(factValues: Record<string, string>): {
+export function buildHostifyListingUpdate(hostifyValues: Record<string, string>): {
     payload: Record<string, string | number>;
     mapped: MappedFact[];
     skipped: SkippedFact[];
@@ -184,15 +154,24 @@ export function buildHostifyListingUpdate(factValues: Record<string, string>): {
     const mapped: MappedFact[] = [];
     const skipped: SkippedFact[] = [];
 
-    for (const [fieldKey, mapping] of Object.entries(FIELD_MAP)) {
-        const factValue = factValues[fieldKey];
-        if (!factValue) continue;
-        const result = mapping.convert(factValue);
-        if ("value" in result) {
-            payload[mapping.param] = result.value;
-            mapped.push({ fieldKey, label: factFieldLabel(fieldKey), factValue, param: mapping.param, value: result.value });
-        } else {
-            skipped.push({ fieldKey, label: factFieldLabel(fieldKey), factValue, reason: result.reason });
+    for (const [fieldKey, config] of Object.entries(HOSTIFY_FACT_FIELDS)) {
+        const raw = hostifyValues[fieldKey];
+        if (!raw) continue;
+        try {
+            const normalized = validateHostifyFactValue(fieldKey, raw);
+            if (normalized == null) continue;
+            const value = config.type === "money" || normalized === "1" || normalized === "0"
+                ? Number(normalized)
+                : normalized;
+            payload[config.param] = value;
+            mapped.push({ fieldKey, label: factFieldLabel(fieldKey), factValue: raw, param: config.param, value });
+        } catch (error: any) {
+            skipped.push({
+                fieldKey,
+                label: factFieldLabel(fieldKey),
+                factValue: raw,
+                reason: error?.message || "Invalid Hostify value",
+            });
         }
     }
 

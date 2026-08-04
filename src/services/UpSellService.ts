@@ -7,6 +7,10 @@ import { Listing } from "../entity/Listing";
 import { UpSellPropertyConfig } from "../entity/UpSellPropertyConfig";
 import { UpSellPropertyConfigHistory } from "../entity/UpSellPropertyConfigHistory";
 import { QuoteService } from "./QuoteService";
+import {
+  PROPERTY_FACT_UPSELL_MAPPINGS,
+  PropertyFactUpsellFieldKey,
+} from "../config/propertyFactUpsellMappings";
 
 interface NormalizedPropertyConfig {
   listingId: number;
@@ -37,6 +41,105 @@ export class UpSellServices {
   private upSellPropertyConfigRepository = appDatabase.getRepository(UpSellPropertyConfig);
   private upSellPropertyConfigHistoryRepository = appDatabase.getRepository(UpSellPropertyConfigHistory);
   private quoteService = new QuoteService();
+
+  private async findVerifiedFactUpsell(fieldKey: PropertyFactUpsellFieldKey) {
+    const title = PROPERTY_FACT_UPSELL_MAPPINGS[fieldKey];
+    return this.upSellRepository.findOne({ where: { title: Like(title), isActive: true } });
+  }
+
+  async getVerifiedFactLinkedUpsells(listingId: number, groupListingIds: number[] = []) {
+    const ids = Array.from(new Set([listingId, ...groupListingIds].map(Number).filter((id) => id > 0)));
+    const result: Record<string, any> = {};
+    for (const fieldKey of Object.keys(PROPERTY_FACT_UPSELL_MAPPINGS) as PropertyFactUpsellFieldKey[]) {
+      const upsell = await this.findVerifiedFactUpsell(fieldKey);
+      if (!upsell) {
+        result[fieldKey] = { fieldKey, title: PROPERTY_FACT_UPSELL_MAPPINGS[fieldKey], available: false };
+        continue;
+      }
+      const configs = ids.length
+        ? await this.upSellPropertyConfigRepository.find({ where: { upSellId: Number(upsell.upSellId), listingId: In(ids) } })
+        : [];
+      const config = configs.find((item) => Number(item.listingId) === listingId) || configs[0] || null;
+      result[fieldKey] = {
+        fieldKey,
+        available: true,
+        upSellId: Number(upsell.upSellId),
+        title: String(upsell.title),
+        listingId: config ? Number(config.listingId) : listingId,
+        description: config?.description ?? upsell.description ?? null,
+        image: config?.image ?? upsell.image ?? null,
+        upsellFee: config?.upsellFee ?? upsell.price ?? null,
+        chargeType: config?.chargeType ?? upsell.timePeriod ?? null,
+        rateConfiguration: config?.rateConfiguration ?? "Fixed Rate",
+        sdto: config?.sdto ?? null,
+        internalNotes: config?.internalNotes ?? upsell.internalNotes ?? null,
+        pricingRules: config?.pricingRules ?? null,
+      };
+    }
+    return result;
+  }
+
+  async updateVerifiedFactLinkedUpsell(input: {
+    fieldKey: PropertyFactUpsellFieldKey;
+    listingId: number;
+    patch: Record<string, unknown>;
+    changedBy: string;
+  }) {
+    const upsell = await this.findVerifiedFactUpsell(input.fieldKey);
+    if (!upsell) throw new Error(`${PROPERTY_FACT_UPSELL_MAPPINGS[input.fieldKey]} upsell was not found`);
+    const allowed = new Set(["description", "image", "upsellFee", "chargeType", "rateConfiguration", "sdto", "internalNotes"]);
+    const unknown = Object.keys(input.patch).filter((key) => !allowed.has(key));
+    if (unknown.length) throw new Error(`Unsupported Upsell field(s): ${unknown.join(", ")}`);
+    const rateConfigurations = new Set(["Fixed Rate", "Length of Stay", "Tiered Pricing", "Special Rate"]);
+    const chargeTypes = new Set(["Per Night", "Per Stay", "Per Week", "Per Hour", "Per Quantity"]);
+    const sdtoValues = new Set(["Not Allowed", "Need Confirmation", "Needs Confirmation", "Allowed"]);
+    const normalizedRate = this.normalizeNullableString(input.patch.rateConfiguration);
+    if (normalizedRate && !rateConfigurations.has(normalizedRate)) throw new Error("Invalid rate configuration");
+    const normalizedChargeType = this.normalizeNullableString(input.patch.chargeType);
+    if (normalizedChargeType && !chargeTypes.has(normalizedChargeType)) throw new Error("Invalid charge type");
+    const normalizedSdto = this.normalizeNullableString(input.patch.sdto);
+    if (normalizedSdto && !sdtoValues.has(normalizedSdto)) throw new Error("Invalid SDTO value");
+    const normalizedFee = this.normalizeNullableNumber(input.patch.upsellFee);
+    if (normalizedFee != null && normalizedFee < 0) throw new Error("Upsell Fee must be zero or greater");
+
+    await appDatabase.transaction(async (manager) => {
+      let config = await manager.findOne(UpSellPropertyConfig, {
+        where: { upSellId: Number(upsell.upSellId), listingId: input.listingId },
+      });
+      const previous = config ? Object.assign(new UpSellPropertyConfig(), config) : null;
+      if (!config) {
+        config = manager.create(UpSellPropertyConfig, {
+          upSellId: Number(upsell.upSellId),
+          listingId: input.listingId,
+        });
+      }
+      if (Object.prototype.hasOwnProperty.call(input.patch, "description")) config.description = this.normalizeNullableString(input.patch.description);
+      if (Object.prototype.hasOwnProperty.call(input.patch, "image")) config.image = this.normalizeNullableString(input.patch.image)?.slice(0, 200) ?? null;
+      if (Object.prototype.hasOwnProperty.call(input.patch, "upsellFee")) config.upsellFee = normalizedFee;
+      if (Object.prototype.hasOwnProperty.call(input.patch, "chargeType")) config.chargeType = normalizedChargeType;
+      if (Object.prototype.hasOwnProperty.call(input.patch, "rateConfiguration")) config.rateConfiguration = normalizedRate;
+      if (Object.prototype.hasOwnProperty.call(input.patch, "sdto")) config.sdto = normalizedSdto;
+      if (Object.prototype.hasOwnProperty.call(input.patch, "internalNotes")) config.internalNotes = this.normalizeNullableString(input.patch.internalNotes);
+      const saved = await manager.save(config);
+
+      let link = await manager.findOne(UpSellListing, {
+        where: { upSellId: Number(upsell.upSellId), listingId: input.listingId },
+      });
+      if (!link) link = manager.create(UpSellListing, { upSellId: Number(upsell.upSellId), listingId: input.listingId });
+      link.status = 1;
+      await manager.save(link);
+      await this.recordSinglePropertyConfigDiff(
+        manager,
+        Number(upsell.upSellId),
+        input.listingId,
+        previous,
+        saved,
+        input.changedBy,
+        previous ? "UPDATE" : "CREATE"
+      );
+    });
+    return (await this.getVerifiedFactLinkedUpsells(input.listingId))[input.fieldKey];
+  }
 
   private parseArrayField<T>(value: unknown): T[] {
     if (Array.isArray(value)) {

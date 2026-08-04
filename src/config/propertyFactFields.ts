@@ -75,6 +75,7 @@ export const PROPERTY_FACT_FIELDS: PropertyFactField[] = [
 
     // ── Amenities ───────────────────────────────────────────────────────
     { key: "pool", label: "Pool (hours, heating, fee)", group: "Amenities" },
+    { key: "pool_heating", label: "Pool heating policy & fee", group: "Amenities", hint: "Availability, fee structure, timing, approval process, and any seasonal restrictions" },
     { key: "hot_tub", label: "Hot tub", group: "Amenities" },
     { key: "ac_heating", label: "A/C & heating", group: "Amenities", hint: "Zones, thermostat locations, known quirks (e.g. single thermostat in basement)" },
     { key: "washer_dryer", label: "Washer / dryer", group: "Amenities" },

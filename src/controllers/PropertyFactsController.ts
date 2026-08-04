@@ -28,9 +28,40 @@ export class PropertyFactsController {
             const service = new PropertyFactsService();
             const data = await service.getForListing(listingId);
             const proposals = await service.listProposals({ listingId, status: "pending" });
-            return response.status(200).json({ status: true, data: { ...data, proposals } });
+            const linkedUpsells = await service.getLinkedUpsells(listingId);
+            const hostifyConsistency = await service.getHostifyConflicts(listingId);
+            return response.status(200).json({ status: true, data: { ...data, proposals, linkedUpsells, hostifyConsistency } });
         } catch (error) {
             return next(error);
+        }
+    }
+
+    async listReviewItems(request: Request, response: Response, next: NextFunction) {
+        try {
+            const data = await new PropertyFactsService().listReviewItems();
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    /** Update the linked Upsell property config for one Verified Facts topic. */
+    async updateLinkedUpsell(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const listingId = toNum(request.params.listingId);
+            const fieldKey = String(request.params.fieldKey || "");
+            if (listingId == null || !fieldKey) {
+                return response.status(400).json({ status: false, message: "listingId and fieldKey are required" });
+            }
+            const data = await new PropertyFactsService().updateLinkedUpsell({
+                listingId,
+                fieldKey,
+                patch: request.body || {},
+                changedBy: String(request.user?.id || request.user?.email || request.user?.name || "System"),
+            });
+            return response.status(200).json({ status: true, data });
+        } catch (error: any) {
+            return response.status(400).json({ status: false, message: error?.message || "Upsell update failed" });
         }
     }
 
@@ -48,6 +79,16 @@ export class PropertyFactsController {
                 listingId,
                 fieldKey,
                 value: b.value != null ? String(b.value) : null,
+                hostifyValue: Object.prototype.hasOwnProperty.call(b, "hostifyValue")
+                    ? b.hostifyValue == null
+                        ? null
+                        : String(b.hostifyValue)
+                    : undefined,
+                internalInstructions: Object.prototype.hasOwnProperty.call(b, "internalInstructions")
+                    ? b.internalInstructions == null
+                        ? null
+                        : String(b.internalInstructions)
+                    : undefined,
                 source: "manual",
                 verified: b.verify !== false,
                 userId: userId(request.user),
