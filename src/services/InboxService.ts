@@ -2042,28 +2042,29 @@ export class InboxService {
             );
         }
 
-        // Payment/other emergencies are pinned to the top of the list so an
-        // unpaid guest arriving today can't be missed; then inquiries the team
-        // hasn't replied to yet (fresh leads decay by the minute); then newest
-        // activity. All joins are many-to-one so offset/limit is safe (no row
-        // fan-out) and avoids TypeORM's two-pass skip/take id subquery.
-        qb.orderBy("c.emergency", "DESC")
-            .addOrderBy("c.aiNeedsHuman", "DESC")
-            // Only recent inquiries get pinned — months-old expired inquiries
-            // shouldn't sit above today's conversations forever.
-            .addOrderBy(
-                `(CASE WHEN ${latestRealMessageDirectionSubquery} = 'incoming'
-                    AND LOWER(COALESCE(c.reservationStatus, '')) LIKE 'inquiry%'
-                    AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%preapproved%'
-                    AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%offer%'
-                    AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%denied%'
-                    AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%timedout%'
-                    AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%notpossible%'
-                    AND NOT (${HAS_NRN_NOTE_SQL})
-                    AND c.lastMessageAt >= NOW() - INTERVAL 14 DAY THEN 1 ELSE 0 END)`,
-                "DESC"
-            )
-            .addOrderBy("c.lastMessageAt", "DESC")
+        // Only recent unanswered inquiries count as pinned — months-old
+        // expired inquiries shouldn't ride along with today's queues forever.
+        const pinnedInquirySql = `(CASE WHEN ${latestRealMessageDirectionSubquery} = 'incoming'
+            AND LOWER(COALESCE(c.reservationStatus, '')) LIKE 'inquiry%'
+            AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%preapproved%'
+            AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%offer%'
+            AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%denied%'
+            AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%timedout%'
+            AND LOWER(COALESCE(c.reservationStatus, '')) NOT LIKE '%notpossible%'
+            AND NOT (${HAS_NRN_NOTE_SQL})
+            AND c.lastMessageAt >= NOW() - INTERVAL 14 DAY THEN 1 ELSE 0 END)`;
+
+        // The paged list is ordered strictly by newest activity so it mirrors
+        // the Hostify inbox one-to-one. Pinning emergency/AI-needs-team rows
+        // to the top of the SQL order (the old behavior) meant a page of 20
+        // could be 100% grouped threads, pushing the conversations with the
+        // newest messages off the first pages entirely — the inbox looked
+        // out of sync with Hostify. Queue groups are instead hydrated by the
+        // dedicated pinned fetch below. All joins are many-to-one so
+        // offset/limit is safe (no row fan-out).
+        const pageQb = qb
+            .clone()
+            .orderBy("c.lastMessageAt", "DESC")
             .offset((page - 1) * perPage)
             // Fetch one extra row to learn whether another page exists. The
             // exact COUNT over the mirror-dedup WHERE took ~15s on prod and ran
@@ -2071,10 +2072,42 @@ export class InboxService {
             // inbox felt slow. hasMore makes pagination O(page size).
             .limit(perPage + 1);
 
-        const { entities: rows, raw } = await qb.getRawAndEntities();
+        const { entities: rows, raw } = await pageQb.getRawAndEntities();
         const hasMore = rows.length > perPage;
-        const conversations = hasMore ? rows.slice(0, perPage) : rows;
-        const rawRows = hasMore ? raw.slice(0, perPage) : raw;
+        let conversations = hasMore ? rows.slice(0, perPage) : rows;
+        let rawRows = hasMore ? raw.slice(0, perPage) : raw;
+
+        // Page 1 additionally carries every flagged thread (emergency, AI
+        // needs team, recent unanswered inquiry) regardless of how old its
+        // last message is, so the client's queue groups are complete without
+        // stealing slots from the recency-ordered raw list. The client keeps
+        // these rows in the raw list too, sorted by last message.
+        if (page === 1) {
+            try {
+                const pinned = await qb
+                    .clone()
+                    .andWhere(`(c.emergency = 1 OR c.aiNeedsHuman = 1 OR ${pinnedInquirySql} = 1)`)
+                    .orderBy("c.lastMessageAt", "DESC")
+                    .limit(150)
+                    .getRawAndEntities();
+                const seen = new Set(conversations.map((c) => Number(c.threadId)));
+                const extraRows: typeof conversations = [];
+                const extraRaw: typeof rawRows = [];
+                pinned.entities.forEach((row, i) => {
+                    const id = Number(row.threadId);
+                    if (seen.has(id)) return;
+                    seen.add(id);
+                    extraRows.push(row);
+                    extraRaw.push(pinned.raw[i]);
+                });
+                if (extraRows.length) {
+                    conversations = [...conversations, ...extraRows];
+                    rawRows = [...rawRows, ...extraRaw];
+                }
+            } catch (err: any) {
+                logger.warn(`[InboxService] pinned-thread fetch failed: ${err.message}`);
+            }
+        }
         const listingIds = Array.from(
             new Set(
                 conversations
