@@ -822,6 +822,7 @@ export class AIProposedActionService {
         let planSummary = "";
         let plannedChannels: Record<string, string | null> = { guest: "hostify" };
         let evidenceParts: string[] = [];
+        let planType: string = actionType;
 
         if (actionType === "early_checkout") {
             title = "Early checkout — confirm departure + update cleaning";
@@ -1007,41 +1008,150 @@ export class AIProposedActionService {
                 `Guest said: "${guestText.slice(0, 200)}"`,
             ];
         } else {
-            // escalation — generic missing-fact / AI deferred
-            title = "AI handed off — teammate must resolve";
-            proposedReply = `Hi ${guestFirst}, thanks for your patience — I'm looping in a teammate to confirm the exact details and we'll follow up shortly.`;
-            taskDescription = `AI escalation for ${conv.guestName || "guest"} (${listing}): ${conv.aiNeedsHumanReason || "confirm missing fact / decision"}.`;
-            recommendedSteps = [
-                {
-                    id: "read_reason",
-                    label: "Read why AI escalated (missing fact, policy, pricing, etc.)",
-                    detail: String(conv.aiNeedsHumanReason || guestText || "").slice(0, 400) || undefined,
-                    status: "recommended",
-                },
-                {
-                    id: "check_sources",
-                    label: "Check Verified Facts → listing KB → Upsells → TEAM thread messages",
-                    detail: "Do not guess. If still unknown, ask the right internal owner.",
-                    status: "recommended",
-                },
-                {
-                    id: "decide",
-                    label: "Human decides the answer / next ops step",
-                    status: "recommended",
-                },
-                {
-                    id: "reply_guest",
-                    label: "Hostify-reply with the verified answer",
-                    status: "blocked",
-                },
-                {
-                    id: "teach_bot",
-                    label: "If this is a durable fact — verify into Verified Facts / teach the bot",
-                    status: "optional",
-                },
-            ];
-            planSummary =
-                "1) Read escalation reason. 2) Check Facts/KB/Upsells/TEAM. 3) Human decides. 4) Hostify reply. 5) Optionally teach bot.";
+            // escalation — specialize when the reason is clearly IR/GR, not a missing fact.
+            const reasonBlob = `${conv.aiNeedsHumanReason || ""} ${guestText || ""}`;
+            const isRefund =
+                /\b(refund|partial refund|cancel(?:lation)?|money back|reimburs)/i.test(reasonBlob);
+            const isMaintenance =
+                /\b(hot water|no water|leak|leaking|plumb|toilet|shower|ac\b|a\/c|air condition|heat(?:ing|er)?|furnace|fridge|refrigerator|oven|stove|grill|bbq|wifi|internet|power|electric|broken|not working|maintenance|repair|clog|drain)\b/i.test(
+                    reasonBlob
+                );
+            const isMissingFact =
+                /\b(not (?:in|provided in) context|need(?:s)? (?:team )?confirm|exact .+ not|floor location|dimensions?|how many|what time|policy)\b/i.test(
+                    reasonBlob
+                ) && !isMaintenance && !isRefund;
+
+            if (isRefund) {
+                title = "Refund / cancellation — GR manager review";
+                proposedReply = `Hi ${guestFirst}, thanks for reaching out — a teammate is reviewing your request and will follow up with next steps shortly.`;
+                taskDescription = `Refund/cancel request for ${conv.guestName || "guest"} (${listing}): escalate to GR (Anj/Jade), do not dispatch vendors, no promise until approved.`;
+                recommendedSteps = [
+                    {
+                        id: "gather",
+                        label: "Gather stay dates, amount asked, and guest reason",
+                        detail: String(conv.aiNeedsHumanReason || guestText || "").slice(0, 400) || undefined,
+                        status: "recommended",
+                    },
+                    {
+                        id: "gr_queue",
+                        label: "Route to GR managers — do not approve refunds in chat alone",
+                        detail: "IR vendors are the wrong lane for refunds.",
+                        status: "recommended",
+                    },
+                    {
+                        id: "no_promise",
+                        label: "Hostify hold without promising a dollar amount or approval",
+                        status: "recommended",
+                    },
+                    {
+                        id: "decide_reply",
+                        label: "After GR decision — Hostify-reply with the approved outcome",
+                        status: "blocked",
+                    },
+                ];
+                planSummary =
+                    "1) Gather ask. 2) GR manager queue. 3) Honest hold (no $ promise). 4) Reply after decision.";
+                plannedChannels = { guest: "hostify", lane: "GR" };
+                planType = "refund";
+            } else if (isMaintenance) {
+                title = "In-stay maintenance — diagnose and dispatch";
+                proposedReply = `Hi ${guestFirst}, sorry you're dealing with this — I'm looping in our ops team to get the right person on it and we'll update you as soon as we have a next step.`;
+                taskDescription = `Maintenance for ${conv.guestName || "guest"} at ${listing}: ${String(conv.aiNeedsHumanReason || guestText).slice(0, 240)}. Open/update Guest Issue, contact correct vendor, honest guest updates.`;
+                recommendedSteps = [
+                    {
+                        id: "triage",
+                        label: "Triage the symptom (water / HVAC / appliance / wifi / other)",
+                        detail: String(conv.aiNeedsHumanReason || guestText || "").slice(0, 400) || undefined,
+                        status: "recommended",
+                    },
+                    {
+                        id: "guest_issue",
+                        label: "Open or update a Guest Issue in the IR lane (not a Fact lookup)",
+                        detail: "Maintenance is ops dispatch — Verified Facts / teach-bot is the wrong next step.",
+                        status: "recommended",
+                    },
+                    {
+                        id: "vendor",
+                        label: "Contact the right vendor / cleaner / handyman (city portfolio or listing POC)",
+                        detail: "Prefer IR Copilot recommended contacts — do not invent phone numbers.",
+                        status: "recommended",
+                    },
+                    {
+                        id: "honest_update",
+                        label: "Hostify-update guest with a real next step (no false “already fixed”)",
+                        status: "blocked",
+                    },
+                    {
+                        id: "close",
+                        label: "Confirm resolved with guest → complete Guest Issue",
+                        status: "blocked",
+                    },
+                ];
+                planSummary =
+                    "1) Triage symptom. 2) Guest Issue (IR). 3) Dispatch vendor. 4) Honest Hostify update. 5) Close when fixed.";
+                plannedChannels = { guest: "hostify", vendor: "quo_or_phone", lane: "IR" };
+                planType = "maintenance";
+            } else if (isMissingFact) {
+                title = "Missing listing fact — confirm then answer";
+                proposedReply = `Hi ${guestFirst}, thanks for your patience — I'm confirming that detail with the team and will follow up shortly.`;
+                taskDescription = `Missing fact for ${listing}: ${String(conv.aiNeedsHumanReason || guestText).slice(0, 240)}. Check Facts/KB, answer guest, optionally verify into Facts.`;
+                recommendedSteps = [
+                    {
+                        id: "read_reason",
+                        label: "Read the missing fact the guest needs",
+                        detail: String(conv.aiNeedsHumanReason || guestText || "").slice(0, 400) || undefined,
+                        status: "recommended",
+                    },
+                    {
+                        id: "check_sources",
+                        label: "Check Verified Facts → listing KB → TEAM thread messages",
+                        detail: "Do not guess. If still unknown, ask the listing owner / ops.",
+                        status: "recommended",
+                    },
+                    {
+                        id: "reply_guest",
+                        label: "Hostify-reply with the verified answer",
+                        status: "blocked",
+                    },
+                    {
+                        id: "teach_bot",
+                        label: "If durable — verify into Verified Facts so the bot knows next time",
+                        status: "optional",
+                    },
+                ];
+                planSummary =
+                    "1) Identify missing fact. 2) Facts/KB/TEAM. 3) Hostify answer. 4) Optionally verify into Facts.";
+                plannedChannels = { guest: "hostify", knowledge: "verified_facts" };
+            } else {
+                title = "AI handed off — teammate must resolve";
+                proposedReply = `Hi ${guestFirst}, thanks for your patience — a teammate is reviewing this and will follow up shortly.`;
+                taskDescription = `AI escalation for ${conv.guestName || "guest"} (${listing}): ${conv.aiNeedsHumanReason || "needs human decision"}.`;
+                recommendedSteps = [
+                    {
+                        id: "read_reason",
+                        label: "Read why AI escalated",
+                        detail: String(conv.aiNeedsHumanReason || guestText || "").slice(0, 400) || undefined,
+                        status: "recommended",
+                    },
+                    {
+                        id: "pick_lane",
+                        label: "Pick the lane: GR (guest/money) vs IR (vendor/repair) vs knowledge gap",
+                        status: "recommended",
+                    },
+                    {
+                        id: "act",
+                        label: "Take the concrete next step (issue, vendor, refund queue, or fact confirm)",
+                        status: "recommended",
+                    },
+                    {
+                        id: "reply_guest",
+                        label: "Hostify-reply with a real update — no false “already arranged”",
+                        status: "blocked",
+                    },
+                ];
+                planSummary =
+                    "1) Read reason. 2) Pick GR/IR/knowledge lane. 3) Act. 4) Honest Hostify update.";
+            }
             evidenceParts = [
                 `AI Needs Team (escalation): ${conv.aiNeedsHumanReason || "AI deferred"}`,
                 `Guest said: "${guestText.slice(0, 200)}"`,
@@ -1059,7 +1169,7 @@ export class AIProposedActionService {
                         : null,
                 reservationId: conv.reservationId ? Number(conv.reservationId) : null,
                 listingId: conv.listingId ? Number(conv.listingId) : null,
-                actionType,
+                actionType: planType,
                 title,
                 evidence: this.withSettingsReference(evidenceParts.join("\n"), settingsReference),
                 proposedReply,
@@ -1070,7 +1180,7 @@ export class AIProposedActionService {
                         recommendedSteps,
                         planSummary,
                         plannedChannels,
-                        handoverKind: actionType,
+                        handoverKind: planType,
                     })
                 ),
                 status: "proposed",
@@ -1219,14 +1329,30 @@ export class AIProposedActionService {
                 const has = (type: string) => openNow.some((a) => a.actionType === type);
                 if (!has(kind) && !has("escalation") && !has("frustration")) {
                     const reason = String(conv.aiNeedsHumanReason || text || "");
-                    const coveredBySpecialty =
-                        (EXTENSION_RE.test(reason) && has("extension")) ||
-                        (EARLY_CHECKIN_RE.test(reason) && has("early_check_in")) ||
-                        (LATE_CHECKOUT_RE.test(reason) && has("late_checkout")) ||
-                        (LOCKOUT_RE.test(reason) && (has("access") || has("resend_access_code"))) ||
-                        (/payment|balance|amount due|unpaid/i.test(reason) && has("payment")) ||
-                        (/safety|fire|flood|911/i.test(reason) && has("safety"));
-                    if (!coveredBySpecialty) {
+                    // If an Urgent specialty plan already exists for this pin, don't stack a
+                    // second generic "AI handoff" card (was creating extension+escalation noise).
+                    const specialtyTypes = [
+                        "early_check_in",
+                        "early_checkout",
+                        "late_checkout",
+                        "extension",
+                        "access",
+                        "resend_access_code",
+                        "payment",
+                        "safety",
+                        "maintenance",
+                        "refund",
+                    ];
+                    const hasSpecialty = openNow.some((a) => specialtyTypes.includes(a.actionType));
+                    const pinSpecialty =
+                        Number(conv.emergency) === 1 && this.pinToActionType(String(conv.emergencyType));
+                    const coveredBySpecialty = Boolean(
+                        (pinSpecialty && has(pinSpecialty)) ||
+                            (pinSpecialty === "access" && has("resend_access_code")) ||
+                            hasSpecialty
+                    );
+                    // Frustration can still stack (tone takeover) even with a specialty plan.
+                    if (!coveredBySpecialty || kind === "frustration") {
                         const a = await this.proposeHandoverPlan(
                             input,
                             kind,

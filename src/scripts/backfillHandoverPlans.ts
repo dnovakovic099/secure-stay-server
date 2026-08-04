@@ -5,23 +5,33 @@
  *   npx ts-node --transpile-only src/scripts/backfillHandoverPlans.ts
  *
  * Apply:
- *   npx ts-node --transpile-only src/scripts/backfillHandoverPlans.ts --apply --limit=300
+ *   NODE_ENV=development npx ts-node --transpile-only src/scripts/backfillHandoverPlans.ts --apply --limit=300
+ *
+ * Rebuild smarter escalation/maintenance/refund plans:
+ *   NODE_ENV=development npx ts-node --transpile-only src/scripts/backfillHandoverPlans.ts --apply --rebuild-escalations --limit=400
  *
  * Specific threads:
- *   npx ts-node --transpile-only src/scripts/backfillHandoverPlans.ts --apply --threadId=123,456
+ *   NODE_ENV=development npx ts-node --transpile-only src/scripts/backfillHandoverPlans.ts --apply --threadId=123,456
  */
 import "dotenv/config";
 import { initDatabase, appDatabase } from "../utils/database.util";
 import { AIProposedActionService } from "../services/AIProposedActionService";
 
 function parseArgs() {
-    const out: { apply: boolean; limit: number; threadIds: number[] } = {
+    const out: {
+        apply: boolean;
+        limit: number;
+        threadIds: number[];
+        rebuildEscalations: boolean;
+    } = {
         apply: false,
         limit: 300,
         threadIds: [],
+        rebuildEscalations: false,
     };
     for (const arg of process.argv.slice(2)) {
         if (arg === "--apply") out.apply = true;
+        if (arg === "--rebuild-escalations") out.rebuildEscalations = true;
         if (arg.startsWith("--limit=")) {
             const n = Number(arg.slice("--limit=".length));
             if (Number.isFinite(n) && n > 0) out.limit = n;
@@ -44,8 +54,21 @@ async function main() {
 
     console.log(
         `[backfillHandoverPlans] mode=${args.apply ? "APPLY" : "DRY-RUN"} limit=${args.limit}` +
-            (args.threadIds.length ? ` threadIds=${args.threadIds.join(",")}` : "")
+            (args.threadIds.length ? ` threadIds=${args.threadIds.join(",")}` : "") +
+            (args.rebuildEscalations ? " rebuildEscalations" : "")
     );
+
+    if (args.apply && args.rebuildEscalations) {
+        // Drop generic escalation cards so ensure can recreate smarter maintenance/refund/fact plans,
+        // and remove escalation duplicates sitting beside specialty Urgent plans.
+        const del = await appDatabase.query(
+            `UPDATE ai_proposed_actions
+             SET status = 'dismissed', resultNote = 'rebuilt by backfillHandoverPlans', executedAt = NOW()
+             WHERE status = 'proposed'
+               AND actionType IN ('escalation', 'maintenance', 'refund')`
+        );
+        console.log(`[rebuild] dismissed prior escalation/maintenance/refund rows`, del);
+    }
 
     const result = await service.backfillHandoverPlans({
         limit: args.limit,
