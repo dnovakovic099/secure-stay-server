@@ -29,10 +29,26 @@ export class PropertyFactsController {
             const data = await service.getForListing(listingId);
             const proposals = await service.listProposals({ listingId, status: "pending" });
             const linkedUpsells = await service.getLinkedUpsells(listingId);
+            const upsellOptions = await service.getUpsellOptions();
             const hostifyConsistency = await service.getHostifyConflicts(listingId);
-            return response.status(200).json({ status: true, data: { ...data, proposals, linkedUpsells, hostifyConsistency } });
+            return response.status(200).json({ status: true, data: { ...data, proposals, linkedUpsells, upsellOptions, hostifyConsistency } });
         } catch (error) {
             return next(error);
+        }
+    }
+
+    async setLinkedUpsell(request: Request, response: Response, next: NextFunction) {
+        try {
+            const listingId = toNum(request.params.listingId);
+            const fieldKey = String(request.params.fieldKey || "");
+            const upSellId = request.body?.upSellId == null ? null : toNum(request.body.upSellId);
+            if (listingId == null || !fieldKey || (request.body?.upSellId != null && upSellId == null)) {
+                return response.status(400).json({ status: false, message: "A valid listingId, fieldKey and Upsell selection are required" });
+            }
+            const data = await new PropertyFactsService().setLinkedUpsell({ listingId, fieldKey, upSellId });
+            return response.status(200).json({ status: true, data });
+        } catch (error: any) {
+            return response.status(400).json({ status: false, message: error?.message || "Upsell link update failed" });
         }
     }
 

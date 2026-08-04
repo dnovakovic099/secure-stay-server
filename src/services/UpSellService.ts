@@ -6,6 +6,7 @@ import { UpSellListing } from "../entity/UpSellListing";
 import { Listing } from "../entity/Listing";
 import { UpSellPropertyConfig } from "../entity/UpSellPropertyConfig";
 import { UpSellPropertyConfigHistory } from "../entity/UpSellPropertyConfigHistory";
+import { PropertyFactEntity } from "../entity/PropertyFact";
 import { QuoteService } from "./QuoteService";
 import {
   PROPERTY_FACT_UPSELL_MAPPINGS,
@@ -42,18 +43,43 @@ export class UpSellServices {
   private upSellPropertyConfigHistoryRepository = appDatabase.getRepository(UpSellPropertyConfigHistory);
   private quoteService = new QuoteService();
 
-  private async findVerifiedFactUpsell(fieldKey: PropertyFactUpsellFieldKey) {
+  private async findVerifiedFactUpsell(fieldKey: PropertyFactUpsellFieldKey, linkedUpsellId?: number | null) {
+    if (linkedUpsellId !== undefined && linkedUpsellId !== null) {
+      if (linkedUpsellId <= 0) return null;
+      return this.upSellRepository.findOne({ where: { upSellId: linkedUpsellId, isActive: true } });
+    }
     const title = PROPERTY_FACT_UPSELL_MAPPINGS[fieldKey];
     return this.upSellRepository.findOne({ where: { title: Like(title), isActive: true } });
   }
 
-  async getVerifiedFactLinkedUpsells(listingId: number, groupListingIds: number[] = []) {
+  async listVerifiedFactUpsellOptions() {
+    const rows = await this.upSellRepository.find({
+      where: { isActive: true },
+      order: { title: "ASC" },
+    });
+    return rows.map((row) => ({ upSellId: Number(row.upSellId), title: String(row.title) }));
+  }
+
+  async getVerifiedFactLinkedUpsells(
+    listingId: number,
+    groupListingIds: number[] = [],
+    explicitLinks: Partial<Record<PropertyFactUpsellFieldKey, number>> = {}
+  ) {
     const ids = Array.from(new Set([listingId, ...groupListingIds].map(Number).filter((id) => id > 0)));
     const result: Record<string, any> = {};
     for (const fieldKey of Object.keys(PROPERTY_FACT_UPSELL_MAPPINGS) as PropertyFactUpsellFieldKey[]) {
-      const upsell = await this.findVerifiedFactUpsell(fieldKey);
+      const hasExplicitLink = Object.prototype.hasOwnProperty.call(explicitLinks, fieldKey);
+      const linkedUpsellId = hasExplicitLink ? Number(explicitLinks[fieldKey]) : undefined;
+      const upsell = await this.findVerifiedFactUpsell(fieldKey, linkedUpsellId);
       if (!upsell) {
-        result[fieldKey] = { fieldKey, title: PROPERTY_FACT_UPSELL_MAPPINGS[fieldKey], available: false };
+        result[fieldKey] = {
+          fieldKey,
+          title: PROPERTY_FACT_UPSELL_MAPPINGS[fieldKey],
+          available: false,
+          linkedUpsellId: linkedUpsellId && linkedUpsellId > 0 ? linkedUpsellId : null,
+          explicitlyLinked: Boolean(linkedUpsellId && linkedUpsellId > 0),
+          explicitlyUnlinked: hasExplicitLink && linkedUpsellId === 0,
+        };
         continue;
       }
       const configs = ids.length
@@ -64,6 +90,9 @@ export class UpSellServices {
         fieldKey,
         available: true,
         upSellId: Number(upsell.upSellId),
+        linkedUpsellId: linkedUpsellId && linkedUpsellId > 0 ? linkedUpsellId : null,
+        explicitlyLinked: Boolean(linkedUpsellId && linkedUpsellId > 0),
+        explicitlyUnlinked: false,
         title: String(upsell.title),
         listingId: config ? Number(config.listingId) : listingId,
         description: config?.description ?? upsell.description ?? null,
@@ -85,7 +114,10 @@ export class UpSellServices {
     patch: Record<string, unknown>;
     changedBy: string;
   }) {
-    const upsell = await this.findVerifiedFactUpsell(input.fieldKey);
+    const fact = await appDatabase.getRepository(PropertyFactEntity).findOne({
+      where: { listingId: input.listingId, fieldKey: input.fieldKey },
+    });
+    const upsell = await this.findVerifiedFactUpsell(input.fieldKey, fact?.linkedUpsellId);
     if (!upsell) throw new Error(`${PROPERTY_FACT_UPSELL_MAPPINGS[input.fieldKey]} upsell was not found`);
     const allowed = new Set(["description", "image", "upsellFee", "chargeType", "rateConfiguration", "sdto", "internalNotes"]);
     const unknown = Object.keys(input.patch).filter((key) => !allowed.has(key));
@@ -138,7 +170,9 @@ export class UpSellServices {
         previous ? "UPDATE" : "CREATE"
       );
     });
-    return (await this.getVerifiedFactLinkedUpsells(input.listingId))[input.fieldKey];
+    return (await this.getVerifiedFactLinkedUpsells(input.listingId, [], {
+      [input.fieldKey]: Number(upsell.upSellId),
+    }))[input.fieldKey];
   }
 
   private parseArrayField<T>(value: unknown): T[] {

@@ -41,6 +41,9 @@ export class PropertyFactEntity {
     /** Staff-only guidance for the AI; never guest-shareable content. */
     @Column({ type: "text", nullable: true }) internalInstructions: string | null;
 
+    /** Explicit Upsell catalog selection; 0 means staff intentionally unlinked it. */
+    @Column({ type: "bigint", nullable: true }) linkedUpsellId: number | null;
+
     @Index() @Column({ length: 16, default: "unverified" }) status: string;
 
     /** Where the current value came from: hostify | intake | upsells | parking | correction | manual */

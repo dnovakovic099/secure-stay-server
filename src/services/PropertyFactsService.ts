@@ -60,7 +60,46 @@ export class PropertyFactsService {
     async getLinkedUpsells(listingId: number) {
         const canonical = await this.canonicalId(listingId);
         const groupIds = await new ListingGroupService().groupIds(canonical).catch(() => [canonical]);
-        return new UpSellServices().getVerifiedFactLinkedUpsells(canonical, groupIds);
+        const facts = await this.factRepo.find({ where: { listingId: canonical } });
+        const explicitLinks: Partial<Record<PropertyFactUpsellFieldKey, number>> = {};
+        for (const fact of facts) {
+            if (fact.linkedUpsellId != null && Object.prototype.hasOwnProperty.call(PROPERTY_FACT_UPSELL_MAPPINGS, fact.fieldKey)) {
+                explicitLinks[fact.fieldKey as PropertyFactUpsellFieldKey] = Number(fact.linkedUpsellId);
+            }
+        }
+        return new UpSellServices().getVerifiedFactLinkedUpsells(canonical, groupIds, explicitLinks);
+    }
+
+    async getUpsellOptions() {
+        return new UpSellServices().listVerifiedFactUpsellOptions();
+    }
+
+    async setLinkedUpsell(input: { listingId: number; fieldKey: string; upSellId: number | null }) {
+        if (!Object.prototype.hasOwnProperty.call(PROPERTY_FACT_UPSELL_MAPPINGS, input.fieldKey)) {
+            throw new Error(`${factFieldLabel(input.fieldKey)} cannot be linked to an Upsell`);
+        }
+        const canonical = await this.canonicalId(input.listingId);
+        if (input.upSellId != null) {
+            const options = await this.getUpsellOptions();
+            if (!options.some((option) => option.upSellId === input.upSellId)) {
+                throw new Error("The selected Upsell is not active or no longer exists");
+            }
+        }
+        let fact = await this.factRepo.findOne({ where: { listingId: canonical, fieldKey: input.fieldKey } });
+        if (!fact) {
+            fact = this.factRepo.create({
+                listingId: canonical,
+                fieldKey: input.fieldKey,
+                value: null,
+                hostifyValue: null,
+                internalInstructions: null,
+                status: "unverified",
+                source: "manual",
+            });
+        }
+        fact.linkedUpsellId = input.upSellId ?? 0;
+        await this.factRepo.save(fact);
+        return (await this.getLinkedUpsells(canonical))[input.fieldKey];
     }
 
     async getHostifyConflicts(listingId: number): Promise<{
