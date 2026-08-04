@@ -28,6 +28,9 @@ const EARLY_CHECKIN_RE =
     /\bearly[\s-]*check[\s-]*in\b|\bcheck[\s-]*in\s+(early|earlier)\b|\barrive\s+(early|earlier|before)\b|\bget\s+in\s+early\b|\bdrop\s+(our|my|the)\s+(bags|luggage)\b/i;
 const LOCKOUT_RE =
     /\block(ed)?\s*out\b|\b(code|keypad|lock|door)\b[^.!?\n]{0,40}\b(not|isn'?t|doesn'?t|won'?t|wont|stopped)\s*work|\bcan'?t\s+(get|figure)\s+(in|inside|the door)|\bunable\s+to\s+(get|enter)\b|\bdoor\s+(won'?t|wont|will not)\s+open\b|\bwrong\s+code\b|\bcode\s+(is\s+)?(invalid|incorrect|wrong)\b/i;
+/** Stay extension / extra night — not late checkout. */
+const EXTENSION_RE =
+    /\b(extend(?:ing|ed)?|extension|extra\s+night|another\s+night|one\s+more\s+night|1\s+more\s+night|stay\s+(?:longer|another)|add\s+(?:a\s+|another\s+)?night|additional\s+night|stay\s+an\s+extra)\b/i;
 // "create_ops_ticket" is fully retired: never proposed, never executed, and
 // filtered out of the read paths so pre-cutover rows in ai_proposed_actions stop
 // surfacing as cards. InboxItemDetectionService already opens a Guest Issues
@@ -36,13 +39,19 @@ const LOCKOUT_RE =
 // history and dismissed by migration 20260727_retire_create_ops_ticket.sql.
 export const RETIRED_ACTION_TYPE = "create_ops_ticket";
 
+/**
+ * Kill switch: proposed actions are plan/preview only. Flip true when Accept
+ * should run Quo/Hostify automation again.
+ */
+export const BOT_ACTION_EXECUTION_ENABLED = false;
+
 export const PROPOSED_ACTION_DEFAULTS = {
     proposedActionInstructions:
-        "Proposed Actions are generated after an AI suggestion is saved for an incoming guest message. The detector looks for early check-in, late checkout, and access-code/lockout requests. Operational problem reports are handled by Guest Issues tickets instead. Existing open proposals of the same action type on the thread block duplicates.",
+        "Proposed Actions are generated after an AI suggestion is saved for an incoming guest message. The detector looks for early check-in, late checkout, stay extensions, and access-code/lockout requests. Operational problem reports are handled by Guest Issues tickets instead. Existing open proposals of the same action type on the thread block duplicates. Accept is currently disabled — cards show the AI plan only.",
     proposedActionApproveInstructions:
-        "Approve creates the internal task/action tied to the proposal and marks the proposal executed. It does not send the proposed guest reply.",
+        "Approve creates the internal task/action tied to the proposal and marks the proposal executed. It does not send the proposed guest reply. Currently disabled — preview only.",
     proposedActionApproveSendInstructions:
-        "Approve & send sends the editable proposed reply to the guest, creates any tied internal task/action, cancels queued delayed auto-send for that thread, and marks the proposal executed.",
+        "Approve & send sends the editable proposed reply to the guest, creates any tied internal task/action, cancels queued delayed auto-send for that thread, and marks the proposal executed. Currently disabled — preview only.",
 };
 
 export interface ProposedActionInput {
@@ -109,11 +118,17 @@ export class AIProposedActionService {
 
             // Cheap regex screen first — only hit the DB when something matched.
             const matchedAny =
-                LATE_CHECKOUT_RE.test(text) || EARLY_CHECKIN_RE.test(text) || LOCKOUT_RE.test(text);
+                LATE_CHECKOUT_RE.test(text) ||
+                EARLY_CHECKIN_RE.test(text) ||
+                LOCKOUT_RE.test(text) ||
+                EXTENSION_RE.test(text);
             if (!matchedAny) return created;
 
             const open = await this.repo.find({
-                where: { threadId: Number(input.conversation.threadId), status: "proposed" },
+                where: {
+                    threadId: Number(input.conversation.threadId),
+                    status: In(["proposed", "awaiting_ops", "needs_human"]),
+                },
             });
             const hasOpen = (type: string) => open.some((a) => a.actionType === type);
 
@@ -123,6 +138,15 @@ export class AIProposedActionService {
             }
             if (EARLY_CHECKIN_RE.test(text) && !hasOpen("early_check_in")) {
                 const a = await this.proposeScheduleChange(input, "early_check_in", text, reference);
+                if (a) created.push(a);
+            }
+            // Extensions are not late checkout — separate plan (human prices the night).
+            if (
+                EXTENSION_RE.test(text) &&
+                !LATE_CHECKOUT_RE.test(text) &&
+                !hasOpen("extension")
+            ) {
+                const a = await this.proposeExtension(input, text, reference);
                 if (a) created.push(a);
             }
             // Access-code resend still needs a suggestion context for one-click send today.
@@ -250,11 +274,99 @@ export class AIProposedActionService {
         steps.push({
             id: "close_loop",
             label: "After cleaner/ops reply → accept or deny, then text the guest",
-            detail: "Future automation will update the action item from the cleaner webhook and message the guest. Accept is disabled until that ships.",
+            detail:
+                "Planned automation: Quo-text cleaner/owner, Hostify-hold the guest, auto-close from Quo webhook. Accept is disabled for now.",
             status: "blocked",
         });
 
         return steps;
+    }
+
+    private buildExtensionRecommendedSteps(params: {
+        nightOpen: boolean | null;
+        nightDate: string | null;
+    }): RecommendedActionStep[] {
+        return [
+            {
+                id: "confirm_calendar",
+                label: "Confirm the night after checkout is open (dates only)",
+                detail:
+                    params.nightOpen === true
+                        ? `Live calendar: ${params.nightDate} looks OPEN.`
+                        : params.nightOpen === false
+                          ? `Live calendar: ${params.nightDate} is NOT open.`
+                          : "Live calendar unavailable — verify in Hostify before promising.",
+                status: "recommended",
+            },
+            {
+                id: "human_price",
+                label: "Teammate prices the extension (never Hostify calendar rates)",
+                detail:
+                    "AI must not quote $ for extensions — calendar nightly rates have been wrong. Pull the real rate from ops/pricing.",
+                status: "recommended",
+            },
+            {
+                id: "hold_guest",
+                label: "Hold the guest without quoting a dollar amount",
+                detail: "Acknowledge the ask and say a teammate will confirm availability + exact price.",
+                status: "recommended",
+            },
+            {
+                id: "reply_with_price",
+                label: "Hostify-reply with availability + exact extension price",
+                detail: "Once priced, send the guest the exact figure and next booking steps.",
+                status: "blocked",
+            },
+            {
+                id: "update_reservation",
+                label: "If accepted — update the reservation / calendar in Hostify",
+                detail: "Future Accept automation will do this; preview only for now.",
+                status: "blocked",
+            },
+        ];
+    }
+
+    private async withExecutionReadiness(
+        listingId: number | null | undefined,
+        payload: Record<string, any>,
+        recommendedSteps: RecommendedActionStep[]
+    ): Promise<Record<string, any>> {
+        const { ScheduleActionOpsLoopService } = await import("./ScheduleActionOpsLoopService");
+        const readiness = await new ScheduleActionOpsLoopService().enrichExecutionReadiness(
+            listingId,
+            payload
+        );
+        const steps = recommendedSteps.map((s) => {
+            if (s.id !== "check_cleaner" || !readiness.contact) return s;
+            return {
+                ...s,
+                label:
+                    readiness.contact.role === "owner"
+                        ? `Check with owner ${readiness.contact.name}`
+                        : `Check with cleaner ${readiness.contact.name}`,
+                detail: `${readiness.contact.phone} (${readiness.contact.source})`,
+            };
+        });
+        return {
+            ...payload,
+            recommendedSteps: steps,
+            // Always preview-only until BOT_ACTION_EXECUTION_ENABLED is flipped.
+            executionEnabled: false,
+            disableReason: BOT_ACTION_EXECUTION_ENABLED
+                ? readiness.disableReason
+                : "Bot Accept is disabled for now — view the AI plan only",
+            botExecutionReady: readiness.executionEnabled,
+            cleanerPhone: readiness.contact?.phone || null,
+            cleanerPhoneDigits: readiness.contact?.phoneDigits || null,
+            cleanerName: readiness.contact?.name || null,
+            cleanerRole: readiness.contact?.role || null,
+            cleanerSource: readiness.contact?.source || null,
+            quoFromNumber: readiness.quoFromNumber,
+            plannedChannels: {
+                guest: "hostify",
+                turnover: readiness.contact ? "quo" : null,
+            },
+        };
     }
 
     /**
@@ -363,17 +475,21 @@ export class AIProposedActionService {
                     ),
                     proposedReply,
                     taskDescription: `${type === "late_checkout" ? "Late checkout" : "Early check-in"} declined for ${conv.guestName || "guest"} — SDTO Not Allowed with same-day turnover.`,
-                    payload: JSON.stringify({
-                        nightDate: key,
-                        nightOpen,
-                        guestQuote: guestText.slice(0, 500),
-                        upsellAutoRespond: "deny",
-                        upsellFee: match.guestFee,
-                        sdto: match.sdto,
-                        sameDayTurnoverRelevant: true,
-                        recommendedSteps: denySteps,
-                        executionEnabled: false,
-                    }),
+                    payload: JSON.stringify(
+                        await this.withExecutionReadiness(
+                            conv.listingId,
+                            {
+                                nightDate: key,
+                                nightOpen,
+                                guestQuote: guestText.slice(0, 500),
+                                upsellAutoRespond: "deny",
+                                upsellFee: match.guestFee,
+                                sdto: match.sdto,
+                                sameDayTurnoverRelevant: true,
+                            },
+                            denySteps
+                        )
+                    ),
                     status: "proposed",
                 })
             );
@@ -444,20 +560,101 @@ export class AIProposedActionService {
                 taskDescription: needsCleaner
                     ? `Check with cleaner/housekeeping whether ${label} is possible for ${conv.guestName || "guest"} (${conv.listingName || "listing " + conv.listingId})${feeBit ? ` — fee ${feeBit}` : ""}. After they reply, accept/deny and text the guest.`
                     : `${type === "late_checkout" ? "Late checkout" : "Early check-in"} for ${conv.guestName || "guest"} (${conv.listingName || "listing " + conv.listingId})${feeBit ? ` — fee ${feeBit}` : ""} — update the cleaning schedule if approved.`,
+                payload: JSON.stringify(
+                    await this.withExecutionReadiness(
+                        conv.listingId,
+                        {
+                            nightDate: key,
+                            nightOpen,
+                            guestQuote: guestText.slice(0, 500),
+                            upsellAutoRespond: match?.autoRespond || null,
+                            upsellFee: match?.guestFee ?? null,
+                            sdto: match?.sdto || null,
+                            sameDayTurnoverRelevant: match?.sameDayTurnoverRelevant ?? null,
+                            rateConfiguration: match?.rateConfiguration || null,
+                            chargeType: match?.chargeType || null,
+                            verifiedFact: verifiedFact,
+                        },
+                        recommendedSteps
+                    )
+                ),
+                status: "proposed",
+            })
+        );
+    }
+
+    /** Stay extension: human must price; AI plan shows calendar + hold reply only. */
+    private async proposeExtension(
+        input: ProposedActionInput,
+        guestText: string,
+        settingsReference: string | null
+    ): Promise<AIProposedActionEntity | null> {
+        const conv = input.conversation;
+        let nightOpen: boolean | null = null;
+        let nightDate: string | null = null;
+        if (conv.checkout && conv.listingId && this.hostifyApiKey) {
+            try {
+                const key = String(conv.checkout).slice(0, 10);
+                nightDate = key;
+                const days = await this.hostify.getCalendar(
+                    this.hostifyApiKey,
+                    Number(conv.listingId),
+                    key,
+                    key
+                );
+                const day = (days || []).find((d: any) => String(d.date).slice(0, 10) === key);
+                if (day) nightOpen = String(day.status || "").toLowerCase() === "available";
+            } catch {
+                /* evidence stays unknown */
+            }
+        }
+
+        const recommendedSteps = this.buildExtensionRecommendedSteps({ nightOpen, nightDate });
+        const calendarEvidence =
+            nightOpen === true
+                ? `Live calendar: night of ${nightDate} is OPEN (dates only — do not quote Hostify $).`
+                : nightOpen === false
+                  ? `Live calendar: night of ${nightDate} is NOT open.`
+                  : `Live calendar unavailable${nightDate ? ` for ${nightDate}` : ""}.`;
+
+        const proposedReply =
+            "Thanks for asking about extending your stay — I'm checking availability with the team and we'll confirm the exact rate shortly.";
+
+        return this.repo.save(
+            this.repo.create({
+                suggestionId: input.suggestion?.id ?? null,
+                source: "hostify",
+                threadId: Number(conv.threadId),
+                messageId:
+                    input.guestMessage?.externalId != null
+                        ? Number(input.guestMessage.externalId)
+                        : null,
+                reservationId: conv.reservationId ? Number(conv.reservationId) : null,
+                listingId: conv.listingId ? Number(conv.listingId) : null,
+                actionType: "extension",
+                title:
+                    nightOpen === false
+                        ? `Extension ask — night ${nightDate || "after checkout"} looks unavailable`
+                        : `Extension ask — confirm availability and quote exact price`,
+                evidence: this.withSettingsReference(
+                    [
+                        "Extension pricing security: never quote Hostify calendar nightly rates.",
+                        calendarEvidence,
+                        `Guest said: "${guestText.slice(0, 200)}"`,
+                    ].join("\n"),
+                    settingsReference
+                ),
+                proposedReply,
+                taskDescription: `Price extension for ${conv.guestName || "guest"} (${conv.listingName || "listing"}) — confirm night after ${conv.checkout || "checkout"} and reply with exact rate (not Hostify calendar).`,
                 payload: JSON.stringify({
-                    nightDate: key,
+                    nightDate,
                     nightOpen,
                     guestQuote: guestText.slice(0, 500),
-                    upsellAutoRespond: match?.autoRespond || null,
-                    upsellFee: match?.guestFee ?? null,
-                    sdto: match?.sdto || null,
-                    sameDayTurnoverRelevant: match?.sameDayTurnoverRelevant ?? null,
-                    rateConfiguration: match?.rateConfiguration || null,
-                    chargeType: match?.chargeType || null,
-                    verifiedFact: verifiedFact,
                     recommendedSteps,
-                    // Multi-step cleaner/ops loop is recommendation-only until automation ships.
                     executionEnabled: false,
+                    disableReason: "Bot Accept is disabled for now — view the AI plan only",
+                    plannedChannels: { guest: "hostify", pricing: "human" },
+                    planSummary: `1) Check calendar for ${nightDate || "night after checkout"}. 2) Human prices extension. 3) Hostify-hold guest (no $). 4) After price ready, Hostify-reply with exact rate. 5) Update reservation if accepted.`,
                 }),
                 status: "proposed",
             })
@@ -509,7 +706,35 @@ export class AIProposedActionService {
                     settingsReference
                 ),
                 proposedReply,
-                payload: JSON.stringify({ code, device: where || null, guestQuote: guestText.slice(0, 500) }),
+                payload: JSON.stringify({
+                    code,
+                    device: where || null,
+                    guestQuote: guestText.slice(0, 500),
+                    recommendedSteps: [
+                        {
+                            id: "verify_code",
+                            label: "Confirm the live programmed door code on the lock",
+                            detail: `Code on file: ${code}${where ? ` (${where})` : ""}`,
+                            status: "recommended",
+                        },
+                        {
+                            id: "resend_code",
+                            label: "Hostify-resend the code to the guest",
+                            detail: "Accept would send the proposed reply with the code. Disabled for now.",
+                            status: "blocked",
+                        },
+                        {
+                            id: "escalate_if_needed",
+                            label: "If still locked out — escalate to lock vendor / on-call",
+                            status: "optional",
+                        },
+                    ],
+                    executionEnabled: false,
+                    disableReason: "Bot Accept is disabled for now — view the AI plan only",
+                    plannedChannels: { guest: "hostify" },
+                    planSummary:
+                        "1) Verify live lock code. 2) Hostify-send code to guest. 3) Escalate if still locked out.",
+                }),
                 status: "proposed",
             })
         );
@@ -520,8 +745,8 @@ export class AIProposedActionService {
     // ------------------------------------------------------------------
 
     /**
-     * Backfill schedule recommendations when staff open a thread that already
-     * has an early/late urgent pin but no (or stale) proposed-action card.
+     * Backfill handover recommendations when staff open a thread that already
+     * has an urgent pin but no (or stale) proposed-action card.
      * Safe / idempotent — never throws to callers.
      */
     async ensureScheduleRecommendationsForThread(threadId: number): Promise<void> {
@@ -537,40 +762,81 @@ export class AIProposedActionService {
                     ? "early_check_in"
                     : pin === "late_checkout"
                       ? "late_checkout"
-                      : null;
+                      : pin === "extension_price"
+                        ? "extension"
+                        : null;
             if (!actionType) return;
 
             const open = await this.repo.find({
-                where: { threadId: Number(threadId), status: "proposed", actionType },
+                where: {
+                    threadId: Number(threadId),
+                    status: In(["proposed", "awaiting_ops", "needs_human"]),
+                    actionType,
+                },
             });
 
-            // Refresh steps on older proposals that predate recommendedSteps.
+            // Refresh steps / execution readiness on older or stale proposals.
             for (const action of open) {
+                if (action.status !== "proposed") continue;
                 let payload: any = null;
                 try {
                     payload = action.payload ? JSON.parse(action.payload) : null;
                 } catch {
                     payload = null;
                 }
-                if (Array.isArray(payload?.recommendedSteps) && payload.recommendedSteps.length) continue;
+                const hasSteps =
+                    Array.isArray(payload?.recommendedSteps) && payload.recommendedSteps.length;
+                const needsEnrich =
+                    !hasSteps ||
+                    payload?.executionEnabled == null ||
+                    (payload?.executionEnabled !== true && !payload?.disableReason);
 
-                const verifiedFact = await this.getVerifiedScheduleFact(conv.listingId, actionType);
-                const recommendedSteps = this.buildScheduleRecommendedSteps({
-                    type: actionType,
-                    verifiedFact,
-                    feeBit:
-                        payload?.upsellFee != null
-                            ? `$${Number(payload.upsellFee).toFixed(2)}`
-                            : null,
-                    nightOpen: typeof payload?.nightOpen === "boolean" ? payload.nightOpen : null,
-                    autoRespond: payload?.upsellAutoRespond || null,
-                });
-                action.payload = JSON.stringify({
-                    ...(payload || {}),
-                    verifiedFact,
-                    recommendedSteps,
-                    executionEnabled: false,
-                });
+                if (!needsEnrich) continue;
+
+                if (actionType === "extension") {
+                    const recommendedSteps = hasSteps
+                        ? payload.recommendedSteps
+                        : this.buildExtensionRecommendedSteps({
+                              nightOpen:
+                                  typeof payload?.nightOpen === "boolean" ? payload.nightOpen : null,
+                              nightDate: payload?.nightDate || null,
+                          });
+                    action.payload = JSON.stringify({
+                        ...(payload || {}),
+                        recommendedSteps,
+                        executionEnabled: false,
+                        disableReason: "Bot Accept is disabled for now — view the AI plan only",
+                        plannedChannels: { guest: "hostify", pricing: "human" },
+                    });
+                    await this.repo.save(action);
+                    continue;
+                }
+
+                const verifiedFact =
+                    payload?.verifiedFact ||
+                    (await this.getVerifiedScheduleFact(
+                        conv.listingId,
+                        actionType as "early_check_in" | "late_checkout"
+                    ));
+                const recommendedSteps = hasSteps
+                    ? payload.recommendedSteps
+                    : this.buildScheduleRecommendedSteps({
+                          type: actionType as "early_check_in" | "late_checkout",
+                          verifiedFact,
+                          feeBit:
+                              payload?.upsellFee != null
+                                  ? `$${Number(payload.upsellFee).toFixed(2)}`
+                                  : null,
+                          nightOpen: typeof payload?.nightOpen === "boolean" ? payload.nightOpen : null,
+                          autoRespond: payload?.upsellAutoRespond || null,
+                      });
+                action.payload = JSON.stringify(
+                    await this.withExecutionReadiness(
+                        conv.listingId,
+                        { ...(payload || {}), verifiedFact },
+                        recommendedSteps
+                    )
+                );
                 if (verifiedFact && action.evidence && !/Verified Facts/i.test(action.evidence)) {
                     action.evidence = `Verified Facts (${actionType === "early_check_in" ? "early check-in" : "late check-out"}): ${verifiedFact}\n${action.evidence}`;
                 }
@@ -585,7 +851,12 @@ export class AIProposedActionService {
                 order: { createdAt: "DESC" },
                 take: 12,
             });
-            const re = actionType === "early_check_in" ? EARLY_CHECKIN_RE : LATE_CHECKOUT_RE;
+            const re =
+                actionType === "early_check_in"
+                    ? EARLY_CHECKIN_RE
+                    : actionType === "extension"
+                      ? EXTENSION_RE
+                      : LATE_CHECKOUT_RE;
             const hit =
                 messages.find((m) => re.test(String(m.body || ""))) ||
                 messages[0] ||
@@ -602,7 +873,9 @@ export class AIProposedActionService {
 
     async listForThread(threadId: number, opts: { includeResolved?: boolean } = {}) {
         const where: any = { threadId, actionType: Not(RETIRED_ACTION_TYPE) };
-        if (!opts.includeResolved) where.status = "proposed";
+        if (!opts.includeResolved) {
+            where.status = In(["proposed", "awaiting_ops", "needs_human"]);
+        }
         return this.repo.find({ where, order: { createdAt: "DESC" } });
     }
 
@@ -610,7 +883,7 @@ export class AIProposedActionService {
         const limit = Math.min(Math.max(opts.limit || 50, 1), 200);
         const where: any = { actionType: Not(RETIRED_ACTION_TYPE) };
         if (opts.status) where.status = opts.status;
-        else where.status = In(["proposed", "executed", "dismissed"]);
+        else where.status = In(["proposed", "awaiting_ops", "needs_human", "executed", "dismissed"]);
         return this.repo.find({ where, order: { createdAt: "DESC" }, take: limit });
     }
 
@@ -633,32 +906,55 @@ export class AIProposedActionService {
                 `Action ${id} is a retired ${RETIRED_ACTION_TYPE} proposal — Guest Issues tickets cover these now. Dismiss it instead.`
             );
         }
-        // Schedule multi-step flows are recommendation-only until cleaner/ops automation ships.
+
+        if (!BOT_ACTION_EXECUTION_ENABLED) {
+            throw new Error("Bot Accept is disabled for now — view the AI plan only.");
+        }
+
+        // Schedule flows: Quo cleaner/owner SMS + Hostify hold, then webhook close-loop.
+        // SDTO deny is Hostify-only immediate decline.
         if (action.actionType === "early_check_in" || action.actionType === "late_checkout") {
-            let executionEnabled = false;
+            let payload: any = {};
             try {
-                const payload = action.payload ? JSON.parse(action.payload) : null;
-                executionEnabled = payload?.executionEnabled === true;
+                payload = action.payload ? JSON.parse(action.payload) : {};
             } catch {
-                executionEnabled = false;
+                payload = {};
             }
-            if (!executionEnabled) {
-                throw new Error(
-                    "This recommended action is view-only for now. Accept/execute will be enabled once cleaner/ops automation ships."
-                );
+
+            if (payload.upsellAutoRespond === "deny") {
+                // Immediate Hostify decline — no cleaner loop.
+            } else {
+                const { ScheduleActionOpsLoopService } = await import("./ScheduleActionOpsLoopService");
+                const loop = new ScheduleActionOpsLoopService();
+                const readiness = await loop.enrichExecutionReadiness(action.listingId, payload);
+                if (!readiness.executionEnabled) {
+                    throw new Error(
+                        readiness.disableReason ||
+                            "Cannot Accept yet — missing cleaner/owner phone or Quo configuration."
+                    );
+                }
+                const saved = await loop.startAwaitingOps(action, user, opts);
+                await new AIMemoryService()
+                    .recordDecision({
+                        topic: saved.actionType,
+                        decision: saved.title || saved.actionType,
+                        rationale: [saved.evidence, saved.resultNote].filter(Boolean).join(" | "),
+                        listingId: saved.listingId ?? null,
+                        decidedByUserId: saved.executedByUserId ?? null,
+                    })
+                    .catch(() => null);
+                return saved;
             }
         }
 
         const results: string[] = [];
 
-        // 1) Guest-facing reply (schedule changes + code resend).
+        // 1) Guest-facing reply (schedule deny + door-code resend).
         const reply = opts.sendReply === false ? "" : (opts.replyOverride ?? action.proposedReply ?? "").trim();
         if (reply) {
             const { InboxService } = await import("./InboxService");
             await new InboxService().sendReply(Number(action.threadId), reply, user);
             results.push("reply sent to guest");
-            // The guest just got a human-approved answer — cancel any queued
-            // delayed auto-send still pending on this thread's suggestions.
             await appDatabase
                 .query(
                     `UPDATE ai_message_suggestions SET autosendScheduledAt = NULL
@@ -668,8 +964,7 @@ export class AIProposedActionService {
                 .catch(() => {});
         }
 
-        // 2) Internal task — schedule changes create a turnover-schedule task so
-        //    cleaning is informed.
+        // 2) Internal task — schedule deny / other schedule execute paths.
         const taskText = (opts.taskOverride ?? action.taskDescription ?? "").trim();
         if (taskText && (action.actionType === "late_checkout" || action.actionType === "early_check_in")) {
             const actionItemsRepo = appDatabase.getRepository(ActionItems);
@@ -677,7 +972,7 @@ export class AIProposedActionService {
                 .getRepository(InboxConversationEntity)
                 .findOne({ where: { threadId: Number(action.threadId) } })
                 .catch(() => null);
-            const saved = await actionItemsRepo.save(
+            const savedTask = await actionItemsRepo.save(
                 actionItemsRepo.create({
                     item: taskText,
                     category: "Guest Request",
@@ -691,7 +986,15 @@ export class AIProposedActionService {
                     source: "inbox_ai",
                 } as Partial<ActionItems>)
             );
-            results.push(`task #${saved.id} created`);
+            results.push(`task #${savedTask.id} created`);
+
+            // Clear urgent pin after immediate decline.
+            try {
+                const { OverduePaymentService } = await import("./OverduePaymentService");
+                await new OverduePaymentService().clearEmergency(Number(action.threadId));
+            } catch {
+                /* non-fatal */
+            }
         }
 
         action.status = "executed";
@@ -703,8 +1006,6 @@ export class AIProposedActionService {
         const saved = await this.repo.save(action);
         logger.info(`[AIProposedAction] executed ${saved.id} (${saved.actionType}): ${saved.resultNote}`);
 
-        // A human approving an action IS a decision. Record it as precedent so
-        // the next similar ask is answered consistently instead of from scratch.
         await new AIMemoryService()
             .recordDecision({
                 topic: saved.actionType,
@@ -721,7 +1022,7 @@ export class AIProposedActionService {
     async dismiss(id: number, user: any): Promise<AIProposedActionEntity> {
         const action = await this.repo.findOne({ where: { id } });
         if (!action) throw new Error(`Proposed action ${id} not found`);
-        if (action.status !== "proposed") return action;
+        if (!["proposed", "awaiting_ops", "needs_human"].includes(action.status)) return action;
         action.status = "dismissed";
         action.executedByUserId = Number(user?.secureStayUserId ?? user?.id) || null;
         action.executedByName =

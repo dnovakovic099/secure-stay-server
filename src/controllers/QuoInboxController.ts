@@ -194,6 +194,18 @@ export class QuoInboxController {
                 QuoItemDetectionService.scheduleDetection(result.conversationId);
                 // Shadow AI suggestion (persisted for the audit/analytics loop).
                 InboxAIService.scheduleQuoSuggestion(result.conversationId);
+                // Early/late Accept close-loop: match cleaner/owner reply → Hostify guest.
+                import("../services/ScheduleActionOpsLoopService")
+                    .then(({ ScheduleActionOpsLoopService }) =>
+                        new ScheduleActionOpsLoopService().onQuoInbound({
+                            fromPhone: result.fromPhone,
+                            text: result.text,
+                            conversationId: result.conversationId,
+                        })
+                    )
+                    .catch((err: any) =>
+                        logger.error(`[QuoInbox] Schedule ops-loop hook failed: ${err?.message}`)
+                    );
             }
             res.status(200).json({ status: true });
         } catch (error: any) {
@@ -223,6 +235,18 @@ export class QuoInboxController {
                     logger.error(`[QuoInbox] Post-sync detection failed: ${err?.message}`)
                 );
                 for (const cid of result.newIncoming) InboxAIService.scheduleQuoSuggestion(cid);
+                import("../services/ScheduleActionOpsLoopService")
+                    .then(({ ScheduleActionOpsLoopService }) => {
+                        const loop = new ScheduleActionOpsLoopService();
+                        return Promise.all(
+                            result.newIncoming.map((cid: string) =>
+                                loop.onQuoConversationIncoming(cid)
+                            )
+                        );
+                    })
+                    .catch((err: any) =>
+                        logger.error(`[QuoInbox] Post-sync schedule ops-loop failed: ${err?.message}`)
+                    );
             }
             res.status(200).json({ status: true, data: result });
         } catch (error) {

@@ -851,6 +851,8 @@ export class QuoInboxService {
         handled: boolean;
         conversationId?: string;
         incoming?: boolean;
+        fromPhone?: string | null;
+        text?: string | null;
     }> {
         const type = String(payload?.type || "");
         if (!type.startsWith("message.")) return { handled: false };
@@ -905,7 +907,13 @@ export class QuoInboxService {
                     where: { phoneNumberId: line.phoneNumberId, participantPhone: externalNums[0] },
                 });
                 if (found) {
-                    return { handled: true, conversationId: found.conversationId, incoming: direction === "incoming" };
+                    return {
+                        handled: true,
+                        conversationId: found.conversationId,
+                        incoming: direction === "incoming",
+                        fromPhone: direction === "incoming" ? m.from || externalNums[0] || null : null,
+                        text: text != null ? String(text) : null,
+                    };
                 }
             }
             logger.warn(`[QuoInbox] Webhook ${type}: could not resolve conversation for message ${m.id} on line ${line.name}`);
@@ -975,7 +983,13 @@ export class QuoInboxService {
             }
         }
 
-        return { handled: true, conversationId, incoming: direction === "incoming" && !exists };
+        return {
+            handled: true,
+            conversationId,
+            incoming: direction === "incoming" && !exists,
+            fromPhone: direction === "incoming" ? m.from || externalNums[0] || null : null,
+            text: text != null ? String(text) : null,
+        };
     }
 
     // -------------------------------------------------------------------------

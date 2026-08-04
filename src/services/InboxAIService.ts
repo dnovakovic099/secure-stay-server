@@ -918,6 +918,19 @@ export class InboxAIService {
                 await this.overduePaymentService.raiseEmergency(conversation, reason, "extension_price", {
                     notify: false,
                 });
+                // Surface Recommended Action / AI plan even when autosend is paused.
+                try {
+                    const { AIProposedActionService } = await import("./AIProposedActionService");
+                    await new AIProposedActionService().detectForConversation(
+                        conversation,
+                        null,
+                        guestAskText
+                    );
+                } catch (detectErr: any) {
+                    logger.warn(
+                        `[InboxAIService] extension proposed-action detect failed (thread ${threadId}): ${detectErr?.message}`
+                    );
+                }
             } catch (err: any) {
                 logger.warn(
                     `[InboxAIService] extension_price urgent flag failed (thread ${threadId}): ${err?.message}`

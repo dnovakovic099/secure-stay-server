@@ -59,7 +59,7 @@ export class AIProposedActionEntity {
     /** JSON blob with action-specific data (codes, dates, category…). */
     @Column({ type: "mediumtext", nullable: true }) payload: string | null;
 
-    /** proposed | executed | dismissed | expired */
+    /** proposed | awaiting_ops | needs_human | executed | dismissed | expired */
     @Index() @Column({ length: 20, default: "proposed" }) status: string;
 
     /** Outcome note after execution ("reply sent", "task #123 created"). */
