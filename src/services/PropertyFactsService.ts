@@ -4,6 +4,7 @@ import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
 import { PropertyFactEntity } from "../entity/PropertyFact";
 import { PropertyFactProposalEntity } from "../entity/PropertyFactProposal";
+import { Listing } from "../entity/Listing";
 import { AIMessageFeedbackEntity } from "../entity/AIMessageFeedback";
 import {
     PROPERTY_FACT_FIELDS,
@@ -55,6 +56,70 @@ export class PropertyFactsService {
         const canonical = await this.canonicalId(listingId);
         const facts = await this.factRepo.find({ where: { listingId: canonical } });
         return { listingId: canonical, facts, catalog: PROPERTY_FACT_FIELDS };
+    }
+
+    async listPropertyOptions(): Promise<Array<{ listingId: number; name: string; address: string }>> {
+        const listings = await appDatabase.getRepository(Listing).find({
+            select: ["id", "name", "internalListingName", "address"],
+            order: { internalListingName: "ASC", name: "ASC" },
+        });
+        const groupService = new ListingGroupService();
+        const byCanonical = new Map<number, { listingId: number; name: string; address: string }>();
+        for (const listing of listings) {
+            const canonical = (await groupService.resolve(Number(listing.id))) || Number(listing.id);
+            const candidate = {
+                listingId: canonical,
+                name: String(listing.internalListingName || listing.name || `Listing ${canonical}`),
+                address: String(listing.address || ""),
+            };
+            const existing = byCanonical.get(canonical);
+            if (!existing || Number(listing.id) === canonical) byCanonical.set(canonical, candidate);
+        }
+        return [...byCanonical.values()].sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    async applyToProperties(input: {
+        sourceListingId: number;
+        fieldKey: string;
+        value: string;
+        targetListingIds?: number[];
+        allProperties?: boolean;
+        userId?: number | null;
+    }) {
+        if (!PROPERTY_FACT_FIELD_KEYS.has(input.fieldKey)) throw new Error("Unknown property fact field");
+        const value = String(input.value || "").trim();
+        if (!value) throw new Error("Guest-shareable information is required");
+        const sourceCanonical = await this.canonicalId(input.sourceListingId);
+        const sourceFact = await this.factRepo.findOne({ where: { listingId: sourceCanonical, fieldKey: input.fieldKey } });
+        const propertyOptions = await this.listPropertyOptions();
+        const allowedIds = new Set(propertyOptions.map((property) => property.listingId));
+        const requestedIds = input.allProperties
+            ? propertyOptions.map((property) => property.listingId)
+            : (input.targetListingIds || []);
+        const targetIds = [...new Set(requestedIds.map(Number))]
+            .filter((id) => allowedIds.has(id) && id !== sourceCanonical);
+        if (!targetIds.length) throw new Error("Select at least one other property");
+
+        const savedSource = await this.upsert({
+            listingId: sourceCanonical,
+            fieldKey: input.fieldKey,
+            value,
+            source: "manual",
+            verified: true,
+            userId: input.userId,
+        });
+        for (const listingId of targetIds) {
+            await this.upsert({
+                listingId,
+                fieldKey: input.fieldKey,
+                value,
+                internalInstructions: sourceFact?.internalInstructions ?? null,
+                source: "manual",
+                verified: true,
+                userId: input.userId,
+            });
+        }
+        return { sourceFact: savedSource, appliedCount: targetIds.length, targetListingIds: targetIds };
     }
 
     async getLinkedUpsells(listingId: number) {

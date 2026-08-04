@@ -61,6 +61,40 @@ export class PropertyFactsController {
         }
     }
 
+    async listProperties(request: Request, response: Response, next: NextFunction) {
+        try {
+            const data = await new PropertyFactsService().listPropertyOptions();
+            return response.status(200).json({ status: true, data });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
+    async applyToProperties(request: CustomRequest, response: Response, next: NextFunction) {
+        try {
+            const sourceListingId = toNum(request.params.listingId);
+            const fieldKey = String(request.params.fieldKey || "");
+            const value = String(request.body?.value || "");
+            const targetListingIds = Array.isArray(request.body?.targetListingIds)
+                ? request.body.targetListingIds.map(toNum).filter((id: number | null): id is number => id != null)
+                : [];
+            if (sourceListingId == null || !fieldKey) {
+                return response.status(400).json({ status: false, message: "listingId and fieldKey are required" });
+            }
+            const data = await new PropertyFactsService().applyToProperties({
+                sourceListingId,
+                fieldKey,
+                value,
+                targetListingIds,
+                allProperties: request.body?.allProperties === true,
+                userId: userId(request.user),
+            });
+            return response.status(200).json({ status: true, data });
+        } catch (error: any) {
+            return response.status(400).json({ status: false, message: error?.message || "Verified Fact could not be copied" });
+        }
+    }
+
     /** Update the linked Upsell property config for one Verified Facts topic. */
     async updateLinkedUpsell(request: CustomRequest, response: Response, next: NextFunction) {
         try {
