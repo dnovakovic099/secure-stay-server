@@ -28,6 +28,7 @@ router.get('/hostify/threads', verifySession, messagingController.listHostifyThr
 router.get('/hostify/thread/:threadId', verifySession, messagingController.getHostifyThread);
 router.post('/hostify/thread/:threadId/reply', verifySession, messagingController.postHostifyReply);
 
+router.get('/openphone/phone-numbers', verifySession, messagingController.listOpenPhoneSenderNumbers);
 router.get('/openphone/conversations', verifySession, messagingController.listOpenPhoneConversations);
 router.get('/openphone/messages/by-participant', verifySession, messagingController.findOpenPhoneMessagesByParticipant);
 router.get('/openphone/conversation/:conversationId/messages', verifySession, messagingController.getOpenPhoneMessages);

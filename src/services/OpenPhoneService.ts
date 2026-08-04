@@ -89,6 +89,32 @@ export class OpenPhoneService {
   }
 
   /**
+   * List the OpenPhone numbers on this account that can act as an SMS sender.
+   * Powers the "which number to use" dropdown in the vendor-thread "Send to OP" tab.
+   * Returns a stable, JSON-friendly shape ({ id, number, name, formattedNumber })
+   * so the frontend doesn't have to know the raw OpenPhone payload.
+   */
+  async listSenderPhoneNumbers(): Promise<Array<{ id: string; number: string; name: string; formattedNumber: string }>> {
+    if (!this.isConfigured()) return [];
+    try {
+      const res = await this.client.getPhoneNumbers();
+      const rows = res?.data ?? [];
+      return rows
+        .filter((pn: any) => pn?.id && pn?.number)
+        .map((pn: any) => ({
+          id: String(pn.id),
+          number: String(pn.number),
+          name: String(pn.name || pn.formattedNumber || pn.number || ""),
+          formattedNumber: String(pn.formattedNumber || pn.number || ""),
+        }));
+    } catch (err: any) {
+      const detail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+      logger.error(`[OpenPhone] listSenderPhoneNumbers failed: ${detail}`);
+      throw err;
+    }
+  }
+
+  /**
    * Send an SMS message
    * @param to Recipient phone number in E.164 format
    * @param content Message content

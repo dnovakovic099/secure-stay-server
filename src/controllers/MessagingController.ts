@@ -215,6 +215,20 @@ export class MessagingController {
         }
     }
 
+    async listOpenPhoneSenderNumbers(_request: Request, response: Response, next: NextFunction) {
+        try {
+            const openPhoneService = new OpenPhoneService();
+            const numbers = await openPhoneService.listSenderPhoneNumbers();
+            return response.status(200).json({ status: true, data: numbers });
+        } catch (error: any) {
+            const opDetail = error.response?.data;
+            if (opDetail) {
+                return response.status(500).json({ status: false, message: 'OpenPhone API error', detail: opDetail });
+            }
+            return next(error);
+        }
+    }
+
     async listOpenPhoneConversations(request: Request, response: Response, next: NextFunction) {
         try {
             const maxResults = parseInt(request.query.maxResults as string) || 20;

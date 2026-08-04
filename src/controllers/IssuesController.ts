@@ -688,6 +688,25 @@ export class IssuesController {
     }
   }
 
+  async sendVendorOpMessages(request: any, response: Response, next: NextFunction) {
+    try {
+      const issueId = Number(request.params.id);
+      const userId = request.user.id;
+      const issuesService = new IssuesService();
+      const result = await issuesService.sendVendorOpMessages(issueId, userId, {
+        fromNumber: String(request.body?.fromNumber || ""),
+        message: String(request.body?.message || ""),
+        recipients: Array.isArray(request.body?.recipients) ? request.body.recipients : [],
+      });
+      return response.status(200).json({
+        status: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async generateAiSummary(
     request: any,
     response: Response,

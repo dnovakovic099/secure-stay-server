@@ -3862,13 +3862,20 @@ export class IssuesService {
       throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
     }
 
+    // Optional per-tenant skip list, comma-separated names, case-insensitive.
+    // Empty by default — previous Ana/Diana hardcode is retired because their
+    // conversations now live in OpenPhone like everyone else's.
+    const rawSkip = String(process.env.OPENPHONE_SKIP_POC_NAMES || "").trim();
     const normalizedContactName = String(contactName || "").trim().toLowerCase();
-    if (["ana", "diana"].includes(normalizedContactName)) {
-      return {
-        found: false,
-        skipped: true,
-        reason: "excluded_poc",
-      };
+    if (rawSkip && normalizedContactName) {
+      const skipList = rawSkip.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+      if (skipList.includes(normalizedContactName)) {
+        return {
+          found: false,
+          skipped: true,
+          reason: "excluded_poc",
+        };
+      }
     }
 
     const openPhoneService = new OpenPhoneService();
@@ -3933,7 +3940,19 @@ export class IssuesService {
     issueId: number,
     slackLink: string,
     userId: string,
-    createOptions?: { channel?: string; message?: string; openPhone?: { url?: string; conversationId?: string; phoneNumberId?: string; participant?: string; source?: string } | null; vendorThreadId?: string | number | null }
+    createOptions?: {
+      channel?: string;
+      message?: string;
+      openPhone?: {
+        url?: string;
+        phone?: string;
+        conversationId?: string;
+        phoneNumberId?: string;
+        participant?: string;
+        source?: string;
+      } | null;
+      vendorThreadId?: string | number | null;
+    }
   ) {
     const issue = await this.issueRepo.findOne({
       where: { id: issueId },
@@ -3945,12 +3964,46 @@ export class IssuesService {
     const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
     const userName = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "SecureStay";
     let parsedThread: { channel: string; threadTs: string; messageTs: string; url: string };
-    const openPhone = createOptions?.openPhone?.url
+    // OP payload can arrive as:
+    //   - a URL to parse (Quo / OpenPhone conversation link — legacy path)
+    //   - just a phone number ("phone-first" path — the new default). We try
+    //     to resolve it to a live conversation; if that fails we keep the
+    //     phone on the record so the UI can still deep-link to compose.
+    let openPhone: any = createOptions?.openPhone?.url
       ? {
           ...this.parseOpenPhoneConversationLink(createOptions.openPhone.url),
           ...createOptions.openPhone,
         }
       : createOptions?.openPhone || null;
+    if (openPhone && !openPhone.url && openPhone.phone) {
+      try {
+        const opSvc = new OpenPhoneService();
+        const normalized = opSvc.formatPhoneNumber("+1", String(openPhone.phone));
+        if (normalized) {
+          openPhone.participant = normalized;
+          const resolved = await opSvc.findMessagesByParticipant(normalized, 25).catch(() => null);
+          const messages = Array.isArray(resolved?.data) ? resolved!.data : [];
+          if (messages.length) {
+            const latest: any = [...messages].sort((a: any, b: any) => {
+              const at = new Date(a.createdAt || a.updatedAt || 0).getTime();
+              const bt = new Date(b.createdAt || b.updatedAt || 0).getTime();
+              return bt - at;
+            })[0];
+            if (latest?.conversationId && latest?.phoneNumberId) {
+              openPhone = {
+                ...openPhone,
+                conversationId: latest.conversationId,
+                phoneNumberId: latest.phoneNumberId,
+                url: `https://my.quo.com/inbox/${latest.phoneNumberId}/c/${latest.conversationId}`,
+                source: openPhone.source || "phone_resolved",
+              };
+            }
+          }
+        }
+      } catch (err: any) {
+        logger.warn(`[IssuesService][attachIssueVendorThread] phone-first resolve failed for issue ${issueId}: ${err?.message}`);
+      }
+    }
 
     if (createOptions?.channel && String(createOptions?.message || "").trim()) {
       const channel = String(createOptions.channel).trim();
@@ -4067,6 +4120,171 @@ export class IssuesService {
       threadUrl: parsedThread.url,
       openPhone,
       entries: [],
+    };
+  }
+
+  /**
+   * Dispatch an SMS via OpenPhone to a set of property contacts (owner + attached
+   * vendors) from the vendor-thread modal's "Send to OP" tab. Each recipient gets
+   * an independent 1:1 SMS — OpenPhone does not support group MMS to arbitrary
+   * numbers. A single "system" activity update is written to the ticket
+   * summarising who was messaged and the per-recipient status.
+   */
+  async sendVendorOpMessages(
+    issueId: number,
+    userId: string,
+    payload: {
+      fromNumber: string;
+      message: string;
+      recipients: Array<{ name?: string | null; phone: string; contactId?: number | null; role?: string | null }>;
+    }
+  ) {
+    const issue = await this.issueRepo.findOne({ where: { id: issueId } });
+    if (!issue) {
+      throw CustomErrorHandler.notFound(`Issue with ID ${issueId} not found`);
+    }
+
+    const fromNumber = String(payload.fromNumber || "").trim();
+    const message = String(payload.message || "").trim();
+    if (!fromNumber) {
+      throw CustomErrorHandler.validationError("Pick which OpenPhone number to send from");
+    }
+    if (!message) {
+      throw CustomErrorHandler.validationError("Enter a message to send");
+    }
+    if (!Array.isArray(payload.recipients) || !payload.recipients.length) {
+      throw CustomErrorHandler.validationError("Pick at least one recipient");
+    }
+
+    const openPhoneService = new OpenPhoneService();
+    if (!openPhoneService.isConfigured()) {
+      throw CustomErrorHandler.validationError("OpenPhone is not configured on this environment");
+    }
+
+    // Normalize + dedupe recipient phones. Bad numbers surface in the result
+    // list with status='invalid_phone' so the UI can show them alongside the
+    // real sends.
+    const seen = new Set<string>();
+    const normalized = payload.recipients
+      .map((r) => {
+        const rawPhone = String(r?.phone || "").trim();
+        const phone = openPhoneService.formatPhoneNumber("+1", rawPhone);
+        return {
+          name: String(r?.name || "").trim() || null,
+          contactId: r?.contactId != null ? Number(r.contactId) : null,
+          role: String(r?.role || "").trim() || null,
+          rawPhone,
+          phone,
+        };
+      })
+      .filter((r) => {
+        if (!r.phone) return true; // keep, will be flagged as invalid_phone
+        if (seen.has(r.phone)) return false;
+        seen.add(r.phone);
+        return true;
+      });
+
+    const results: Array<{
+      name: string | null;
+      phone: string;
+      contactId: number | null;
+      role: string | null;
+      status: "sent" | "queued" | "delivered" | "undelivered" | "invalid_phone" | "error";
+      messageId?: string | null;
+      error?: string | null;
+    }> = [];
+
+    for (const r of normalized) {
+      if (!r.phone) {
+        results.push({
+          name: r.name,
+          phone: r.rawPhone,
+          contactId: r.contactId,
+          role: r.role,
+          status: "invalid_phone",
+          error: "Could not normalize to E.164",
+        });
+        continue;
+      }
+      try {
+        const resp = await openPhoneService.sendSMSWithSender(r.phone, message, fromNumber);
+        const status = (resp?.data?.status as any) || "sent";
+        results.push({
+          name: r.name,
+          phone: r.phone,
+          contactId: r.contactId,
+          role: r.role,
+          status,
+          messageId: resp?.data?.id || null,
+        });
+      } catch (err: any) {
+        results.push({
+          name: r.name,
+          phone: r.phone,
+          contactId: r.contactId,
+          role: r.role,
+          status: err?.openPhoneStatus === "undelivered" ? "undelivered" : "error",
+          messageId: err?.openPhoneMessageId || null,
+          error: err?.message || "send failed",
+        });
+      }
+    }
+
+    const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
+    const userName = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "SecureStay";
+    const okCount = results.filter((r) => r.status === "sent" || r.status === "queued" || r.status === "delivered").length;
+    const failCount = results.length - okCount;
+
+    const statusLine = (r: (typeof results)[number]) => {
+      const marker =
+        r.status === "sent" || r.status === "queued" || r.status === "delivered"
+          ? "✓"
+          : r.status === "undelivered"
+            ? "✗ undelivered"
+            : r.status === "invalid_phone"
+              ? "✗ invalid phone"
+              : "✗ error";
+      const label = r.name ? `${r.name} (${r.phone})` : r.phone;
+      return `${marker} ${label}${r.role ? ` — ${r.role}` : ""}`;
+    };
+    const activityText = [
+      `OpenPhone SMS sent by ${userName} from ${fromNumber} — ${okCount} ok, ${failCount} failed`,
+      "",
+      "Message:",
+      message.slice(0, 500),
+      "",
+      "Recipients:",
+      ...results.map(statusLine),
+    ].join("\n");
+
+    try {
+      await this.createIssueSystemActivity(issue, activityText, userId);
+    } catch (err: any) {
+      logger.warn(`[IssuesService][sendVendorOpMessages] system activity failed for issue ${issueId}: ${err?.message}`);
+    }
+
+    // Mirror the dispatch summary into the main ticket Slack thread when one exists,
+    // so ops can see the vendor SMS record where they already work.
+    try {
+      const mainIssueThread = await this.getMainIssueSlackThread(issueId);
+      if (mainIssueThread) {
+        await sendSlackMessage(
+          {
+            channel: mainIssueThread.channel,
+            text: `📱 *OpenPhone SMS sent by ${userName} from ${fromNumber}* — ${okCount} ok, ${failCount} failed\n>${message.replace(/\n/g, "\n>").slice(0, 900)}\n${results.map(statusLine).join("\n")}`,
+          },
+          mainIssueThread.threadTs || mainIssueThread.messageTs
+        );
+      }
+    } catch (err: any) {
+      logger.warn(`[IssuesService][sendVendorOpMessages] Slack mirror failed for issue ${issueId}: ${err?.message}`);
+    }
+
+    return {
+      sent: okCount,
+      failed: failCount,
+      fromNumber,
+      results,
     };
   }
 

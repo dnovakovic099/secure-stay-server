@@ -64,6 +64,7 @@ router.route('/:id/vendor-thread')
     .delete(verifySession, issuesController.unlinkIssueVendorThread);
 router.route('/:id/openphone-conversation').get(verifySession, issuesController.resolveIssueOpenPhoneConversation);
 router.route('/:id/vendor-thread/reply').post(verifySession, issuesController.replyToIssueVendorThread);
+router.route('/:id/vendor-thread/op-send').post(verifySession, issuesController.sendVendorOpMessages);
 
 
 router.route('/:id')
