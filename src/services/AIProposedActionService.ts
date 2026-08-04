@@ -1363,12 +1363,113 @@ export class AIProposedActionService {
                     }
                 }
             }
+
+            // --- Rescue Copilot active ---
+            const rescueActive =
+                conv.rescueStatus === "active" || conv.rescueStatus === "recovering";
+            if (rescueActive) {
+                const openNow = await this.repo.find({
+                    where: {
+                        threadId: Number(threadId),
+                        status: In(["proposed", "awaiting_ops", "needs_human"]),
+                    },
+                });
+                const has = (type: string) => openNow.some((a) => a.actionType === type);
+                // Hard-urgent specialty cards already cover access/safety/payment/extension.
+                const hardCovered =
+                    has("access") ||
+                    has("resend_access_code") ||
+                    has("safety") ||
+                    has("payment") ||
+                    has("extension");
+                if (!has("rescue") && !hardCovered) {
+                    const a = await this.proposeRescuePlan(input, text, reference);
+                    if (a) created.push(a);
+                }
+            }
         } catch (err: any) {
             logger.warn(
                 `[AIProposedAction] ensureHandoverPlans failed thread=${threadId}: ${err?.message}`
             );
         }
         return created;
+    }
+
+    private async proposeRescuePlan(
+        input: ProposedActionInput,
+        guestText: string,
+        settingsReference: string | null
+    ): Promise<AIProposedActionEntity | null> {
+        const conv = input.conversation;
+        const { RescueCopilotService } = await import("./RescueCopilotService");
+        const playbook = RescueCopilotService.playbookSkeleton(conv.rescueCause);
+        const guestFirst = (conv.guestName || "").split(" ")[0] || "there";
+        const recommendedSteps: RecommendedActionStep[] = [
+            ...playbook.checks.map((check, i) => ({
+                id: `rescue_check_${i}`,
+                label: check,
+                status: "recommended" as const,
+            })),
+            {
+                id: "allowed_gesture",
+                label: `Consider allowed gesture: ${playbook.allowedGestures[0] || "manager-approved only"}`,
+                detail: playbook.forbidden.length
+                    ? `Forbidden: ${playbook.forbidden.slice(0, 3).join("; ")}`
+                    : undefined,
+                status: "optional",
+            },
+            {
+                id: "hostify_rescue_reply",
+                label: "Hostify-send recovery reply (Accept disabled for now)",
+                detail: playbook.draftSkeleton,
+                status: "blocked",
+            },
+        ];
+        const proposedReply =
+            playbook.draftSkeleton ||
+            `Hi ${guestFirst}, I'm sorry this happened — a teammate is on recovery for your stay and will follow up shortly.`;
+
+        return this.repo.save(
+            this.repo.create({
+                suggestionId: input.suggestion?.id ?? null,
+                source: "hostify",
+                threadId: Number(conv.threadId),
+                messageId:
+                    input.guestMessage?.externalId != null
+                        ? Number(input.guestMessage.externalId)
+                        : null,
+                reservationId: conv.reservationId ? Number(conv.reservationId) : null,
+                listingId: conv.listingId ? Number(conv.listingId) : null,
+                actionType: "rescue",
+                title: `Rescue Copilot — ${playbook.cause} recovery`,
+                evidence: this.withSettingsReference(
+                    [
+                        `Rescue status: ${conv.rescueStatus}`,
+                        `Cause: ${conv.rescueCause || playbook.cause}`,
+                        `Why: ${conv.rescueWhy || "Guest needs proactive recovery"}`,
+                        conv.rescueGesture ? `Suggested gesture: ${conv.rescueGesture}` : null,
+                        `Guest said: "${guestText.slice(0, 200)}"`,
+                    ]
+                        .filter(Boolean)
+                        .join("\n"),
+                    settingsReference
+                ),
+                proposedReply,
+                taskDescription: `Rescue (${playbook.cause}) for ${conv.guestName || "guest"}: ${conv.rescueWhy || playbook.checks[0] || "recover the stay"}.`,
+                payload: JSON.stringify(
+                    this.previewOnlyPayload({
+                        guestQuote: guestText.slice(0, 500),
+                        recommendedSteps,
+                        planSummary: `Rescue playbook (${playbook.cause}): ${playbook.checks.join(" → ")}`,
+                        plannedChannels: { guest: "hostify", rescue: playbook.cause },
+                        handoverKind: "rescue",
+                        rescueCause: playbook.cause,
+                        forbidden: playbook.forbidden,
+                    })
+                ),
+                status: "proposed",
+            })
+        );
     }
 
     /** @deprecated alias — thread open / list actions still call this name. */
@@ -1398,7 +1499,10 @@ export class AIProposedActionService {
             rows = await appDatabase
                 .getRepository(InboxConversationEntity)
                 .createQueryBuilder("c")
-                .where("(c.emergency = 1 OR c.aiNeedsHuman = 1)")
+                .where(
+                    "(c.emergency = 1 OR c.aiNeedsHuman = 1 OR c.rescueStatus IN (:...rescueStatuses))"
+                )
+                .setParameter("rescueStatuses", ["active", "recovering"])
                 .andWhere("c.isArchived = 0")
                 .orderBy("c.lastMessageAt", "DESC")
                 .take(limit)

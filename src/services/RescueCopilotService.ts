@@ -392,6 +392,17 @@ export class RescueCopilotService {
             logger.info(
                 `[RescueCopilot] ACTIVE thread=${threadId} cause=${cause} signals=${signals.join(",")}`
             );
+            if (wasInactive) {
+                import("./AIProposedActionService")
+                    .then(({ AIProposedActionService }) =>
+                        new AIProposedActionService().ensureHandoverPlansForThread(Number(threadId))
+                    )
+                    .catch((err: any) =>
+                        logger.warn(
+                            `[RescueCopilot] handover plan ensure failed thread=${threadId}: ${err?.message}`
+                        )
+                    );
+            }
         } else if (conversation.rescueStatus === "active" && !shouldActivate) {
             conversation.rescueStatus = "watching";
             await this.conversationRepo().save(conversation);
@@ -606,6 +617,18 @@ export class RescueCopilotService {
         if (input.reviewRisk) return "review_risk";
         if (Number.isFinite(input.mood) && input.mood <= 4) return "guest_upset";
         return "general";
+    }
+
+    /** Sync playbook skeleton for inbox AI plan cards (Accept still disabled). */
+    static playbookSkeleton(cause: string | null | undefined): RescuePlaybook {
+        const base = PLAYBOOKS[String(cause || "")] || PLAYBOOKS.general;
+        return {
+            cause: base.cause,
+            checks: base.checks,
+            allowedGestures: base.baseGestures,
+            forbidden: base.forbidden,
+            draftSkeleton: base.draftSkeleton,
+        };
     }
 
     private async buildPlaybook(
