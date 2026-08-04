@@ -584,15 +584,25 @@ export class IssuesService {
     } as SlackMessageEntity;
   }
 
-  private async postIssueUpdateToSlackThread(issueUpdate: IssueUpdates, issue: Issue, userId: string) {
+  private async postIssueUpdateToSlackThread(
+    issueUpdate: IssueUpdates,
+    issue: Issue,
+    userId: string,
+    displayNameOverride?: string
+  ) {
     if (issueUpdate.source !== "securestay") return issueUpdate;
 
     const mainIssueThread = await this.getMainIssueSlackThread(Number(issue.id));
     if (!mainIssueThread) return issueUpdate;
 
     try {
-      const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
-      const user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "Unknown User";
+      let user: string;
+      if (displayNameOverride) {
+        user = displayNameOverride;
+      } else {
+        const userInfo = await this.usersRepo.findOne({ where: { uid: userId } });
+        user = userInfo ? `${userInfo.firstName} ${userInfo.lastName}` : "Unknown User";
+      }
       const listingInfo = await appDatabase.getRepository(Listing).findOne({
         where: {
           id: Number(issue.listing_id),
@@ -2680,6 +2690,71 @@ export class IssuesService {
 
     await this.issueRepo.remove(issue);
     return savedActionItem;
+  }
+
+  /**
+   * Post an AI-generated update onto an existing ticket and mirror it into the
+   * ticket's Slack thread. Used when a message-thread detector finds new info
+   * for a ticket that already exists (dedupe hit) instead of opening a second
+   * ticket for the same fact.
+   *
+   * The row is stamped with source='securestay' + createdBy='AI Assistant' so
+   * it renders like a normal update in the timeline and gets the standard
+   * Slack mirroring. The Slack post is labeled 'AI Assistant' via the override.
+   */
+  async postAIThreadUpdate(
+    issueId: number,
+    updates: string,
+    opts: { attachments?: Array<{ fileName: string; filePath: string; mimeType: string; originalName: string }> } = {}
+  ): Promise<IssueUpdates | null> {
+    const trimmed = String(updates || "").trim();
+    if (!issueId || !trimmed) return null;
+
+    const issue = await this.issueRepo.findOne({ where: { id: Number(issueId) } });
+    if (!issue) {
+      logger.warn(`[AIUpdate] issue #${issueId} not found — skipping AI update`);
+      return null;
+    }
+
+    const newUpdate = this.issueUpdatesRepo.create({
+      issue,
+      updates: trimmed,
+      createdBy: "AI Assistant",
+      source: "securestay",
+    });
+    let result = await this.issueUpdatesRepo.save(newUpdate, { listeners: false });
+
+    if (opts.attachments?.length) {
+      for (const file of opts.attachments) {
+        const fileRecord = this.fileInfoRepo.create({
+          entityType: "issue-updates",
+          entityId: result.id,
+          fileName: file.fileName,
+          localPath: file.filePath,
+          mimetype: file.mimeType,
+          originalName: file.originalName,
+          createdBy: "AI Assistant",
+        });
+        await this.fileInfoRepo.save(fileRecord);
+      }
+    }
+
+    result = await this.postIssueUpdateToSlackThread(result, issue, "AI Assistant", "AI Assistant");
+    return result;
+  }
+
+  /**
+   * Recent updates on a ticket — used by the AI dedupe-on-thread path to skip
+   * posting a near-duplicate of what a rep (or a prior AI update) already said.
+   */
+  async listRecentIssueUpdates(issueId: number, limit = 10): Promise<IssueUpdates[]> {
+    return this.issueUpdatesRepo
+      .createQueryBuilder("u")
+      .where("u.issueId = :id", { id: Number(issueId) })
+      .andWhere("u.deletedAt IS NULL")
+      .orderBy("u.createdAt", "DESC")
+      .take(Math.max(1, Math.min(limit, 50)))
+      .getMany();
   }
 
   async createIssueUpdates(

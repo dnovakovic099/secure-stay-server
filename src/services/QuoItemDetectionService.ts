@@ -16,10 +16,13 @@ import {
 import { IssuesService } from "./IssuesService";
 import {
     applyScheduleCriticalUrgency,
+    backfillAISourceRef,
     downloadUrlsAsIssueFiles,
-    findDuplicateOpenIssue,
+    findDuplicateOpenAIIssue,
     parseMediaUrlList,
+    postDedupeUpdate,
     ticketTextSimilar,
+    withReservationPromotionLock,
 } from "./AITicketCreationHelpers";
 
 const DETECTION_MODEL = process.env.AI_ITEM_DETECTION_MODEL || "gpt-4.1-mini";
@@ -101,6 +104,30 @@ export class QuoItemDetectionService {
     }
 
     async detectForConversation(conversationId: string): Promise<number> {
+        // Cross-worker guard: PM2 cluster workers can each arm burst debounce
+        // timers for the same Quo conversation. Without a shared lock they both
+        // see "no items tracked" mid-flight and duplicate every promotion —
+        // same failure mode the inbox detector saw in July 2026. A named MySQL
+        // lock lets one worker win; the loser exits early.
+        const runner = appDatabase.createQueryRunner();
+        const lockName = `ss_quo_itemdetect_${conversationId}`;
+        try {
+            await runner.connect();
+            const lockRows: any[] = await runner.query("SELECT GET_LOCK(?, 0) AS l", [lockName]);
+            if (!Number(lockRows?.[0]?.l)) {
+                logger.info(
+                    `[QuoDetect] skip conversation ${conversationId} — scan already running elsewhere`
+                );
+                return 0;
+            }
+            return await this.detectForConversationLocked(conversationId);
+        } finally {
+            await runner.query("SELECT RELEASE_LOCK(?)", [lockName]).catch(() => undefined);
+            await runner.release().catch(() => undefined);
+        }
+    }
+
+    private async detectForConversationLocked(conversationId: string): Promise<number> {
         const conv = await this.conversationRepo.findOne({ where: { conversationId } });
         if (!conv) return 0;
 
@@ -124,6 +151,25 @@ export class QuoItemDetectionService {
             take: 20,
         });
 
+        // Open Guest Issues on the linked reservation — mirrors the inbox
+        // detector so re-scans don't re-ticket the same fact under a slightly
+        // different wording. Without this the model has no signal that an ai_quo
+        // ticket already exists for the reservation.
+        const openIssues = conv.reservationId
+            ? await this.issueRepo
+                  .createQueryBuilder("i")
+                  .where("i.reservation_id = :rid", { rid: String(conv.reservationId) })
+                  .andWhere("i.source IN ('ai_inbox', 'ai_quo', 'ai_beta', 'hostbuddy')")
+                  .andWhere("i.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)")
+                  .andWhere(
+                      "(i.status IS NULL OR LOWER(i.status) NOT IN ('completed', 'cancelled', 'canceled'))"
+                  )
+                  .orderBy("i.created_at", "DESC")
+                  .take(20)
+                  .getMany()
+                  .catch(() => [] as Issue[])
+            : [];
+
         const transcript = messages
             .slice()
             .reverse()
@@ -141,7 +187,20 @@ export class QuoItemDetectionService {
             existing.length
                 ? `Already-tracked items (do NOT duplicate):\n${existing.map((e) => `- ${e.item}`).join("\n")}`
                 : "No items tracked yet for this conversation.",
-        ].join("\n");
+            openIssues.length
+                ? `OPEN GUEST ISSUES already on this reservation (do NOT re-ticket the same fact — only emit genuinely NEW problems/requests):\n${openIssues
+                      .map(
+                          (iss) =>
+                              `- #${iss.id} [${iss.status || "open"}]: ${String(iss.issue_description || "")
+                                  .replace(/\s+/g, " ")
+                                  .trim()
+                                  .slice(0, 180)}`
+                      )
+                      .join("\n")}`
+                : "",
+        ]
+            .filter(Boolean)
+            .join("\n");
 
         // Admin-editable prompt + unified category list (falls back to the
         // built-in defaults when the setting is null).
@@ -215,7 +274,14 @@ export class QuoItemDetectionService {
             existing.push(saved);
 
             if (!guestIssuesEnabled) continue;
-            const issueId = await this.maybeCreateGuestIssue(conv, it, text, saved.id, autoCreateByName);
+            const issueId = await this.maybeCreateGuestIssue(
+                conv,
+                it,
+                text,
+                saved.id,
+                autoCreateByName,
+                messages
+            );
             if (issueId) issuesCreated++;
         }
 
@@ -241,7 +307,8 @@ export class QuoItemDetectionService {
         detected: QuoDetectedItem,
         text: string,
         actionItemId: number,
-        autoCreateByName: Map<string, boolean>
+        autoCreateByName: Map<string, boolean>,
+        recentMessages: QuoMessageEntity[] = []
     ): Promise<number | null> {
         if (!conv.reservationId) return null;
 
@@ -250,12 +317,54 @@ export class QuoItemDetectionService {
             return null;
         }
 
+        // Oldest → newest transcript for the paraphrase prompt on dedupe hit.
+        // `recentMessages` from the caller is DESC (see detectForConversationLocked).
+        const transcriptSnippets = [...recentMessages]
+            .reverse()
+            .slice(-15)
+            .map((m) => ({
+                who: (m.direction === "incoming" ? "guest" : "team") as "guest" | "team" | "auto",
+                text: String(m.body || "").replace(/\s+/g, " ").trim(),
+                at: m.sentAt || null,
+            }))
+            .filter((m) => m.text);
+
+        // Serialize dedupe + create per reservation across detectors (inbox +
+        // Quo). Without this a burst on both channels for the same reservation
+        // can both pass the dedupe check and each open a ticket.
+        return withReservationPromotionLock(conv.reservationId, async () => {
         try {
-            const dup = await findDuplicateOpenIssue(conv.reservationId, detected.item || "", text);
+            const dup = await findDuplicateOpenAIIssue({
+                reservationId: conv.reservationId,
+                title: detected.item || "",
+                description: text,
+                category: detected.category || null,
+                quoConversationId: conv.conversationId || null,
+            });
             if (dup) {
                 logger.info(
                     `[QuoDetect] Skipping guest issue for action_items:${actionItemId} — near-duplicate of open issue #${dup.id}`
                 );
+
+                await backfillAISourceRef(dup.id, `action_items:${actionItemId}`);
+
+                const issuesServiceRef = new IssuesService();
+                await postDedupeUpdate(
+                    {
+                        channel: "quo_sms",
+                        existingIssue: dup,
+                        guestLabel: conv.guestName || conv.contactName || null,
+                        transcript: transcriptSnippets,
+                        detectedText: text || detected.item || "",
+                        category: detected.category || null,
+                    },
+                    {
+                        postAIThreadUpdate: (id, msg) => issuesServiceRef.postAIThreadUpdate(id, msg),
+                        listRecentIssueUpdates: (id, limit) =>
+                            issuesServiceRef.listRecentIssueUpdates(id, limit),
+                    }
+                );
+
                 return dup.id;
             }
 
@@ -369,5 +478,6 @@ export class QuoItemDetectionService {
             );
             return null;
         }
+        });
     }
 }

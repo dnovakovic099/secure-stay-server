@@ -17,10 +17,13 @@ import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { Listing } from "../entity/Listing";
 import {
     applyScheduleCriticalUrgency,
+    backfillAISourceRef,
     collectGuestAttachmentUrls,
     downloadUrlsAsIssueFiles,
-    findDuplicateOpenIssue,
+    findDuplicateOpenAIIssue,
+    postDedupeUpdate,
     ticketTextSimilar,
+    withReservationPromotionLock,
 } from "./AITicketCreationHelpers";
 
 // Mini is plenty for "extract tasks from a conversation" and keeps the
@@ -591,10 +594,13 @@ export class InboxItemDetectionService {
         const resolvedCheckIn = (reservation as any)?.arrivalDate || null;
 
         // Guest photos from this thread — attached to each auto-created ticket
-        // so ops can see what the guest sent without hunting the inbox.
+        // so ops can see what the guest sent without hunting the inbox. Fetched
+        // once and reused for the dedupe-hit AI-update transcript so we don't
+        // hit the DB twice per burst.
         let guestFiles: Awaited<ReturnType<typeof downloadUrlsAsIssueFiles>> = [];
+        let threadMessages: InboxMessageEntity[] = [];
         try {
-            const threadMessages = await this.messageRepo.find({
+            threadMessages = await this.messageRepo.find({
                 where: { threadId: Number(conversation.threadId) },
                 order: { sentAt: "DESC", id: "DESC" },
                 take: 40,
@@ -607,6 +613,16 @@ export class InboxItemDetectionService {
         } catch (err: any) {
             logger.warn(`[ItemDetection] guest photo collect failed: ${err?.message}`);
         }
+        // Oldest → newest for the paraphrase prompt (`threadMessages` is DESC).
+        const transcriptSnippets = [...threadMessages]
+            .reverse()
+            .slice(-15)
+            .map((m) => ({
+                who: (m.direction === "incoming" ? "guest" : m.isAutomatic ? "auto" : "team") as "guest" | "team" | "auto",
+                text: (m.body || (m.note ? `[note] ${m.note}` : "")).replace(/\s+/g, " ").trim(),
+                at: m.sentAt || null,
+            }))
+            .filter((m) => m.text);
 
         let promoted = 0;
 
@@ -619,13 +635,21 @@ export class InboxItemDetectionService {
 
             const issueText = [row.title, row.description].filter(Boolean).join(" — ");
 
-            // Reservation-level dedupe: skip if an open ticket already covers this.
+            // Serialize dedupe + create per reservation across detectors. The
+            // outer per-thread MySQL lock only covers inbox scans; without this,
+            // a Quo detection on the same reservation could race with us.
+            await withReservationPromotionLock(conversation.reservationId, async () => {
+            // Reservation-level dedupe: skip if an open AI-created ticket
+            // already covers this. Manual tickets are intentionally NOT
+            // considered — see AI_ISSUE_SOURCES in AITicketCreationHelpers.
             try {
-                const dup = await findDuplicateOpenIssue(
-                    conversation.reservationId,
-                    row.title || "",
-                    row.description || issueText
-                );
+                const dup = await findDuplicateOpenAIIssue({
+                    reservationId: conversation.reservationId,
+                    title: row.title || "",
+                    description: row.description || issueText,
+                    category: row.category || null,
+                    threadId: Number(conversation.threadId) || null,
+                });
                 if (dup) {
                     logger.info(
                         `[ItemDetection] skip detected #${row.id} — duplicate of open issue #${dup.id}`
@@ -633,7 +657,30 @@ export class InboxItemDetectionService {
                     row.status = "created";
                     row.convertedIssueId = dup.id;
                     await this.detectedRepo.save(row);
-                    continue;
+
+                    // Backfill aiSourceRef so future scans of the thread match
+                    // this ticket by ref instead of fuzzy text.
+                    await backfillAISourceRef(dup.id, `ai_detected_items:${row.id}`);
+
+                    // Post an AI-paraphrased update onto the existing ticket
+                    // (mirrored into its Slack thread) so the ops rep sees the
+                    // new guest info instead of us silently swallowing it.
+                    await postDedupeUpdate(
+                        {
+                            channel: "hostify_inbox",
+                            existingIssue: dup,
+                            guestLabel: conversation.guestName || null,
+                            transcript: transcriptSnippets,
+                            detectedText: issueText,
+                            category: row.category || null,
+                        },
+                        {
+                            postAIThreadUpdate: (id, text) => issuesService.postAIThreadUpdate(id, text),
+                            listRecentIssueUpdates: (id, limit) =>
+                                issuesService.listRecentIssueUpdates(id, limit),
+                        }
+                    );
+                    return;
                 }
             } catch (err: any) {
                 logger.warn(`[ItemDetection] duplicate check failed for #${row.id}: ${err?.message}`);
@@ -706,6 +753,7 @@ export class InboxItemDetectionService {
                     `[ItemDetection] auto-create failed for detected #${row.id}: ${err?.message}`
                 );
             }
+            });
         }
 
         return promoted;
