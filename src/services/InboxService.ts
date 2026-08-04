@@ -1621,7 +1621,7 @@ export class InboxService {
     // -------------------------------------------------------------------------
     async listConversations(options: ListOptions = {}) {
         const page = Math.max(options.page ?? 1, 1);
-        const perPage = Math.min(Math.max(options.perPage ?? 30, 1), 100);
+        const perPage = Math.min(Math.max(options.perPage ?? 20, 1), 100);
         const latestRealMessageDirectionSubquery = `(
             SELECT latest_message.direction
             FROM inbox_messages latest_message
@@ -2190,9 +2190,24 @@ export class InboxService {
         return { channels, repliedByUsers };
     }
 
-    async getConversation(threadId: number) {
+    async getConversation(
+        threadId: number,
+        options: {
+            messageLimit?: number;
+            beforeSentAt?: string;
+            beforeId?: number;
+            /** When true (default), refresh from Hostify in the background after returning local data. */
+            sync?: boolean;
+        } = {}
+    ) {
+        const messageLimit = Math.min(Math.max(options.messageLimit ?? 80, 1), 200);
+        const loadingOlder = Boolean(options.beforeSentAt || options.beforeId);
+        const wantSync = options.sync !== false && !loadingOlder;
+
         let conversation = await this.conversationRepo.findOne({ where: { threadId } });
+        let hadLocalConversation = Boolean(conversation);
         if (!conversation) {
+            // Missing locally — must sync before we can return anything.
             try {
                 const synced = await this.syncThread(threadId);
                 if (synced?.conversation) conversation = synced.conversation;
@@ -2200,6 +2215,7 @@ export class InboxService {
                 logger.warn(`[InboxService] missing-thread sync failed for thread ${threadId}: ${err.message}`);
             }
             if (!conversation) return null;
+            hadLocalConversation = false;
         }
         const isAirbnbSupportConversation = this.isAirbnbSupportConversation(conversation, []);
 
@@ -2287,43 +2303,76 @@ export class InboxService {
             }
         }
 
-        // Pull the freshest thread history from Hostify on open — Hostify's
-        // webhooks occasionally miss guest replies (esp. photo-only messages)
-        // and running a targeted sync here is what keeps the thread from
-        // silently falling behind when someone opens it. Best-effort; the
-        // local read below still returns whatever we have on failure.
-        try {
-            const syn = await this.syncThread(threadId);
-            if (syn?.conversation) conversation = syn.conversation;
-        } catch (err: any) {
-            logger.warn(`[InboxService] on-open sync failed for thread ${threadId}: ${err.message}`);
+        // Fast path: return local messages immediately. Hostify sync + legacy
+        // backfill run in the background so opening a thread isn't blocked on
+        // the PMS round-trip (often multi-second). Client silent-refresh picks
+        // up new rows. Still await sync when the thread was missing locally.
+        if (wantSync && hadLocalConversation) {
+            void (async () => {
+                try {
+                    await this.syncThread(threadId);
+                } catch (err: any) {
+                    logger.warn(`[InboxService] background on-open sync failed for thread ${threadId}: ${err.message}`);
+                }
+                try {
+                    await this.clearExtensionPriceIfAlterationAccepted(conversation);
+                } catch (err: any) {
+                    logger.warn(`[InboxService] background extension clear failed for thread ${threadId}: ${err?.message || err}`);
+                }
+                try {
+                    await this.backfillLegacyIncomingMessages(conversation);
+                } catch (err: any) {
+                    logger.warn(
+                        `[InboxService] background legacy incoming backfill failed for thread ${threadId}: ${err.message}`
+                    );
+                }
+            })();
+        } else if (wantSync && !hadLocalConversation) {
+            // Already synced above for missing threads; still clear pins / legacy.
+            try {
+                await this.clearExtensionPriceIfAlterationAccepted(conversation);
+            } catch (err: any) {
+                logger.warn(`[InboxService] extension clear failed for thread ${threadId}: ${err?.message || err}`);
+            }
+            try {
+                await this.backfillLegacyIncomingMessages(conversation);
+            } catch (err: any) {
+                logger.warn(
+                    `[InboxService] legacy incoming backfill failed for thread ${threadId}: ${err.message}`
+                );
+            }
         }
-        // Even if sync was a no-op (messages already local), clear sticky
-        // extension_price pins once an alteration-accepted event is in the thread.
-        await this.clearExtensionPriceIfAlterationAccepted(conversation);
 
-        // The legacy incoming-only webhook store is an independent safety net.
-        // If Hostify's detail API lags and Inbox v2 missed an insert, recover the
-        // actual guest rows before returning the thread.
-        try {
-            await this.backfillLegacyIncomingMessages(conversation);
-        } catch (err: any) {
-            logger.warn(
-                `[InboxService] legacy incoming backfill failed for thread ${threadId}: ${err.message}`
-            );
+        // Newest-first page, then reverse to ASC for the UI timeline.
+        const qb = this.messageRepo
+            .createQueryBuilder("m")
+            .where("m.threadId = :threadId", { threadId })
+            .orderBy("m.sentAt", "DESC")
+            .addOrderBy("m.id", "DESC")
+            .take(messageLimit + 1);
+        if (options.beforeSentAt) {
+            const beforeMs = new Date(options.beforeSentAt).getTime();
+            if (Number.isFinite(beforeMs)) {
+                if (options.beforeId != null) {
+                    qb.andWhere(
+                        "(m.sentAt < :beforeSentAt OR (m.sentAt = :beforeSentAt AND m.id < :beforeId))",
+                        { beforeSentAt: options.beforeSentAt, beforeId: options.beforeId }
+                    );
+                } else {
+                    qb.andWhere("m.sentAt < :beforeSentAt", { beforeSentAt: options.beforeSentAt });
+                }
+            }
         }
+        const newestFirst = await qb.getMany();
+        const hasMoreMessages = newestFirst.length > messageLimit;
+        const messages = newestFirst.slice(0, messageLimit).reverse();
 
-        const messages = await this.messageRepo.find({
-            where: { threadId },
-            order: { sentAt: "ASC", id: "ASC" },
-        });
-
-        // Re-read in case the alteration clear updated emergency fields.
+        // Re-read in case background work already updated emergency fields.
         const fresh = await this.conversationRepo.findOne({ where: { threadId } });
         if (fresh) conversation = fresh;
 
-        // Mark as read locally on open.
-        if (conversation.unread) {
+        // Mark as read locally on open (skip when only paging older history).
+        if (!loadingOlder && conversation.unread) {
             conversation.unread = 0;
             await this.conversationRepo.save(conversation);
         }
@@ -2343,8 +2392,12 @@ export class InboxService {
             }
         }
 
-        const airbnbCase = await this.getAirbnbSupportCaseForReservation(conversation.reservationId);
-        const relatedReservation = await this.getReservationLinkedToAirbnbSupportConversation(conversation, messages);
+        const airbnbCase = loadingOlder
+            ? null
+            : await this.getAirbnbSupportCaseForReservation(conversation.reservationId);
+        const relatedReservation = loadingOlder
+            ? null
+            : await this.getReservationLinkedToAirbnbSupportConversation(conversation, messages);
         const relatedReservationConversation = relatedReservation?.id
             ? await this.conversationRepo.findOne({
                 where: { reservationId: Number(relatedReservation.id) },
@@ -2355,6 +2408,7 @@ export class InboxService {
         return {
             conversation: { ...conversation, parentListingId, aiAutoRespondDisabled },
             messages,
+            hasMoreMessages,
             airbnbCase,
             relatedReservationId: relatedReservation?.id ?? null,
             relatedReservationThreadId: relatedReservationConversation?.threadId ?? null,

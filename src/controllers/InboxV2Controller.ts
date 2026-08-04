@@ -34,23 +34,25 @@ export class InboxV2Controller {
         try {
             const page = parseInt(request.query.page as string) || 1;
             const now = Date.now();
-            // Always attempt on first page (inbox open/refresh); throttle deeper pages.
+            // Never block the list on pin cleanup — run it in the background.
             if (page === 1 || now - lastStalePaymentPinClearAt >= STALE_PAYMENT_PIN_CLEAR_MS) {
                 lastStalePaymentPinClearAt = now;
-                try {
-                    const { cleared } = await new OverduePaymentService().clearStalePaymentPins();
-                    if (cleared > 0) {
-                        logger.info(`[InboxV2] Cleared ${cleared} stale payment pin(s) before listing`);
-                    }
-                } catch (err: any) {
-                    logger.warn(`[InboxV2] stale payment pin clear failed: ${err?.message || err}`);
-                }
+                void new OverduePaymentService()
+                    .clearStalePaymentPins()
+                    .then(({ cleared }) => {
+                        if (cleared > 0) {
+                            logger.info(`[InboxV2] Cleared ${cleared} stale payment pin(s) in background`);
+                        }
+                    })
+                    .catch((err: any) => {
+                        logger.warn(`[InboxV2] stale payment pin clear failed: ${err?.message || err}`);
+                    });
             }
 
             const inboxService = new InboxService();
             const result = await inboxService.listConversations({
                 page,
-                perPage: parseInt(request.query.per_page as string) || 30,
+                perPage: parseInt(request.query.per_page as string) || 20,
                 keyword: (request.query.keyword as string) || undefined,
                 channel: (request.query.channel as string) || undefined,
                 unreadOnly: request.query.unreadOnly === "true",
@@ -89,8 +91,23 @@ export class InboxV2Controller {
             if (!Number.isFinite(threadId)) {
                 return response.status(400).json({ status: false, message: "Invalid threadId" });
             }
+            const messageLimitRaw = parseInt(request.query.messageLimit as string, 10);
+            const messageLimit = Number.isFinite(messageLimitRaw)
+                ? Math.min(Math.max(messageLimitRaw, 1), 200)
+                : 80;
+            const beforeSentAt = (request.query.beforeSentAt as string) || undefined;
+            const beforeIdRaw = parseInt(request.query.beforeId as string, 10);
+            const beforeId = Number.isFinite(beforeIdRaw) ? beforeIdRaw : undefined;
+            // sync=1 (default): refresh from Hostify in the background after local read.
+            // sync=0: skip Hostify (used for "load older" pages).
+            const sync = String(request.query.sync ?? "1") !== "0";
             const inboxService = new InboxService();
-            const result = await inboxService.getConversation(threadId);
+            const result = await inboxService.getConversation(threadId, {
+                messageLimit,
+                beforeSentAt,
+                beforeId,
+                sync,
+            });
             if (!result) {
                 return response.status(404).json({ status: false, message: "Conversation not found" });
             }
