@@ -146,8 +146,20 @@ export function deriveSource(url: string): string {
 }
 
 export function deriveEventType(body: any): string | null {
-    if (!body || typeof body !== "object") return null;
-    const candidate = (body as any).event ?? (body as any).type ?? (body as any).event_type ?? (body as any).eventType;
+    if (!body) return null;
+    // Text-parsed bodies (e.g. Hostify SNS) arrive as JSON strings — parse
+    // shallowly so event_type/action still surface in the log.
+    let obj: any = body;
+    if (typeof body === "string") {
+        try {
+            obj = JSON.parse(body);
+        } catch {
+            return null;
+        }
+    }
+    if (!obj || typeof obj !== "object") return null;
+    const candidate =
+        obj.event ?? obj.type ?? obj.event_type ?? obj.eventType ?? obj.action;
     if (typeof candidate === "string") return candidate.slice(0, 128);
     return null;
 }

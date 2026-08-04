@@ -19,6 +19,8 @@ import {
 const SKIP_URL_SUBSTRINGS = [
     "/webhook/webhook-logs",
     "/webhook/slack-events-webhook",
+    "/webhook/slack-interactivity-webhook",
+    "/webhook/zapier",
 ];
 
 export function webhookLoggerMiddleware(req: Request, res: Response, next: NextFunction) {
