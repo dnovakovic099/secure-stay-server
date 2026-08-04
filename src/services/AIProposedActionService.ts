@@ -149,10 +149,28 @@ export class AIProposedActionService {
                 const a = await this.proposeExtension(input, text, reference);
                 if (a) created.push(a);
             }
-            // Access-code resend still needs a suggestion context for one-click send today.
-            if (LOCKOUT_RE.test(text) && !hasOpen("resend_access_code") && input.suggestion) {
-                const a = await this.proposeAccessCodeResend(input, text, reference);
-                if (a) created.push(a);
+            // Lockout / access — prefer live code resend; else access walkthrough plan.
+            if (LOCKOUT_RE.test(text) && !hasOpen("resend_access_code") && !hasOpen("access")) {
+                const codePlan = await this.proposeAccessCodeResend(input, text, reference);
+                if (codePlan) created.push(codePlan);
+                else {
+                    const accessPlan = await this.proposeHandoverPlan(input, "access", text, reference);
+                    if (accessPlan) created.push(accessPlan);
+                }
+            }
+
+            // Safety emergencies (rare; also created from urgent pin ensure).
+            try {
+                const { InboxUrgentPinService } = await import("./InboxUrgentPinService");
+                if (
+                    InboxUrgentPinService.detectsSafety(text) &&
+                    !hasOpen("safety")
+                ) {
+                    const a = await this.proposeHandoverPlan(input, "safety", text, reference);
+                    if (a) created.push(a);
+                }
+            } catch {
+                /* pin service optional for detect */
             }
         } catch (err: any) {
             logger.warn(`[AIProposedAction] detection failed (thread ${input.conversation.threadId}): ${err.message}`);
@@ -744,131 +762,573 @@ export class AIProposedActionService {
     // Read / execute / dismiss
     // ------------------------------------------------------------------
 
+    private pinToActionType(pin: string): string | null {
+        const p = String(pin || "").toLowerCase();
+        if (p === "early_checkin") return "early_check_in";
+        if (p === "early_checkout") return "early_checkout";
+        if (p === "late_checkout") return "late_checkout";
+        if (p === "extension_price") return "extension";
+        if (p === "payment") return "payment";
+        if (p === "safety") return "safety";
+        if (p === "access") return "access";
+        return null;
+    }
+
+    private async latestGuestText(
+        threadId: number,
+        fallback?: string | null
+    ): Promise<{ text: string; message: InboxMessageEntity | null }> {
+        const messages = await appDatabase.getRepository(InboxMessageEntity).find({
+            where: { threadId: Number(threadId), direction: "incoming" as any },
+            order: { createdAt: "DESC" },
+            take: 12,
+        });
+        const hit = messages[0] || null;
+        const text = String(hit?.body || fallback || "").trim();
+        return { text, message: hit };
+    }
+
+    private previewOnlyPayload(extra: Record<string, any>): Record<string, any> {
+        return {
+            ...extra,
+            executionEnabled: false,
+            disableReason: "Bot Accept is disabled for now — view the AI plan only",
+        };
+    }
+
     /**
-     * Backfill handover recommendations when staff open a thread that already
-     * has an urgent pin but no (or stale) proposed-action card.
-     * Safe / idempotent — never throws to callers.
+     * Deterministic IR-style plans for payment / safety / access / AI-needs-team.
      */
-    async ensureScheduleRecommendationsForThread(threadId: number): Promise<void> {
+    private async proposeHandoverPlan(
+        input: ProposedActionInput,
+        actionType:
+            | "payment"
+            | "safety"
+            | "access"
+            | "escalation"
+            | "frustration"
+            | "early_checkout",
+        guestText: string,
+        settingsReference: string | null
+    ): Promise<AIProposedActionEntity | null> {
+        const conv = input.conversation;
+        const guestFirst = (conv.guestName || "").split(" ")[0] || "there";
+        const listing = conv.listingName || (conv.listingId ? `listing ${conv.listingId}` : "the property");
+
+        let title = "";
+        let proposedReply: string | null = null;
+        let taskDescription: string | null = null;
+        let recommendedSteps: RecommendedActionStep[] = [];
+        let planSummary = "";
+        let plannedChannels: Record<string, string | null> = { guest: "hostify" };
+        let evidenceParts: string[] = [];
+
+        if (actionType === "early_checkout") {
+            title = "Early checkout — confirm departure + update cleaning";
+            proposedReply = `Hi ${guestFirst}, thanks for letting us know — we can note an early checkout. A teammate will confirm any schedule updates shortly.`;
+            taskDescription = `Early checkout for ${conv.guestName || "guest"} at ${listing}: confirm departure time, update cleaner/turnover if needed, Hostify-confirm.`;
+            recommendedSteps = [
+                {
+                    id: "confirm_time",
+                    label: "Confirm the guest’s intended early departure date/time",
+                    status: "recommended",
+                },
+                {
+                    id: "update_cleaner",
+                    label: "Update cleaner / turnover schedule if the unit frees up early",
+                    detail: "Quo-text cleaner only when Accept is enabled; for now staff notifies ops.",
+                    status: "recommended",
+                },
+                {
+                    id: "no_refund_assume",
+                    label: "Do not promise refunds for unused nights unless finance approves",
+                    status: "recommended",
+                },
+                {
+                    id: "hostify_confirm",
+                    label: "Hostify-confirm the early departure plan to the guest",
+                    status: "blocked",
+                },
+            ];
+            planSummary =
+                "1) Confirm early departure time. 2) Update cleaner/turnover. 3) No unapproved refunds. 4) Hostify confirm.";
+            evidenceParts = [
+                `Urgent early-checkout pin: ${conv.emergencyReason || "early checkout"}`,
+                `Guest said: "${guestText.slice(0, 200)}"`,
+            ];
+            plannedChannels = { guest: "hostify", turnover: "quo" };
+        } else if (actionType === "payment") {
+            title = "Payment overdue — collect balance / confirm paid";
+            proposedReply = `Hi ${guestFirst}, it looks like there may still be a balance due for your stay. Could you confirm payment when you have a moment? If you've already paid, reply here and we'll double-check on our side.`;
+            taskDescription = `Verify amount due for ${conv.guestName || "guest"} (${listing}) and send payment instructions or clear the pin if already paid.`;
+            recommendedSteps = [
+                {
+                    id: "verify_balance",
+                    label: "Verify live amount due on the reservation (Hostify / payout fields)",
+                    detail: "Do not invent a balance — confirm from reservation financials before asking the guest.",
+                    status: "recommended",
+                },
+                {
+                    id: "check_already_paid",
+                    label: "Check whether payment already posted (platform or offline)",
+                    detail: "If paid, clear the urgent pin and thank the guest — do not keep chasing.",
+                    status: "recommended",
+                },
+                {
+                    id: "hold_or_instruct",
+                    label: "Hostify-reply with accurate balance / payment path (no fake links)",
+                    detail: "Use known Airbnb/platform pay path or finance-approved instructions only.",
+                    status: "recommended",
+                },
+                {
+                    id: "clear_pin",
+                    label: "After paid — clear Urgent payment pin and confirm with guest",
+                    status: "blocked",
+                },
+            ];
+            planSummary =
+                "1) Verify real balance. 2) Check already paid. 3) Hostify-ask/instruct accurately. 4) Clear pin when settled.";
+            evidenceParts = [
+                `Urgent payment pin: ${conv.emergencyReason || "balance due"}`,
+                `Guest said: "${guestText.slice(0, 200)}"`,
+            ];
+            plannedChannels = { guest: "hostify", finance: "human" };
+        } else if (actionType === "safety") {
+            title = "Safety emergency — human priority response";
+            proposedReply = `Hi ${guestFirst}, thank you for telling us — your safety comes first. A teammate is on this now and will follow up immediately. If anyone is in danger, please call local emergency services (911) right away.`;
+            taskDescription = `SAFETY: Respond immediately for ${conv.guestName || "guest"} at ${listing}. Assess risk, dispatch on-call/vendor if needed, do not leave on AI auto-send.`;
+            recommendedSteps = [
+                {
+                    id: "human_first",
+                    label: "Human takes the thread immediately (AI auto-send stays paused)",
+                    detail: "Do not send casual/celebration drafts. Safety pins block autosend for a reason.",
+                    status: "recommended",
+                },
+                {
+                    id: "life_safety",
+                    label: "If life/fire/gas risk — tell guest to call 911 / leave if unsafe",
+                    status: "recommended",
+                },
+                {
+                    id: "dispatch",
+                    label: "Dispatch on-call / appropriate vendor (lock, plumber, electrician, etc.)",
+                    detail: "Use listing contacts / IR vendor memory — do not invent phone numbers.",
+                    status: "recommended",
+                },
+                {
+                    id: "guest_update",
+                    label: "Hostify-update guest with real next step (no false “already on it”)",
+                    status: "blocked",
+                },
+                {
+                    id: "close_pin",
+                    label: "Resolve Guest Issue + clear Urgent pin when safe",
+                    status: "blocked",
+                },
+            ];
+            planSummary =
+                "1) Human owns thread. 2) Life-safety guidance if needed. 3) Dispatch real help. 4) Honest Hostify update. 5) Clear pin when safe.";
+            evidenceParts = [
+                `Urgent safety pin: ${conv.emergencyReason || "safety"}`,
+                `Guest said: "${guestText.slice(0, 200)}"`,
+            ];
+            plannedChannels = { guest: "hostify", ops: "human", vendor: "quo_or_phone" };
+        } else if (actionType === "access") {
+            title = "Access / lockout — get guest inside";
+            proposedReply = `Hi ${guestFirst}, sorry you're having trouble getting in — I'm checking the access details for ${listing} and will help you get inside as quickly as possible.`;
+            taskDescription = `Access issue for ${conv.guestName || "guest"} at ${listing}: walk entry steps from listing KB, resend code if programmed, escalate lock vendor only if still locked out.`;
+            recommendedSteps = [
+                {
+                    id: "kb_steps",
+                    label: "Walk guest through listing door-code / entry SOP (Verified Facts + KB)",
+                    detail: "Never invent codes. Prefer verified access facts and prior TEAM messages.",
+                    status: "recommended",
+                },
+                {
+                    id: "live_code",
+                    label: "If a live smart-lock code exists — Hostify-resend it",
+                    detail: "Only send a code that is programmed on the lock for this reservation.",
+                    status: "recommended",
+                },
+                {
+                    id: "escalate_lock",
+                    label: "If still locked out — contact lock vendor / on-call (not random cleaner)",
+                    status: "recommended",
+                },
+                {
+                    id: "hold_honest",
+                    label: "Hostify hold: honest “checking access details” — no false ops claims",
+                    status: "recommended",
+                },
+                {
+                    id: "confirm_in",
+                    label: "When guest confirms entry — clear Urgent access pin",
+                    status: "blocked",
+                },
+            ];
+            planSummary =
+                "1) Listing entry SOP. 2) Resend live code only if programmed. 3) Escalate lock help if needed. 4) Honest Hostify hold. 5) Clear pin when inside.";
+            evidenceParts = [
+                `Urgent access pin: ${conv.emergencyReason || "access"}`,
+                `Guest said: "${guestText.slice(0, 200)}"`,
+            ];
+            plannedChannels = { guest: "hostify", vendor: "quo_or_phone" };
+        } else if (actionType === "frustration") {
+            title = "Guest frustrated — human tone takeover";
+            proposedReply = `Hi ${guestFirst}, I'm sorry this has been frustrating — a teammate is reviewing everything now and will make sure we take care of you.`;
+            taskDescription = `Frustrated guest ${conv.guestName || ""} on ${listing}: human owns tone, resolve root issue, follow up.`;
+            recommendedSteps = [
+                {
+                    id: "empathy",
+                    label: "Human-owned empathetic Hostify reply (no defensive AI tone)",
+                    status: "recommended",
+                },
+                {
+                    id: "root_cause",
+                    label: "Identify and resolve the underlying ask / issue",
+                    detail: String(conv.aiNeedsHumanReason || "See AI Needs Team reason").slice(0, 300),
+                    status: "recommended",
+                },
+                {
+                    id: "gesture_if_needed",
+                    label: "Consider rescue gesture only if policy allows (do not invent comps)",
+                    status: "optional",
+                },
+                {
+                    id: "clear_pin",
+                    label: "Clear AI Needs Team pin after guest is cared for",
+                    status: "blocked",
+                },
+            ];
+            planSummary =
+                "1) Empathetic human reply. 2) Fix root cause. 3) Optional approved gesture. 4) Clear Needs Team pin.";
+            evidenceParts = [
+                `AI Needs Team (frustration): ${conv.aiNeedsHumanReason || "guest frustrated"}`,
+                `Guest said: "${guestText.slice(0, 200)}"`,
+            ];
+        } else {
+            // escalation — generic missing-fact / AI deferred
+            title = "AI handed off — teammate must resolve";
+            proposedReply = `Hi ${guestFirst}, thanks for your patience — I'm looping in a teammate to confirm the exact details and we'll follow up shortly.`;
+            taskDescription = `AI escalation for ${conv.guestName || "guest"} (${listing}): ${conv.aiNeedsHumanReason || "confirm missing fact / decision"}.`;
+            recommendedSteps = [
+                {
+                    id: "read_reason",
+                    label: "Read why AI escalated (missing fact, policy, pricing, etc.)",
+                    detail: String(conv.aiNeedsHumanReason || guestText || "").slice(0, 400) || undefined,
+                    status: "recommended",
+                },
+                {
+                    id: "check_sources",
+                    label: "Check Verified Facts → listing KB → Upsells → TEAM thread messages",
+                    detail: "Do not guess. If still unknown, ask the right internal owner.",
+                    status: "recommended",
+                },
+                {
+                    id: "decide",
+                    label: "Human decides the answer / next ops step",
+                    status: "recommended",
+                },
+                {
+                    id: "reply_guest",
+                    label: "Hostify-reply with the verified answer",
+                    status: "blocked",
+                },
+                {
+                    id: "teach_bot",
+                    label: "If this is a durable fact — verify into Verified Facts / teach the bot",
+                    status: "optional",
+                },
+            ];
+            planSummary =
+                "1) Read escalation reason. 2) Check Facts/KB/Upsells/TEAM. 3) Human decides. 4) Hostify reply. 5) Optionally teach bot.";
+            evidenceParts = [
+                `AI Needs Team (escalation): ${conv.aiNeedsHumanReason || "AI deferred"}`,
+                `Guest said: "${guestText.slice(0, 200)}"`,
+            ];
+        }
+
+        return this.repo.save(
+            this.repo.create({
+                suggestionId: input.suggestion?.id ?? null,
+                source: "hostify",
+                threadId: Number(conv.threadId),
+                messageId:
+                    input.guestMessage?.externalId != null
+                        ? Number(input.guestMessage.externalId)
+                        : null,
+                reservationId: conv.reservationId ? Number(conv.reservationId) : null,
+                listingId: conv.listingId ? Number(conv.listingId) : null,
+                actionType,
+                title,
+                evidence: this.withSettingsReference(evidenceParts.join("\n"), settingsReference),
+                proposedReply,
+                taskDescription,
+                payload: JSON.stringify(
+                    this.previewOnlyPayload({
+                        guestQuote: guestText.slice(0, 500),
+                        recommendedSteps,
+                        planSummary,
+                        plannedChannels,
+                        handoverKind: actionType,
+                    })
+                ),
+                status: "proposed",
+            })
+        );
+    }
+
+    /**
+     * Ensure an open AI plan exists for this thread's urgent pin and/or AI Needs Team
+     * flag. Idempotent. Used on thread open, pin raise, and backfill.
+     */
+    async ensureHandoverPlansForThread(threadId: number): Promise<AIProposedActionEntity[]> {
+        const created: AIProposedActionEntity[] = [];
         try {
             const conv = await appDatabase
                 .getRepository(InboxConversationEntity)
                 .findOne({ where: { threadId: Number(threadId) } });
-            if (!conv?.emergency || !conv.emergencyType) return;
+            if (!conv) return created;
 
-            const pin = String(conv.emergencyType);
-            const actionType =
-                pin === "early_checkin" || pin === "early_checkout"
-                    ? "early_check_in"
-                    : pin === "late_checkout"
-                      ? "late_checkout"
-                      : pin === "extension_price"
-                        ? "extension"
-                        : null;
-            if (!actionType) return;
+            const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
+            if (settings && settings.proposedActionsEnabled === 0) return created;
+            const reference = this.settingsReference(settings);
 
             const open = await this.repo.find({
                 where: {
                     threadId: Number(threadId),
                     status: In(["proposed", "awaiting_ops", "needs_human"]),
-                    actionType,
                 },
             });
+            const hasOpen = (type: string) => open.some((a) => a.actionType === type);
 
-            // Refresh steps / execution readiness on older or stale proposals.
-            for (const action of open) {
-                if (action.status !== "proposed") continue;
-                let payload: any = null;
-                try {
-                    payload = action.payload ? JSON.parse(action.payload) : null;
-                } catch {
-                    payload = null;
+            const { text, message } = await this.latestGuestText(
+                threadId,
+                conv.emergencyReason || conv.aiNeedsHumanReason
+            );
+            const input: ProposedActionInput = {
+                conversation: conv,
+                guestMessage: message,
+                suggestion: null,
+            };
+
+            // --- Urgent pin plans ---
+            if (Number(conv.emergency) === 1 && conv.emergencyType) {
+                const actionType = this.pinToActionType(String(conv.emergencyType));
+                if (actionType && !hasOpen(actionType)) {
+                    // Prefer specialized detectors for schedule / extension / code.
+                    if (
+                        actionType === "early_check_in" ||
+                        actionType === "late_checkout" ||
+                        actionType === "extension"
+                    ) {
+                        const detected = await this.detectForConversation(conv, message, text);
+                        created.push(...detected);
+                    } else if (actionType === "early_checkout") {
+                        const a = await this.proposeHandoverPlan(
+                            input,
+                            "early_checkout",
+                            text || "early checkout",
+                            reference
+                        );
+                        if (a) created.push(a);
+                    } else if (actionType === "access") {
+                        const codePlan = await this.proposeAccessCodeResend(input, text || "access", reference);
+                        if (codePlan) created.push(codePlan);
+                        else {
+                            const a = await this.proposeHandoverPlan(
+                                input,
+                                "access",
+                                text || "access issue",
+                                reference
+                            );
+                            if (a) created.push(a);
+                        }
+                    } else if (
+                        actionType === "payment" ||
+                        actionType === "safety"
+                    ) {
+                        const a = await this.proposeHandoverPlan(
+                            input,
+                            actionType,
+                            text || String(conv.emergencyReason || actionType),
+                            reference
+                        );
+                        if (a) created.push(a);
+                    }
+                } else if (actionType && hasOpen(actionType)) {
+                    // Refresh stale payloads missing steps / disableReason.
+                    const existing = open.find((a) => a.actionType === actionType);
+                    if (existing && existing.status === "proposed") {
+                        let payload: any = {};
+                        try {
+                            payload = existing.payload ? JSON.parse(existing.payload) : {};
+                        } catch {
+                            payload = {};
+                        }
+                        if (!Array.isArray(payload.recommendedSteps) || !payload.recommendedSteps.length) {
+                            // Force recreate steps via specialized path when possible.
+                            if (actionType === "early_check_in" || actionType === "late_checkout") {
+                                const verifiedFact = await this.getVerifiedScheduleFact(
+                                    conv.listingId,
+                                    actionType
+                                );
+                                const steps = this.buildScheduleRecommendedSteps({
+                                    type: actionType,
+                                    verifiedFact,
+                                    feeBit:
+                                        payload?.upsellFee != null
+                                            ? `$${Number(payload.upsellFee).toFixed(2)}`
+                                            : null,
+                                    nightOpen:
+                                        typeof payload?.nightOpen === "boolean" ? payload.nightOpen : null,
+                                    autoRespond: payload?.upsellAutoRespond || null,
+                                });
+                                existing.payload = JSON.stringify(
+                                    await this.withExecutionReadiness(
+                                        conv.listingId,
+                                        { ...payload, verifiedFact },
+                                        steps
+                                    )
+                                );
+                                await this.repo.save(existing);
+                            }
+                        } else if (payload.executionEnabled === true || !payload.disableReason) {
+                            existing.payload = JSON.stringify(
+                                this.previewOnlyPayload({
+                                    ...payload,
+                                    executionEnabled: false,
+                                })
+                            );
+                            await this.repo.save(existing);
+                        }
+                    }
                 }
-                const hasSteps =
-                    Array.isArray(payload?.recommendedSteps) && payload.recommendedSteps.length;
-                const needsEnrich =
-                    !hasSteps ||
-                    payload?.executionEnabled == null ||
-                    (payload?.executionEnabled !== true && !payload?.disableReason);
-
-                if (!needsEnrich) continue;
-
-                if (actionType === "extension") {
-                    const recommendedSteps = hasSteps
-                        ? payload.recommendedSteps
-                        : this.buildExtensionRecommendedSteps({
-                              nightOpen:
-                                  typeof payload?.nightOpen === "boolean" ? payload.nightOpen : null,
-                              nightDate: payload?.nightDate || null,
-                          });
-                    action.payload = JSON.stringify({
-                        ...(payload || {}),
-                        recommendedSteps,
-                        executionEnabled: false,
-                        disableReason: "Bot Accept is disabled for now — view the AI plan only",
-                        plannedChannels: { guest: "hostify", pricing: "human" },
-                    });
-                    await this.repo.save(action);
-                    continue;
-                }
-
-                const verifiedFact =
-                    payload?.verifiedFact ||
-                    (await this.getVerifiedScheduleFact(
-                        conv.listingId,
-                        actionType as "early_check_in" | "late_checkout"
-                    ));
-                const recommendedSteps = hasSteps
-                    ? payload.recommendedSteps
-                    : this.buildScheduleRecommendedSteps({
-                          type: actionType as "early_check_in" | "late_checkout",
-                          verifiedFact,
-                          feeBit:
-                              payload?.upsellFee != null
-                                  ? `$${Number(payload.upsellFee).toFixed(2)}`
-                                  : null,
-                          nightOpen: typeof payload?.nightOpen === "boolean" ? payload.nightOpen : null,
-                          autoRespond: payload?.upsellAutoRespond || null,
-                      });
-                action.payload = JSON.stringify(
-                    await this.withExecutionReadiness(
-                        conv.listingId,
-                        { ...(payload || {}), verifiedFact },
-                        recommendedSteps
-                    )
-                );
-                if (verifiedFact && action.evidence && !/Verified Facts/i.test(action.evidence)) {
-                    action.evidence = `Verified Facts (${actionType === "early_check_in" ? "early check-in" : "late check-out"}): ${verifiedFact}\n${action.evidence}`;
-                }
-                await this.repo.save(action);
             }
 
-            if (open.length) return;
-
-            // No open card yet — detect from the latest matching guest message.
-            const messages = await appDatabase.getRepository(InboxMessageEntity).find({
-                where: { threadId: Number(threadId), direction: "incoming" as any },
-                order: { createdAt: "DESC" },
-                take: 12,
-            });
-            const re =
-                actionType === "early_check_in"
-                    ? EARLY_CHECKIN_RE
-                    : actionType === "extension"
-                      ? EXTENSION_RE
-                      : LATE_CHECKOUT_RE;
-            const hit =
-                messages.find((m) => re.test(String(m.body || ""))) ||
-                messages[0] ||
-                null;
-            const text = String(hit?.body || conv.emergencyReason || "").trim();
-            if (!text) return;
-            await this.detectForConversation(conv, hit, text);
+            // --- AI Needs Team plans ---
+            if (Number(conv.aiNeedsHuman) === 1) {
+                const kind =
+                    conv.aiNeedsHumanKind === "frustration" ? "frustration" : "escalation";
+                const openNow = await this.repo.find({
+                    where: {
+                        threadId: Number(threadId),
+                        status: In(["proposed", "awaiting_ops", "needs_human"]),
+                    },
+                });
+                const has = (type: string) => openNow.some((a) => a.actionType === type);
+                if (!has(kind) && !has("escalation") && !has("frustration")) {
+                    const reason = String(conv.aiNeedsHumanReason || text || "");
+                    const coveredBySpecialty =
+                        (EXTENSION_RE.test(reason) && has("extension")) ||
+                        (EARLY_CHECKIN_RE.test(reason) && has("early_check_in")) ||
+                        (LATE_CHECKOUT_RE.test(reason) && has("late_checkout")) ||
+                        (LOCKOUT_RE.test(reason) && (has("access") || has("resend_access_code"))) ||
+                        (/payment|balance|amount due|unpaid/i.test(reason) && has("payment")) ||
+                        (/safety|fire|flood|911/i.test(reason) && has("safety"));
+                    if (!coveredBySpecialty) {
+                        const a = await this.proposeHandoverPlan(
+                            input,
+                            kind,
+                            text || reason || kind,
+                            reference
+                        );
+                        if (a) created.push(a);
+                    }
+                }
+            }
         } catch (err: any) {
             logger.warn(
-                `[AIProposedAction] ensureScheduleRecommendations failed thread=${threadId}: ${err?.message}`
+                `[AIProposedAction] ensureHandoverPlans failed thread=${threadId}: ${err?.message}`
             );
         }
+        return created;
+    }
+
+    /** @deprecated alias — thread open / list actions still call this name. */
+    async ensureScheduleRecommendationsForThread(threadId: number): Promise<void> {
+        await this.ensureHandoverPlansForThread(threadId);
+    }
+
+    /**
+     * Backfill open urgent + AI Needs Team threads. Returns counts for scripts.
+     */
+    async backfillHandoverPlans(opts: {
+        limit?: number;
+        threadIds?: number[];
+        dryRun?: boolean;
+    } = {}): Promise<{
+        scanned: number;
+        created: number;
+        samples: Array<{ threadId: number; actionType: string; title: string }>;
+    }> {
+        const limit = Math.min(Math.max(opts.limit || 200, 1), 2000);
+        let rows: InboxConversationEntity[] = [];
+        if (opts.threadIds?.length) {
+            rows = await appDatabase.getRepository(InboxConversationEntity).find({
+                where: { threadId: In(opts.threadIds.map(Number)) as any },
+            });
+        } else {
+            rows = await appDatabase
+                .getRepository(InboxConversationEntity)
+                .createQueryBuilder("c")
+                .where("(c.emergency = 1 OR c.aiNeedsHuman = 1)")
+                .andWhere("c.isArchived = 0")
+                .orderBy("c.lastMessageAt", "DESC")
+                .take(limit)
+                .getMany();
+        }
+
+        let created = 0;
+        const samples: Array<{ threadId: number; actionType: string; title: string }> = [];
+        for (const conv of rows) {
+            if (opts.dryRun) {
+                const open = await this.repo.count({
+                    where: {
+                        threadId: Number(conv.threadId),
+                        status: In(["proposed", "awaiting_ops", "needs_human"]),
+                    },
+                });
+                samples.push({
+                    threadId: Number(conv.threadId),
+                    actionType: String(conv.emergencyType || conv.aiNeedsHumanKind || "none"),
+                    title: open
+                        ? `dry-run: already has ${open} open plan(s)`
+                        : `dry-run: would create plan (pin=${conv.emergencyType || "-"} needs=${conv.aiNeedsHumanKind || "-"})`,
+                });
+                continue;
+            }
+            const before = await this.repo.count({
+                where: {
+                    threadId: Number(conv.threadId),
+                    status: In(["proposed", "awaiting_ops", "needs_human"]),
+                },
+            });
+            const made = await this.ensureHandoverPlansForThread(Number(conv.threadId));
+            const after = await this.repo.count({
+                where: {
+                    threadId: Number(conv.threadId),
+                    status: In(["proposed", "awaiting_ops", "needs_human"]),
+                },
+            });
+            const n = Math.max(made.length, after - before);
+            created += n;
+            for (const a of made.slice(0, 2)) {
+                samples.push({
+                    threadId: Number(conv.threadId),
+                    actionType: a.actionType,
+                    title: a.title,
+                });
+            }
+            if (!made.length && after > before) {
+                samples.push({
+                    threadId: Number(conv.threadId),
+                    actionType: String(conv.emergencyType || conv.aiNeedsHumanKind || "?"),
+                    title: `ensured (+${after - before})`,
+                });
+            }
+        }
+        return { scanned: rows.length, created, samples: samples.slice(0, 40) };
     }
 
     async listForThread(threadId: number, opts: { includeResolved?: boolean } = {}) {

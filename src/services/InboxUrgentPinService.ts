@@ -233,25 +233,16 @@ export class InboxUrgentPinService {
                 logger.info(
                     `[InboxUrgentPin] Raised ${hit.type} on thread ${conversation.threadId}`
                 );
-                // Schedule asks should still get Recommended Actions even when the
-                // reply AI is paused / no draft is generated for this message.
-                if (
-                    hit.type === "early_checkin" ||
-                    hit.type === "early_checkout" ||
-                    hit.type === "late_checkout"
-                ) {
-                    try {
-                        const { AIProposedActionService } = await import("./AIProposedActionService");
-                        await new AIProposedActionService().detectForConversation(
-                            conversation,
-                            null,
-                            guestText
-                        );
-                    } catch (err: any) {
-                        logger.warn(
-                            `[InboxUrgentPin] proposed-action detect failed thread=${conversation.threadId}: ${err?.message}`
-                        );
-                    }
+                // Every urgent handoff gets an AI plan card (Accept still disabled).
+                try {
+                    const { AIProposedActionService } = await import("./AIProposedActionService");
+                    await new AIProposedActionService().ensureHandoverPlansForThread(
+                        Number(conversation.threadId)
+                    );
+                } catch (err: any) {
+                    logger.warn(
+                        `[InboxUrgentPin] handover plan ensure failed thread=${conversation.threadId}: ${err?.message}`
+                    );
                 }
             }
             return { raised, type: hit.type };

@@ -3515,6 +3515,16 @@ export class InboxAIService {
         logger.info(
             `[InboxAIService] AI Needs Team pin raised thread=${conversation.threadId} kind=${kind}`
         );
+        try {
+            const { AIProposedActionService } = await import("./AIProposedActionService");
+            await new AIProposedActionService().ensureHandoverPlansForThread(
+                Number(conversation.threadId)
+            );
+        } catch (err: any) {
+            logger.warn(
+                `[InboxAIService] handover plan ensure failed thread=${conversation.threadId}: ${err?.message}`
+            );
+        }
     }
 
     async clearAiNeedsHuman(threadId: number): Promise<boolean> {

@@ -938,6 +938,20 @@ export class OverduePaymentService {
                 logger.error(`[OverduePayment] emergency email failed for thread ${conversation.threadId}: ${e.message}`)
             );
         }
+        if (!wasSame) {
+            // Best-effort AI plan for every new urgent pin (payment included).
+            import("./AIProposedActionService")
+                .then(({ AIProposedActionService }) =>
+                    new AIProposedActionService().ensureHandoverPlansForThread(
+                        Number(conversation.threadId)
+                    )
+                )
+                .catch((e) =>
+                    logger.warn(
+                        `[OverduePayment] handover plan ensure failed thread=${conversation.threadId}: ${e?.message}`
+                    )
+                );
+        }
         return !wasSame;
     }
 
