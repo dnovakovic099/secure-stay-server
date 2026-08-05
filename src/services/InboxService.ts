@@ -748,6 +748,13 @@ export class InboxService {
                 // Reservation row is booking-state source of truth. Hostify thread
                 // summaries often lag as "inquiry" after preapproval/offer.
                 conversation.reservationStatus = reservation.status || conversation.reservationStatus || null;
+                // Reservation channel wins when a booking is linked — Hostify's
+                // thread integration_type_name can point at a different OTA than
+                // the one that actually took the booking (e.g. Airbnb inquiry
+                // thread on a Vrbo reservation).
+                if (reservation.channelName) {
+                    conversation.channel = reservation.channelName;
+                }
                 conversation.checkin = conversation.checkin || toDateKey(reservation.arrivalDate);
                 conversation.checkout = conversation.checkout || toDateKey(reservation.departureDate);
                 if (conversation.price == null && reservation.totalPrice != null) {
