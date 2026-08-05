@@ -31,6 +31,7 @@ import { ReservationHistoryService } from "./ReservationHistoryService";
 import { ReviewCheckout } from "../entity/ReviewCheckout";
 import { ReviewEntity } from "../entity/Review";
 import { ResolutionsTeamSlackService } from "./ResolutionsTeamSlackService";
+import { ReviewService } from "./ReviewService";
 import { ReviewDiscussionService } from "./ReviewDiscussionService";
 import { getEasternDateString } from "../utils/easternTime.util";
 import { TurnoverReservationChangeService } from "./TurnoverReservationChangeService";
@@ -101,18 +102,17 @@ export class ReservationInfoService {
     return hour > 9 || (hour === 9 && minute >= 5);
   }
 
-  private shouldCreateImmediateResolutionsThread(reservation: Partial<ReservationInfoEntity> | null, source: string) {
-    if (source !== "webhook" && source !== "internal") return false;
-    if (!reservation?.id) return false;
-    if (!this.validStatus.includes(String(reservation.status || ""))) return false;
+  private resolveImmediateResolutionsAction(
+    reservation: Partial<ReservationInfoEntity> | null,
+    source: string,
+  ): "skip" | "row_only" | "row_and_slack" {
+    if (source !== "webhook" && source !== "internal") return "skip";
+    if (!reservation?.id) return "skip";
+    if (!this.validStatus.includes(String(reservation.status || ""))) return "skip";
 
     const arrivalKey = this.getDateKey(reservation.arrivalDate as any);
-    if (!arrivalKey) return false;
+    if (!arrivalKey) return "skip";
 
-    // Fire for reservations whose arrival lands in the window the Mitigation UI
-    // and the daily Slack digest can plausibly cover — plus a small forward
-    // buffer so bookings made now for the next few days also get a review_checkout
-    // row and thread without waiting for the arrival-day cron.
     const today = getEasternDateString();
     const lookbackDate = format(
       addDays(new Date(`${today}T00:00:00`), -ReservationInfoService.REVIEW_CHECKOUT_LOOKBACK_DAYS),
@@ -122,23 +122,40 @@ export class ReservationInfoService {
       addDays(new Date(`${today}T00:00:00`), ReservationInfoService.REVIEW_CHECKOUT_LOOKAHEAD_DAYS),
       "yyyy-MM-dd",
     );
-    if (arrivalKey < lookbackDate || arrivalKey > lookaheadDate) return false;
+    if (arrivalKey < lookbackDate || arrivalKey > lookaheadDate) return "skip";
+
+    // Future arrivals: pre-create the ReviewCheckout row so the Mitigation UI can
+    // list the booking ahead of time, but defer the Slack thread to the arrival-day
+    // digest. The resolutions-team channel represents guests actively arriving now,
+    // not future bookings.
+    if (arrivalKey > today) return "row_only";
 
     // Same-day arrivals before the 9:05 AM ET digest run stay in the digest's
     // batch. After that hour, any late-landing same-day reservation goes through
     // the immediate path so it doesn't have to wait until tomorrow's digest
     // (which filters arrivalDate = today and would skip it anyway).
-    if (arrivalKey === today && !this.isAfterResolutionsDailyPostTime()) return false;
+    if (arrivalKey === today && !this.isAfterResolutionsDailyPostTime()) return "skip";
 
-    return true;
+    return "row_and_slack";
   }
 
   private queueImmediateResolutionsThreadIfNeeded(reservation: Partial<ReservationInfoEntity> | null, source: string) {
-    if (!this.shouldCreateImmediateResolutionsThread(reservation, source)) return;
+    const action = this.resolveImmediateResolutionsAction(reservation, source);
+    if (action === "skip") return;
+
+    const suffix = source === "webhook" ? "Webhook" : "Sync";
+
+    if (action === "row_only") {
+      runAsync(
+        new ReviewService().ensureReviewCheckout(Number(reservation.id), "system"),
+        `ReviewService.ensureReviewCheckout.after${suffix}`,
+      );
+      return;
+    }
 
     runAsync(
       new ResolutionsTeamSlackService().ensureThreadForReservation(Number(reservation.id), "system"),
-      `ResolutionsTeamSlackService.ensureThreadForReservation.after${source === "webhook" ? "Webhook" : "Sync"}`,
+      `ResolutionsTeamSlackService.ensureThreadForReservation.after${suffix}`,
     );
   }
 
