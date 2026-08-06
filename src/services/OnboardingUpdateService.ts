@@ -204,36 +204,65 @@ export class OnboardingUpdateService {
   private async ensureSlackThread(property: ClientPropertyEntity, userId?: string): Promise<SlackMessageEntity | null> {
     const client = property.client as any;
     if (!client?.id) return null;
-    const existing = await this.slackRepo.findOne({
-      where: {
-        entityType: "client_onboarding",
-        originalMessage: Like(`%"propertyId":"${property.id}"%`),
-      },
-      order: { createdAt: "DESC" },
-    });
-    if (existing?.threadTs) return existing;
-    const user = userId ? await this.userRepo.findOne({ where: { uid: userId } }) : null;
-    const author = user ? `${user.firstName || ""} ${user.lastName || ""}`.trim() : "SecureStay";
-    const propertyName = (property as any).propertyInfo?.internalListingName || property.address || `Property #${property.id}`;
-    const response = await sendSlackMessage({
-      channel: "#onboarding",
-      text: `📥 *Onboarding form received*\n<!subteam^${ONBOARDING_TEAM_SLACK_GROUP_ID}>\n*Client:* ${client.firstName || ""} ${client.lastName || ""}\n*Property:* ${propertyName}\n_Received by ${author}_`,
-    });
-    if (response?.ok) {
-      return await this.slackRepo.save(this.slackRepo.create({
-        channel: response.channel,
-        messageTs: response.ts,
-        threadTs: response.ts,
-        entityType: "client_onboarding",
-        entityId: null as any,
-        originalMessage: JSON.stringify({ clientId: client.id, propertyId: property.id, source: "onboarding_form_received" }),
-      }));
-    } else {
+    const queryRunner = appDatabase.createQueryRunner();
+    const lockName = `onboarding_slack_${property.id}`;
+    await queryRunner.connect();
+    let lockAcquired = false;
+
+    try {
+      const lockRows = await queryRunner.query("SELECT GET_LOCK(?, 15) AS acquired", [lockName]);
+      lockAcquired = Number(lockRows?.[0]?.acquired) === 1;
+      if (!lockAcquired) {
+        logger.error(`Timed out waiting to create onboarding Slack thread for property ${property.id}`);
+        return await this.slackRepo.findOne({
+          where: {
+            entityType: "client_onboarding",
+            originalMessage: Like(`%"propertyId":"${property.id}"%`),
+          },
+          order: { createdAt: "ASC" },
+        });
+      }
+
+      const lockedSlackRepo = queryRunner.manager.getRepository(SlackMessageEntity);
+      const existing = await lockedSlackRepo.findOne({
+        where: {
+          entityType: "client_onboarding",
+          originalMessage: Like(`%"propertyId":"${property.id}"%`),
+        },
+        order: { createdAt: "ASC" },
+      });
+      if (existing?.threadTs) return existing;
+
+      const user = userId ? await this.userRepo.findOne({ where: { uid: userId } }) : null;
+      const author = user ? `${user.firstName || ""} ${user.lastName || ""}`.trim() : "SecureStay";
+      const propertyName = (property as any).propertyInfo?.internalListingName || property.address || `Property #${property.id}`;
+      const response = await sendSlackMessage({
+        channel: "#onboarding",
+        text: `📥 *Onboarding form received*\n<!subteam^${ONBOARDING_TEAM_SLACK_GROUP_ID}>\n*Client:* ${client.firstName || ""} ${client.lastName || ""}\n*Property:* ${propertyName}\n_Received by ${author}_`,
+      });
+      if (response?.ok) {
+        return await lockedSlackRepo.save(lockedSlackRepo.create({
+          channel: response.channel,
+          messageTs: response.ts,
+          threadTs: response.ts,
+          entityType: "client_onboarding",
+          entityId: null as any,
+          originalMessage: JSON.stringify({ clientId: client.id, propertyId: property.id, source: "onboarding_form_received" }),
+        }));
+      }
+
       logger.error(
         `Failed to create onboarding Slack thread for property ${property.id}: ${response?.error || "No Slack response"}`
       );
+      return null;
+    } finally {
+      if (lockAcquired) {
+        await queryRunner.query("SELECT RELEASE_LOCK(?)", [lockName]).catch((error) => {
+          logger.error(`Failed to release onboarding Slack lock for property ${property.id}`, error);
+        });
+      }
+      await queryRunner.release();
     }
-    return null;
   }
 
   private async postToSlack(property: ClientPropertyEntity, message: string, userId?: string, system = false) {
@@ -245,7 +274,7 @@ export class OnboardingUpdateService {
           entityType: "client_onboarding",
           originalMessage: Like(`%"propertyId":"${property.id}"%`),
         },
-        order: { createdAt: "DESC" },
+        order: { createdAt: "ASC" },
       });
       if (!root?.threadTs) root = await this.ensureSlackThread(property, userId);
       if (!root?.threadTs) return;

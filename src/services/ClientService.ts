@@ -3100,7 +3100,17 @@ export class ClientService {
       query.andWhere("property.id IN (:...propertyIds)", { propertyIds: propertyId });
     }
 
-    return await query.getOne();
+    const client = await query.getOne();
+    if (!client) return null;
+
+    const submittedBy = client.createdBy
+      ? await this.userRepo.findOne({ where: { uid: client.createdBy } })
+      : null;
+    const submittedByName = submittedBy
+      ? `${submittedBy.firstName || ""} ${submittedBy.lastName || ""}`.trim() || submittedBy.email
+      : null;
+
+    return Object.assign(client, { submittedByName });
   }
 
   private async getClientOnboardingThreadTs(clientId: string): Promise<string | undefined> {
