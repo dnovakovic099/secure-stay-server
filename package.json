@@ -18,6 +18,7 @@
     "backfill:issue-reservations": "npx ts-node src/scripts/backfillIssueReservationIds.ts",
     "prefill:property-facts": "npx ts-node src/scripts/prefillPropertyFacts.ts",
     "prefill:property-facts:ai": "npx ts-node src/scripts/aiPrefillPropertyFacts.ts",
+    "optimize:inbox-ai-editor": "npx ts-node src/scripts/optimizeInboxAiEditor.ts",
     "seed:ir-portfolio": "npx ts-node src/scripts/seedIrPortfolioDefaults.ts",
     "seed:ir-vendors": "npx ts-node src/scripts/seedIrVendorScrape.ts",
     "refund:paid-rc-report": "NODE_ENV=development npx ts-node src/scripts/sendPaidRcRefundReport.ts",

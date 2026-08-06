@@ -634,6 +634,27 @@ export function scheduleGetReservation() {
     }
   );
 
+  // Inbox AI Editor optimize — 4:00 AM EST (after nightly audit).
+  // Distills yesterday's judged misses into short lessons injected into the
+  // second-pass reply Editor prompt. Kill via AI_EDITOR_OPTIMIZE_ENABLED=false.
+  schedule.scheduleJob(
+    { hour: 4, minute: 0, tz: "America/New_York" },
+    async () => {
+      try {
+        logger.info("[EditorOptimize] Daily Editor optimize started...");
+        const { InboxAIEditorOptimizeService } = await import(
+          "../services/InboxAIEditorOptimizeService"
+        );
+        const result = await new InboxAIEditorOptimizeService().runDailyOptimize();
+        logger.info(
+          `[EditorOptimize] completed day=${result.dayEt} misses=${result.missCount} lessons=${result.lessonCount}`
+        );
+      } catch (error) {
+        logger.error("[EditorOptimize] Error in daily Editor optimize task:", error);
+      }
+    }
+  );
+
   // Admin workload: sync recent Quo calls + AI-grade each employee's day
   // (active minutes + quality) for the admin insights page.
   schedule.scheduleJob(

@@ -72,6 +72,14 @@ import { selectRelevant } from "./AIMemoryPolicy";
 import { AIMemoryService } from "./AIMemoryService";
 import { isInquirySupersededByAcceptedStay } from "./InboxInquirySuperseded";
 import { hasActiveNoResponseNeededNote } from "./InboxNoResponseNeeded";
+import {
+    attachEditorToRawResponse,
+    parseEditorFromRawResponse,
+    replyEditorMode,
+    replyEditorTriggers,
+    runReplyEditor,
+    verifierFromEditor,
+} from "./InboxAIReplyEditor";
 
 /**
  * InboxAIService
@@ -96,7 +104,7 @@ import { hasActiveNoResponseNeededNote } from "./InboxNoResponseNeeded";
  * human via the escalation keyword safety net.
  */
 
-export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v8.1"; // v8.1: just-in-time ops status block + AI repair of unsupported ops claims
+export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v8.2"; // v8.2: risk-triggered reply Editor rewrite pass (shadow/live)
 const INBOX_AI_MODEL = process.env.AI_MESSAGING_MODEL || "gpt-4.1";
 
 // How long a finished ops item stays in the ledger. Long enough that the bot can
@@ -966,42 +974,51 @@ export class InboxAIService {
             if (noPendingQuestion && !instructions) confidencePct = Math.min(confidencePct, 30);
         }
 
-        // (d) Independent verifier pass: a second model fact-checks the drafted
-        //     reply against the exact context it was generated from. The
-        //     generator's self-score clusters at 95-100 and hides real mistakes;
-        //     this score is what confidence-gated auto-send will trust.
-        //     Best-effort with a hard timeout — never blocks the suggestion.
-        const verifier = await Promise.race([
-            this.runReplyVerifier({ context, reply: output.suggested_reply || "" }),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
-        ]);
+        // (d) Post-draft review: risk-triggered Editor rewrite (preferred) and/or
+        //     score verifier for autosend gating. See InboxAIReplyEditor.
+        const reviewed = await this.runPostDraftReview({
+            context,
+            guestText: guestAskText,
+            reply: output.suggested_reply || "",
+            confidencePct,
+            raw,
+            warnings,
+            escalationRequired: !!output.escalation_required,
+            escalationReason: output.escalation_reason ? String(output.escalation_reason) : null,
+        });
+        output.suggested_reply = reviewed.reply;
+        if (reviewed.escalationRequired) output.escalation_required = true;
+        if (reviewed.escalationReason) output.escalation_reason = reviewed.escalationReason;
+        for (const w of reviewed.extraWarnings) warnings.push(w);
+        output.warnings = warnings;
 
         const suggestion = this.suggestionRepo.create({
             threadId,
             messageId: targetMessageId,
             reservationId: conversation.reservationId,
             listingId: conversation.listingId,
-            suggestedReply: output.suggested_reply || null,
+            suggestedReply: reviewed.reply || null,
             confidence: confidencePct,
-            verifierConfidence: verifier?.confidence ?? null,
-            verifierNote: verifier?.note ?? null,
+            verifierConfidence: reviewed.verifier?.confidence ?? null,
+            verifierNote: reviewed.verifier?.note ?? null,
             escalationRequired: output.escalation_required ? 1 : 0,
             escalationReason: output.escalation_reason ? String(output.escalation_reason).slice(0, 500) : null,
             internalSummary: output.internal_summary || null,
             sourcesUsed: JSON.stringify(output.sources_used || []),
-            warnings: JSON.stringify(output.warnings || []),
+            warnings: JSON.stringify(warnings || []),
             suggestedActionItems: JSON.stringify(output.suggested_action_items || []),
             modelName: INBOX_AI_MODEL,
             promptVersion: INBOX_AI_PROMPT_VERSION,
             status: "suggested",
             salesMode: inquirySales ? 1 : 0,
-            rawResponse: raw.slice(0, 60000) || null,
+            rawResponse: reviewed.rawResponse,
             generatedAt: new Date(),
         });
         const saved = await this.suggestionRepo.save(suggestion);
         logger.info(
             `[InboxAIService] suggestion ${saved.id} generated for thread ${threadId} ` +
-            `(conf ${confidencePct ?? "?"}, verified ${verifier?.confidence ?? "?"}, escalate ${saved.escalationRequired})`
+            `(conf ${confidencePct ?? "?"}, verified ${reviewed.verifier?.confidence ?? "?"}, escalate ${saved.escalationRequired}` +
+            `${reviewed.editorApplied ? ", editor=applied" : reviewed.editorRan ? ", editor=shadow" : ""})`
         );
 
         // Guest mood for inbox list / open conversation (best-effort).
@@ -1139,6 +1156,158 @@ export class InboxAIService {
             logger.warn(`[InboxAIService] reply verifier failed: ${err.message}`);
             return null;
         }
+    }
+
+    /**
+     * Post-draft review: risk-triggered Editor rewrite + score verifier.
+     *
+     * shadow (default): Editor runs for logging; original draft kept; verifier
+     * still scores for autosend (behavior unchanged while we compare).
+     * live: Editor rewrite applied; verifier score synthesized from
+     * still_unanswered so incomplete answers cannot auto-send.
+     * off / no risk triggers: score verifier only (legacy path).
+     */
+    private async runPostDraftReview(params: {
+        context: string;
+        guestText: string;
+        reply: string;
+        confidencePct: number | null;
+        raw: string;
+        warnings: string[];
+        escalationRequired: boolean;
+        escalationReason: string | null;
+    }): Promise<{
+        reply: string;
+        verifier: { confidence: number; note: string | null } | null;
+        rawResponse: string;
+        escalationRequired: boolean;
+        escalationReason: string | null;
+        extraWarnings: string[];
+        editorRan: boolean;
+        editorApplied: boolean;
+    }> {
+        let reply = String(params.reply || "").trim();
+        let escalationRequired = params.escalationRequired;
+        let escalationReason = params.escalationReason;
+        const extraWarnings: string[] = [];
+        const mode = replyEditorMode();
+        const triggers =
+            mode === "off" ? [] : replyEditorTriggers(params.guestText, params.confidencePct, reply);
+        let editorRan = false;
+        let editorApplied = false;
+        let rawResponse = String(params.raw || "").slice(0, 60000) || null;
+        let verifier: { confidence: number; note: string | null } | null = null;
+
+        if (mode !== "off" && triggers.length && reply && process.env.OPENAI_API_KEY) {
+            editorRan = true;
+            if (mode === "shadow") {
+                // Parallel: keep autosend behavior (verifier) while we learn from Editor.
+                const [editor, scored] = await Promise.all([
+                    runReplyEditor({
+                        openai: this.getClient(),
+                        context: params.context,
+                        guestText: params.guestText,
+                        draftReply: reply,
+                        triggeredBy: triggers,
+                    }),
+                    Promise.race([
+                        this.runReplyVerifier({ context: params.context, reply }),
+                        new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
+                    ]),
+                ]);
+                verifier = scored;
+                rawResponse = attachEditorToRawResponse(rawResponse, {
+                    mode,
+                    triggeredBy: triggers,
+                    result: editor,
+                    applied: false,
+                    draftBefore: reply,
+                });
+                if (editor) {
+                    logger.info(
+                        `[InboxAIService] editor shadow triggers=${triggers.join("|")} ` +
+                            `asks=${editor.guestAsks.length} unanswered=${editor.stillUnanswered.length} ` +
+                            `changed=${editor.changesMade.length} ` +
+                            `draftLen=${reply.length} editedLen=${editor.reply.length}`
+                    );
+                } else {
+                    logger.warn(
+                        `[InboxAIService] editor shadow failed/empty triggers=${triggers.join("|")}`
+                    );
+                }
+            } else {
+                // live: rewrite is source of truth; skip soft score verifier.
+                const editor = await runReplyEditor({
+                    openai: this.getClient(),
+                    context: params.context,
+                    guestText: params.guestText,
+                    draftReply: reply,
+                    triggeredBy: triggers,
+                });
+                if (editor) {
+                    const draftBefore = reply;
+                    reply = stripDashes(editor.reply);
+                    editorApplied = true;
+                    const v = verifierFromEditor(editor);
+                    verifier = v;
+                    if (editor.stillUnanswered.length) {
+                        // Incomplete after rewrite → human must finish; also blocks autosend.
+                        escalationRequired = true;
+                        escalationReason = escalationReason
+                            ? `${escalationReason}; editor_unanswered`
+                            : `editor_unanswered:${editor.stillUnanswered.join("|").slice(0, 200)}`;
+                        extraWarnings.push(
+                            `Editor could not answer from context: ${editor.stillUnanswered.join("; ")}`
+                        );
+                    }
+                    // Successful edits are logged only — do NOT push into warnings
+                    // (any warning blocks autosend).
+                    rawResponse = attachEditorToRawResponse(rawResponse, {
+                        mode,
+                        triggeredBy: triggers,
+                        result: editor,
+                        applied: true,
+                        draftBefore,
+                    });
+                    logger.info(
+                        `[InboxAIService] editor live applied triggers=${triggers.join("|")} ` +
+                            `unanswered=${editor.stillUnanswered.length} changes=${editor.changesMade.length}`
+                    );
+                } else {
+                    // Editor failed — fall back to score verifier so autosend still gated.
+                    logger.warn(
+                        `[InboxAIService] editor live failed; falling back to verifier triggers=${triggers.join("|")}`
+                    );
+                    verifier = await Promise.race([
+                        this.runReplyVerifier({ context: params.context, reply }),
+                        new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
+                    ]);
+                    rawResponse = attachEditorToRawResponse(rawResponse, {
+                        mode,
+                        triggeredBy: triggers,
+                        result: null,
+                        applied: false,
+                        draftBefore: reply,
+                    });
+                }
+            }
+        } else {
+            verifier = await Promise.race([
+                this.runReplyVerifier({ context: params.context, reply }),
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
+            ]);
+        }
+
+        return {
+            reply,
+            verifier,
+            rawResponse: rawResponse || "",
+            escalationRequired,
+            escalationReason,
+            extraWarnings,
+            editorRan,
+            editorApplied,
+        };
     }
 
     /**
@@ -1817,6 +1986,10 @@ export class InboxAIService {
             if (suggestion.escalationRequired) return skip("escalation_required");
             if (!reply) return skip("empty_reply");
             if (warnings.length > 0) return skip("model_warnings");
+            const editorMeta = parseEditorFromRawResponse(suggestion.rawResponse);
+            if (editorMeta?.applied && editorMeta.stillUnanswered.length) {
+                return skip("editor_unanswered");
+            }
             if (conf == null || conf < minConf) {
                 return skip(`low_confidence:self=${selfConf ?? "?"},verified=${verConf ?? "?"}<${minConf}`);
             }
@@ -2186,11 +2359,21 @@ export class InboxAIService {
             else if (warnings.length) confidencePct = Math.min(confidencePct, 60);
         }
 
-        // Independent verifier pass (same gate the Hostify inbox trusts).
-        const verifier = await Promise.race([
-            this.runReplyVerifier({ context, reply: output.suggested_reply || "" }),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
-        ]);
+        // Post-draft Editor + verifier (same path as Hostify inbox).
+        const reviewed = await this.runPostDraftReview({
+            context,
+            guestText: quoGuest,
+            reply: output.suggested_reply || "",
+            confidencePct,
+            raw,
+            warnings,
+            escalationRequired: !!output.escalation_required,
+            escalationReason: output.escalation_reason ? String(output.escalation_reason) : null,
+        });
+        output.suggested_reply = reviewed.reply;
+        if (reviewed.escalationRequired) output.escalation_required = true;
+        if (reviewed.escalationReason) output.escalation_reason = reviewed.escalationReason;
+        for (const w of reviewed.extraWarnings) warnings.push(w);
 
         const suggestion = await this.suggestionRepo.save(
             this.suggestionRepo.create({
@@ -2201,10 +2384,10 @@ export class InboxAIService {
                 reservationId: conv.reservationId ? Number(conv.reservationId) : null,
                 listingId: conv.listingId ? Number(conv.listingId) : null,
                 salesMode: !isPmLine && InboxAIService.isInquiryStatus(reservationStatus) ? 1 : 0,
-                suggestedReply: output.suggested_reply || null,
+                suggestedReply: reviewed.reply || null,
                 confidence: confidencePct,
-                verifierConfidence: verifier?.confidence ?? null,
-                verifierNote: verifier?.note ?? null,
+                verifierConfidence: reviewed.verifier?.confidence ?? null,
+                verifierNote: reviewed.verifier?.note ?? null,
                 escalationRequired: output.escalation_required ? 1 : 0,
                 escalationReason: output.escalation_reason ? String(output.escalation_reason).slice(0, 500) : null,
                 internalSummary: output.internal_summary || null,
@@ -2214,7 +2397,7 @@ export class InboxAIService {
                 modelName: INBOX_AI_MODEL,
                 promptVersion: INBOX_AI_PROMPT_VERSION,
                 status: "suggested",
-                rawResponse: raw.slice(0, 60000) || null,
+                rawResponse: reviewed.rawResponse,
                 generatedAt: new Date(),
             })
         );
@@ -2930,6 +3113,11 @@ export class InboxAIService {
             if (suggestion.escalationRequired) return this.autosendSkip(threadId, suggestion.id, "escalation_required");
             if (!reply) return this.autosendSkip(threadId, suggestion.id, "empty_reply");
             if (warnings.length > 0) return this.autosendSkip(threadId, suggestion.id, "model_warnings");
+            // Live Editor: never auto-send when the rewrite still couldn't cover an ask.
+            const editorMeta = parseEditorFromRawResponse(suggestion.rawResponse);
+            if (editorMeta?.applied && editorMeta.stillUnanswered.length) {
+                return this.autosendSkip(threadId, suggestion.id, "editor_unanswered");
+            }
 
             // Burst / wrong-bubble race (Steffy Jul 28): a high-confidence draft
             // for an older vibe message autosent while a sibling draft correctly
