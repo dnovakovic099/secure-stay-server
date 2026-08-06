@@ -530,7 +530,10 @@ export class InboxService {
                 const discussionText = `@resolutionsteam Airbnb Support case detected for confirmation code ${confirmationCode}. ${inboxUrl}`;
 
                 const slackService = new ResolutionsTeamSlackService();
-                const reviewCheckout = await slackService.ensureThreadForReservation(Number(reservation.id), "SecureStay");
+                const reviewCheckout = await slackService.ensureThreadForReservation(Number(reservation.id), "SecureStay", {
+                    allowFutureArrival: true,
+                    callerTag: "InboxService.detectAirbnbSupportCase",
+                });
 
                 await new ReservationInfoService().updateReservationTags(
                     Number(reservation.id),

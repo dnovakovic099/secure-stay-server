@@ -538,7 +538,10 @@ export class ReviewDiscussionService {
 
     async ensureReservationThread(reservationId: string, userId: string): Promise<DiscussionThreadDTO> {
         const slackService = new ResolutionsTeamSlackService();
-        const result = await slackService.ensureThreadForReservation(Number(reservationId), userId);
+        const result = await slackService.ensureThreadForReservation(Number(reservationId), userId, {
+            allowFutureArrival: true,
+            callerTag: "ReviewDiscussionService.ensureReservationThread",
+        });
         return {
             exists: Boolean(result?.slackThreadTs && result?.slackChannelId),
             slackThreadTs: result?.slackThreadTs || null,

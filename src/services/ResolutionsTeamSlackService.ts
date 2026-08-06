@@ -690,7 +690,11 @@ export class ResolutionsTeamSlackService {
         return isCancelledAfterListingLocalCheckIn(reservation, listing, cancelledAt);
     }
 
-    async ensureThreadForReservation(reservationId: number, userId?: string | null) {
+    async ensureThreadForReservation(
+        reservationId: number,
+        userId?: string | null,
+        options?: { allowFutureArrival?: boolean; callerTag?: string },
+    ) {
         try {
         const existing = await this.reviewCheckoutRepo.findOne({
             where: { reservationInfo: { id: reservationId } },
@@ -706,6 +710,26 @@ export class ResolutionsTeamSlackService {
         const reservation = reviewCheckout.reservationInfo || await this.reservationRepo.findOne({ where: { id: reservationId } });
         if (!reservation) {
             throw new Error(`Reservation ${reservationId} not found`);
+        }
+
+        // Defense-in-depth: the resolutions-team channel represents guests actively
+        // arriving now, not future bookings. If a caller reaches this method for a
+        // future-arrival reservation without explicitly opting in (e.g. Airbnb Support
+        // case, dispute-risk tag, or a user-initiated action that needs the thread
+        // right now), skip the Slack post and return the row-only ReviewCheckout. The
+        // arrival-day 9:05 AM ET digest will post the thread when the reservation
+        // becomes current.
+        if (!options?.allowFutureArrival) {
+            const arrivalKey = reservation.arrivalDate
+                ? getEasternDateString(new Date(reservation.arrivalDate as any))
+                : null;
+            const today = getEasternDateString();
+            if (arrivalKey && arrivalKey > today) {
+                logger.info(
+                    `[ResolutionsTeam] ensureThreadForReservation skipped Slack post for reservation ${reservationId} — arrival=${arrivalKey} is after today=${today}; caller=${options?.callerTag || "unknown"}. Row-only ReviewCheckout returned.`,
+                );
+                return reviewCheckout;
+            }
         }
 
         const listing = reservation.listingMapId
@@ -807,7 +831,10 @@ export class ResolutionsTeamSlackService {
             const isLateCancelled = isCancelledAfterListingLocalCheckIn(reservation, listing, cancelledAt);
             if (!isLateCancelled) return;
 
-            const reviewCheckout = await this.ensureThreadForReservation(reservationId, "system");
+            const reviewCheckout = await this.ensureThreadForReservation(reservationId, "system", {
+                allowFutureArrival: true,
+                callerTag: "handleLateCancelledReservation",
+            });
             const hydratedReservation = reviewCheckout.reservationInfo || reservation;
 
             await this.updateRootMessage(reviewCheckout, hydratedReservation, listing, true);
@@ -1083,6 +1110,7 @@ export class ResolutionsTeamSlackService {
                     const refreshedRc = await this.ensureThreadForReservation(
                         Number(rc.reservationInfo.id),
                         activity.actor || null,
+                        { allowFutureArrival: true, callerTag: "postActivityToThread.staleThreadRecreate" },
                     );
                     if (refreshedRc?.slackThreadTs) {
                         rc.slackThreadTs = refreshedRc.slackThreadTs;

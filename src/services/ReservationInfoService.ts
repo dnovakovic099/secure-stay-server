@@ -1683,7 +1683,10 @@ export class ReservationInfoService {
 
     const resolutionsSlackService = new ResolutionsTeamSlackService();
     if ((!reviewCheckout || !reviewCheckout.slackThreadTs) && (disputeRiskAdded || monitorReviewAdded)) {
-      reviewCheckout = await resolutionsSlackService.ensureThreadForReservation(reservationId, changedBy);
+      reviewCheckout = await resolutionsSlackService.ensureThreadForReservation(reservationId, changedBy, {
+        allowFutureArrival: true,
+        callerTag: `ReservationInfoService.reservationTagUpdate.${disputeRiskAdded ? "disputeRisk" : "monitorReview"}`,
+      });
     }
 
     if (!reviewCheckout?.slackThreadTs) return;

@@ -2515,7 +2515,10 @@ export class ReviewService {
         if (!this.hasReservationTag(reservation?.tags, "Monitor Review")) return;
 
         const slackService = new ResolutionsTeamSlackService();
-        const ensuredReviewCheckout = await slackService.ensureThreadForReservation(reservationId, actor);
+        const ensuredReviewCheckout = await slackService.ensureThreadForReservation(reservationId, actor, {
+            allowFutureArrival: true,
+            callerTag: "ReviewService.postMonitorReviewSubmittedAlertIfNeeded",
+        });
         const targetReviewCheckoutId = reviewCheckoutId || ensuredReviewCheckout?.id;
         if (!targetReviewCheckoutId) return;
 
