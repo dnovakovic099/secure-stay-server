@@ -1,4 +1,4 @@
-import { Brackets, In } from "typeorm";
+import { Between, Brackets, In } from "typeorm";
 import fs from "fs";
 import path from "path";
 import { appDatabase } from "../utils/database.util";
@@ -1243,6 +1243,42 @@ export class InboxService {
         });
         if (!message) return null;
         message.sentVia = "webhook";
+
+        // Hostify occasionally re-fires the same automated outgoing message with a
+        // fresh message_id (observed on welcome templates triggered by both
+        // "inquiry accepted" and "reservation confirmed"). The externalId-based
+        // dedup above can't catch it, so guard against a content collision within
+        // a tight time window on the same thread.
+        const bodyForDedup = String(message.body || "").trim();
+        if (
+            bodyForDedup &&
+            message.direction === "outgoing" &&
+            Number(message.isAutomatic) === 1 &&
+            message.sentAt
+        ) {
+            const sentAtMs = new Date(message.sentAt).getTime();
+            const windowMs = 5 * 60 * 1000;
+            const contentDup = await this.messageRepo.findOne({
+                where: {
+                    threadId,
+                    direction: "outgoing",
+                    isAutomatic: 1,
+                    body: message.body,
+                    sentAt: Between(
+                        new Date(sentAtMs - windowMs),
+                        new Date(sentAtMs + windowMs)
+                    ),
+                },
+            });
+            if (contentDup) {
+                logger.info(
+                    `[InboxService] webhook message ${externalId} suppressed as automated duplicate ` +
+                    `of existing message ${contentDup.externalId} (thread ${threadId})`
+                );
+                return contentDup;
+            }
+        }
+
         try {
             const saved = await this.messageRepo.save(message);
             logger.info(`[InboxService] webhook stored message ${externalId} (thread ${threadId}, ${message.direction})`);
