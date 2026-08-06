@@ -1161,10 +1161,9 @@ export class InboxAIService {
     /**
      * Post-draft review: risk-triggered Editor rewrite + score verifier.
      *
-     * shadow (default): Editor runs for logging; original draft kept; verifier
-     * still scores for autosend (behavior unchanged while we compare).
-     * live: Editor rewrite applied; verifier score synthesized from
+     * live (default): Editor rewrite applied; verifier score synthesized from
      * still_unanswered so incomplete answers cannot auto-send.
+     * shadow: Editor runs for logging; original draft kept; verifier still scores.
      * off / no risk triggers: score verifier only (legacy path).
      */
     private async runPostDraftReview(params: {

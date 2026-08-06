@@ -7,9 +7,9 @@
  * auto-send when the editor still couldn't cover an ask.
  *
  * Mode (AI_MESSAGING_EDITOR_MODE):
- *   shadow (default) — run + log; keep original draft; keep score verifier for autosend
- *   live             — apply rewrite; synthesize verifier score from editor outcome
- *   off              — disabled
+ *   live (default) — apply rewrite; synthesize verifier score from editor outcome
+ *   shadow         — run + log; keep original draft; keep score verifier for autosend
+ *   off            — disabled
  */
 
 export type ReplyEditorMode = "off" | "shadow" | "live";
@@ -23,12 +23,12 @@ export type ReplyEditorResult = {
 };
 
 export function replyEditorMode(): ReplyEditorMode {
-    const v = String(process.env.AI_MESSAGING_EDITOR_MODE || "shadow")
+    const v = String(process.env.AI_MESSAGING_EDITOR_MODE || "live")
         .trim()
         .toLowerCase();
-    if (v === "live" || v === "on" || v === "1" || v === "true") return "live";
+    if (v === "shadow") return "shadow";
     if (v === "off" || v === "0" || v === "false") return "off";
-    return "shadow";
+    return "live";
 }
 
 export function replyEditorModel(): string {
