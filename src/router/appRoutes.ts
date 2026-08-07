@@ -5,7 +5,6 @@ import inboxV2Routes from "./inboxV2Routes";
 import listingKnowledgeRoutes from "./listingKnowledgeRoutes";
 import listingDocumentRoutes from "./listingDocumentRoutes";
 import aiCopilotRoutes from "./aiCopilotRoutes";
-import aiActionItemsTestingRoutes from "./aiActionItemsTestingRoutes";
 import inboxAnalyticsRoutes from "./inboxAnalyticsRoutes";
 import issueAnalyticsRoutes from "./issueAnalyticsRoutes";
 import connectedAccountRoutes from "./ConnectedAccountRoutes";
@@ -122,7 +121,6 @@ router.use("/owner", ownerInfoRoutes)
 router.use('/refund-request', refundRequestRoutes)
 router.use('/owner-portal', ownerPortalRoutes)
 router.use('/client-ticket', clientTicketRoutes);
-router.use('/ai-action-items-testing', aiActionItemsTestingRoutes);
 router.use('/inbox-analytics', inboxAnalyticsRoutes);
 router.use('/issue-analytics', issueAnalyticsRoutes);
 router.use('/action-items', actionItemsRoutes);

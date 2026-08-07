@@ -690,49 +690,6 @@ export class MessagingService {
         return;
     }
 
-    async getUnansweredMessages(page: number, limit: number, answered: boolean) {
-        const [messages, total] = await this.messageRepository
-            .createQueryBuilder('message')
-            .leftJoinAndMapOne(
-                'message.reservation',
-                ReservationInfoEntity,
-                'reservation',
-                'message.reservationId = reservation.id'
-            )
-            .where('message.answered = :answered', { answered })
-            .orderBy('message.createdAt', 'DESC')
-            .skip((page - 1) * limit)
-            .take(limit)
-            .getManyAndCount();
-
-        return {
-            data: messages.map(msg => {
-                const mappedMsg = {
-                    ...msg,
-                    guestName: msg.guestName || msg['reservation']?.guestName || null,
-                    conversationId: msg.source === 'hostify' ? msg.threadId : msg.conversationId,
-                };
-                return mappedMsg;
-            }),
-            meta: {
-                total,
-                page,
-                limit,
-                totalPages: Math.ceil(total / limit),
-            },
-        };
-    }
-
-
-    async updateMessageStatus(messageId: number, answered: boolean) {
-        const message = await this.messageRepository.findOne({ where: { id: messageId } });
-        if (!message) {
-            throw CustomErrorHandler.notFound('Message not found');
-        }
-        message.answered = answered;
-        return await this.messageRepository.save(message);
-    }
-
     private async saveIncomingGuestMessage(message: MessageType) {
         const newMessage = new Message();
         newMessage.messageId = message.id;

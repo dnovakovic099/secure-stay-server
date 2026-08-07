@@ -20,10 +20,6 @@ router.route('/supportmessage').post(verifyMobileSession, validateSupportMessage
 
 router.route('/conversation-webhook').post(messagingController.handleConversation);
 
-router.route('/unanswered-messages').get(messagingController.getUnansweredMessages);
-
-router.route('/unanswered-messages/:id').put(messagingController.updateMessageStatus);
-
 router.get('/hostify/threads', verifySession, messagingController.listHostifyThreads);
 router.get('/hostify/thread/:threadId', verifySession, messagingController.getHostifyThread);
 router.post('/hostify/thread/:threadId/reply', verifySession, messagingController.postHostifyReply);
