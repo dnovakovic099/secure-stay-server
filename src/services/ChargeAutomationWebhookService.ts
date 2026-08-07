@@ -58,12 +58,13 @@ export class ChargeAutomationWebhookService {
                     process.env.HOST_AWAY_CLIENT_SECRET
                 );
 
+                const status: string = item.client_approval_status === 1 ? 'Approved' : 'Denied';
                 const order = {
-                    status: item.client_approval_status === 1 ? 'Approved' : 'Denied',
+                    status,
                     listing_id: reservationInfo.listingMapId,
                     listing_name: reservationInfo.listingName,
                     cost: item.order_details.amount,
-                    order_date: orderDate,
+                    order_date: status === 'Paid' ? orderDate : null,
                     client_name: reservationInfo.guestName,
                     property_owner: ownerDetails[reservationInfo.listingMapId]?.name || " ",
                     type: item.title,
@@ -74,7 +75,8 @@ export class ChargeAutomationWebhookService {
                     phone: reservationInfo.phone || 'N/A'
                 };
 
-                await this.upsellOrderRepo.save(order);
+                const savedOrder = await this.upsellOrderRepo.save(order);
+                await this.setRequestedDateIfSupported(savedOrder.id, orderDate);
                 logger.info(`[ChargeAutomationWebhookService][processWebhook] Upsell order for reservation ${item.pms_booking_id} saved successfully`);
             } catch (error) {
                 logger.error(`[ChargeAutomationWebhookService][processWebhook] Error processing order for ${item.pms_booking_id}:`, error);
@@ -85,5 +87,13 @@ export class ChargeAutomationWebhookService {
             status: 'success',
             message: `Processed ${processedCount} orders, skipped ${skippedCount} duplicates`
         };
+    }
+
+    private async setRequestedDateIfSupported(orderId: number, requestedDate?: Date | null) {
+        if (!requestedDate || Number.isNaN(requestedDate.getTime())) return;
+        await this.upsellOrderRepo.query(
+            'UPDATE upsell_orders SET requested_date = ? WHERE id = ?',
+            [requestedDate, orderId]
+        ).catch(() => undefined);
     }
 }

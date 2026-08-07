@@ -121,6 +121,7 @@ export class UpsellOrderService {
         const requestedDate = (data as any).requested_date || (data as any).requestedDate || null;
         delete (data as any).requested_date;
         delete (data as any).requestedDate;
+        this.normalizeDatePaidForStatus(data);
 
         // Fetch listing name and owner if listing_id is provided
         if (data.listing_id) {
@@ -306,6 +307,7 @@ export class UpsellOrderService {
             (data as any).archived_at = nextArchived ? new Date() : null;
             (data as any).archived_by = nextArchived ? userId : null;
         }
+        this.normalizeDatePaidForStatus(data, existingOrder.status);
 
         if (existingOrder.ha_id) {
             const existingPaid = this.isPaidStatus(existingOrder.status);
@@ -674,6 +676,17 @@ export class UpsellOrderService {
 
     private isPaidStatus(status?: string | null) {
         return ["Approved", "Paid"].includes(String(status || "").trim());
+    }
+
+    private isDatePaidStatus(status?: string | null) {
+        return String(status || "").trim() === "Paid";
+    }
+
+    private normalizeDatePaidForStatus(data: Partial<UpsellOrder>, fallbackStatus?: string | null) {
+        const status = data.status !== undefined ? data.status : fallbackStatus;
+        if (!this.isDatePaidStatus(status)) {
+            (data as any).order_date = null;
+        }
     }
 
     private normalizeArchiveFilter(value?: string | null) {
