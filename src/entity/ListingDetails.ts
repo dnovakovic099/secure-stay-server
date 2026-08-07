@@ -17,6 +17,9 @@ export class ListingDetail {
     @Column({ default: false, nullable: true })
     claimProtection: boolean;
 
+    @Column({ name: 'claims_fee_status', nullable: true })
+    claimsFeeStatus: string;
+
     @Column({default: false, nullable:true})
     hidePetFee: boolean;
 
@@ -26,6 +29,9 @@ export class ListingDetail {
     @Column({ name: 'tech_fee_amount', type: 'decimal', precision: 10, scale: 2, nullable: true })
     techFeeAmount: number;
 
+    @Column({ name: 'plus_50_cleaning_fee', default: false, nullable: true })
+    plus50CleaningFee: boolean;
+
     @Column({ name: 'comfortable_capacity', type: 'int', nullable: true })
     comfortableCapacity: number;
 
@@ -34,6 +40,12 @@ export class ListingDetail {
 
     @Column({ name: 'client_reservation_requirements', type: 'text', nullable: true })
     clientReservationRequirements: string;
+
+    @Column({ name: 'client_maintenance_requirements', type: 'text', nullable: true })
+    clientMaintenanceRequirements: string;
+
+    @Column({ name: 'client_other_requirements', type: 'text', nullable: true })
+    clientOtherRequirements: string;
 
     @Column({ name: 'cleaning_managed_by', nullable: true })
     cleaningManagedBy: string;
