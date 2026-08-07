@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
 import { UpsellOrderService } from "../services/UpsellOrderService";
+import { UpsellRequestBridgeService } from "../services/UpsellRequestBridgeService";
+import { IssuesService } from "../services/IssuesService";
 import hostifyExtrasService from "../services/HostifyExtrasService";
 
 interface CustomRequest extends Request {
@@ -192,6 +194,64 @@ export class UpsellOrderController {
                 status: false,
                 message: error.message
             });
+        }
+    }
+
+    async getLinkedIssue(request: CustomRequest, response: Response) {
+        try {
+            const id = Number(request.params.id);
+            if (!id) return response.status(400).json({ status: false, message: "Invalid order ID" });
+            const bridge = new UpsellRequestBridgeService();
+            const { order, issue } = await bridge.getLinkedIssueForOrder(id);
+            let updates: any[] = [];
+            if (issue?.id) {
+                const issuesService = new IssuesService();
+                updates = await issuesService.listRecentIssueUpdates(issue.id, 50);
+            }
+            const payout = order
+                ? await bridge.computeAmountToPayout(Number(order.cost) || 0, order.listing_id)
+                : null;
+            return response.json({ status: true, data: { order, issue, updates, payout } });
+        } catch (error: any) {
+            return response.status(400).json({ status: false, message: error.message });
+        }
+    }
+
+    async updateLinkedIssueControls(request: CustomRequest, response: Response) {
+        try {
+            const id = Number(request.params.id);
+            const userId = request.user?.id || "System";
+            const bridge = new UpsellRequestBridgeService();
+            const result = await bridge.syncIssueControlsFromOrder(id, request.body || {}, userId);
+            return response.json({ status: true, data: result });
+        } catch (error: any) {
+            return response.status(400).json({ status: false, message: error.message });
+        }
+    }
+
+    async postDiscussion(request: CustomRequest, response: Response) {
+        try {
+            const id = Number(request.params.id);
+            const userId = request.user?.id || "System";
+            const text = String(request.body?.text || request.body?.updates || "").trim();
+            if (!text) return response.status(400).json({ status: false, message: "Discussion text is required" });
+            const bridge = new UpsellRequestBridgeService();
+            const result = await bridge.postSharedDiscussion({ orderId: id, text, userId });
+            return response.json({ status: true, data: result });
+        } catch (error: any) {
+            return response.status(400).json({ status: false, message: error.message });
+        }
+    }
+
+    async ensureStripeLink(request: CustomRequest, response: Response) {
+        try {
+            const id = Number(request.params.id);
+            const userId = request.user?.id || "System";
+            const bridge = new UpsellRequestBridgeService();
+            const order = await bridge.ensureStripePaymentLink(id, userId);
+            return response.json({ status: true, data: order });
+        } catch (error: any) {
+            return response.status(400).json({ status: false, message: error.message });
         }
     }
 

@@ -748,6 +748,18 @@ export class InboxItemDetectionService {
                 row.status = "created";
                 await this.detectedRepo.save(row);
                 promoted++;
+
+                // If Upsell List has a matching service for this property,
+                // auto-create an Interested Requests & Orders ticket + Stripe link.
+                try {
+                    const { UpsellRequestBridgeService } = require("./UpsellRequestBridgeService");
+                    const bridge = new UpsellRequestBridgeService();
+                    await bridge.maybeCreateOrderAfterIssueCreated(saved, "AI Assistant");
+                } catch (bridgeErr: any) {
+                    logger.warn(
+                        `[ItemDetection] upsell R&O bridge failed for issue #${saved.id}: ${bridgeErr?.message}`
+                    );
+                }
             } catch (err: any) {
                 logger.error(
                     `[ItemDetection] auto-create failed for detected #${row.id}: ${err?.message}`

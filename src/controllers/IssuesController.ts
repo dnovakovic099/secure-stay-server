@@ -1035,4 +1035,35 @@ export class IssuesController {
       next(error);
     }
   }
+
+  async getLinkedUpsell(request: any, response: Response, next: NextFunction) {
+    try {
+      const id = Number(request.params.id);
+      const { UpsellRequestBridgeService } = require("../services/UpsellRequestBridgeService");
+      const bridge = new UpsellRequestBridgeService();
+      const { issue, order } = await bridge.getLinkedOrderForIssue(id);
+      const payout = order
+        ? await bridge.computeAmountToPayout(Number(order.cost) || 0, order.listing_id)
+        : null;
+      return response.status(200).json({
+        status: true,
+        data: { issue, order, payout },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateLinkedUpsell(request: any, response: Response, next: NextFunction) {
+    try {
+      const id = Number(request.params.id);
+      const userId = request.user.id;
+      const { UpsellRequestBridgeService } = require("../services/UpsellRequestBridgeService");
+      const bridge = new UpsellRequestBridgeService();
+      const order = await bridge.syncUpsellDetailsFromIssue(id, request.body || {}, userId);
+      return response.status(200).json({ status: true, data: order });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

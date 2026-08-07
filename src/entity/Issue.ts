@@ -162,6 +162,11 @@ export class Issue {
     @Column({ nullable: true })
     category: string;
 
+    /** Linked Requests & Orders upsell ticket (money/payment system of record). */
+    @Index()
+    @Column({ nullable: true })
+    upsell_order_id: number;
+
     @OneToMany(() => IssueUpdates, issue => issue.issue)
     issueUpdates: IssueUpdates[];
 

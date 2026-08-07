@@ -37,6 +37,18 @@ router.route('/orders/:id/history')
         upsellOrderController.getOrderHistory
     );
 
+router.route('/orders/:id/linked-issue')
+    .get(verifySession, upsellOrderController.getLinkedIssue);
+
+router.route('/orders/:id/linked-issue/controls')
+    .put(verifySession, upsellOrderController.updateLinkedIssueControls);
+
+router.route('/orders/:id/discussion')
+    .post(verifySession, upsellOrderController.postDiscussion);
+
+router.route('/orders/:id/stripe-link')
+    .post(verifySession, upsellOrderController.ensureStripeLink);
+
 // router.route('/process-checkout-upsells')
 //     .post(verifySession, upsellOrderController.processCheckoutDateUpsells);
 

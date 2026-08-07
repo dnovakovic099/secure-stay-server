@@ -53,6 +53,18 @@ export class UpsellOrder {
     @Column({ nullable: true })
     ha_id: number;
 
+    /** Linked Guest Issues ticket (shared discussion + issue controls). */
+    @Column({ nullable: true })
+    issue_id: number;
+
+    /** Resolution created when this order becomes Paid. */
+    @Column({ nullable: true })
+    resolution_id: number;
+
+    /** Catalog upsell_info.id when matched from Upsell List. */
+    @Column({ nullable: true })
+    upsell_id: number;
+
     @CreateDateColumn()
     created_at: Date;
 

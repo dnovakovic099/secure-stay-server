@@ -10,6 +10,12 @@ import { ExpenseEntity, ExpenseStatus } from "../entity/Expense";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
 import { UpsellOrderHistoryEntity } from "../entity/UpsellOrderHistory";
 import { UsersEntity } from "../entity/Users";
+import {
+    computeUpsellAmountToPayout,
+    extractPmFeePercentFromTags,
+    parsePmFeePercent,
+} from "../utils/upsellPayoutFee.util";
+import { Listing } from "../entity/Listing";
 
 export class UpsellOrderService {
     private upsellOrderRepo = appDatabase.getRepository(UpsellOrder);
@@ -140,6 +146,24 @@ export class UpsellOrderService {
         await this.logOrderChanges(savedOrder.id, {}, savedOrder, userId, this.historyFields, "CREATE");
         await this.logOrderFieldChange(savedOrder.id, "requested_date", null, requestedDate, userId, "CREATE");
         await sendUpsellOrderEmail(savedOrder);
+
+        // Stripe payment link + linked Guest Issue (shared discussion).
+        try {
+            const { UpsellRequestBridgeService } = require("./UpsellRequestBridgeService");
+            const bridge = new UpsellRequestBridgeService();
+            await bridge.ensureStripePaymentLink(savedOrder.id, userId);
+            if (!savedOrder.issue_id) {
+                await bridge.ensureGuestIssueForOrder(savedOrder, userId);
+            }
+            if (this.isPaidStatus(savedOrder.status)) {
+                const fresh = await this.upsellOrderRepo.findOne({ where: { id: savedOrder.id } });
+                if (fresh) await bridge.createResolutionsForPaidOrder(fresh, userId);
+            }
+            return await this.upsellOrderRepo.findOne({ where: { id: savedOrder.id } });
+        } catch (err: any) {
+            logger.warn(`[UpsellOrder] post-create bridge failed for #${savedOrder.id}: ${err?.message}`);
+        }
+
         return savedOrder;
     }
 
@@ -312,6 +336,11 @@ export class UpsellOrderService {
             }
         }
 
+        const wasPaid = this.isPaidStatus(existingOrder.status);
+        const willBePaid = data.status != null
+            ? this.isPaidStatus(String(data.status))
+            : wasPaid;
+
         await this.upsellOrderRepo.update(id, { ...data, updated_by: userId, updated_at: new Date() });
         if (requestedDate !== undefined) {
             await this.setRequestedDateIfSupported(id, requestedDate);
@@ -321,6 +350,21 @@ export class UpsellOrderService {
         if (updatedOrder) {
             await this.logOrderChanges(id, existingOrder, updatedOrder, userId, this.historyFields);
         }
+
+        // Newly Paid → Resolutions (amount + amountToPayout) + ensure Stripe link exists.
+        if (!wasPaid && willBePaid && updatedOrder) {
+            try {
+                const { UpsellRequestBridgeService } = require("./UpsellRequestBridgeService");
+                const bridge = new UpsellRequestBridgeService();
+                await bridge.ensureStripePaymentLink(updatedOrder.id, userId);
+                await bridge.createResolutionsForPaidOrder(updatedOrder, userId);
+                // Refresh after resolution_id write.
+                return await this.upsellOrderRepo.findOne({ where: { id } });
+            } catch (err: any) {
+                logger.error(`[UpsellOrder] Paid hooks failed for #${id}: ${err?.message}`);
+            }
+        }
+
         return updatedOrder;
     }
 
@@ -437,16 +481,24 @@ export class UpsellOrderService {
         const pmListings = await listingService.getPmListings();
         const isPmListing = pmListings.some(listing => listing.id == Number(upsell.listing_id));
 
-        let netAmount = 0;
+        let netAmount = Number(upsell.cost) || 0;
         if (isPmListing) {
-            const processingFee = upsell.cost * 0.03;
-            netAmount = Math.ceil(upsell.cost - processingFee);
-            const listingPmFee = await listingService.getListingPmFee();
-            let pmFeePercent = (listingPmFee.find((listing) => listing.listingId == Number(upsell.listing_id))?.pmFee) / 100 || 0.1; // default to 10% if not found
-            const pmFee = netAmount * pmFeePercent;
-            netAmount = netAmount - pmFee;
-        } else {
-            netAmount = upsell.cost;
+            // Prefer listing tag with "%", then listing_score_info, default 10%.
+            let pmPercent: number | null = null;
+            try {
+                const listing = await appDatabase.getRepository(Listing).findOne({
+                    where: { id: Number(upsell.listing_id) },
+                    withDeleted: true,
+                } as any);
+                pmPercent = extractPmFeePercentFromTags((listing as any)?.tags || "");
+            } catch { /* ignore */ }
+            if (pmPercent == null) {
+                const listingPmFee = await listingService.getListingPmFee(Number(upsell.listing_id));
+                const raw = listingPmFee.find((listing) => listing.listingId == Number(upsell.listing_id))?.pmFee;
+                pmPercent = parsePmFeePercent(raw as any);
+            }
+            if (pmPercent == null) pmPercent = 10;
+            netAmount = computeUpsellAmountToPayout(Number(upsell.cost) || 0, pmPercent);
         }
 
         return {

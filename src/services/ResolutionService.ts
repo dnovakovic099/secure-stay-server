@@ -297,6 +297,34 @@ export class ResolutionService {
         return this.getResolutionCategories();
     }
 
+    /** Idempotent: ensure a resolution category exists by display name. */
+    async ensureResolutionCategoryByName(name: string) {
+        const normalizedName = String(name || "").trim();
+        if (!normalizedName) return null;
+        await this.ensureResolutionCategories();
+        const categoryKey = this.normalizeCategoryKey(normalizedName);
+        if (!categoryKey) return null;
+
+        const existing = await this.resolutionCategoryRepo.findOne({ where: { categoryKey } });
+        if (existing) {
+            await this.ensureAccountingCategory(existing.name || normalizedName);
+            return existing;
+        }
+
+        const maxOrder = await this.resolutionCategoryRepo
+            .createQueryBuilder("category")
+            .select("MAX(category.displayOrder)", "maxOrder")
+            .getRawOne();
+
+        const category = new ResolutionCategory();
+        category.categoryKey = categoryKey;
+        category.name = normalizedName;
+        category.displayOrder = Number(maxOrder?.maxOrder || 0) + 1;
+        const saved = await this.resolutionCategoryRepo.save(category);
+        await this.ensureAccountingCategory(normalizedName);
+        return saved;
+    }
+
     async updateResolutionCategory(categoryKey: string, body: { name?: string }) {
         const category = await this.resolutionCategoryRepo.findOne({ where: { categoryKey } });
         if (!category) throw CustomErrorHandler.notFound("Resolution category not found.");

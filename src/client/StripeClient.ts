@@ -37,6 +37,39 @@ export class StripeClient {
         return session.id;
     }
 
+    /**
+     * Create a Stripe Checkout Session for an upsell Request & Order.
+     * Returns the session id + hosted URL for payment_link storage.
+     */
+    async createUpsellCheckoutSession(input: {
+        name: string;
+        price: number;
+        currency?: string;
+        successUrl: string;
+        cancelUrl: string;
+        clientReferenceId?: string;
+        metadata?: Record<string, string>;
+    }): Promise<{ id: string; url: string | null }> {
+        const currency = (input.currency || "usd").toLowerCase();
+        const session = await this.stripe.checkout.sessions.create({
+            payment_method_types: ["card"],
+            line_items: [{
+                price_data: {
+                    currency,
+                    product_data: { name: input.name },
+                    unit_amount: Math.round(Math.max(0, Number(input.price) || 0) * 100),
+                },
+                quantity: 1,
+            }],
+            mode: "payment",
+            client_reference_id: input.clientReferenceId || input.name,
+            success_url: input.successUrl,
+            cancel_url: input.cancelUrl,
+            metadata: input.metadata || {},
+        });
+        return { id: session.id, url: session.url };
+    }
+
 
      verifyDataIntegrity(data: any, sig): Stripe.Event {
         let event;
