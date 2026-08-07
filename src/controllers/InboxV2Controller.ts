@@ -126,6 +126,8 @@ export class InboxV2Controller {
             const result = await new InboxService().updateAirbnbCaseMetadata(threadId, {
                 status: request.body?.status,
                 refundStatus: request.body?.refundStatus,
+                category: request.body?.category,
+                refundedAmount: request.body?.refundedAmount,
             });
             return response.status(200).json({ status: true, data: result });
         } catch (error) {

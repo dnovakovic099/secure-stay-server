@@ -482,7 +482,7 @@ export class InboxService {
     /** SecureStay workflow metadata, deliberately separate from Hostify fields. */
     async updateAirbnbCaseMetadata(
         threadId: number,
-        patch: { status?: unknown; refundStatus?: unknown }
+        patch: { status?: unknown; refundStatus?: unknown; category?: unknown; refundedAmount?: unknown }
     ) {
         const conversation = await this.conversationRepo.findOne({ where: { threadId } });
         if (!conversation) throw new CustomErrorHandler(404, "Conversation not found");
@@ -491,6 +491,21 @@ export class InboxService {
         }
         const caseStatuses = new Set(["New", "In Progress", "Closed"]);
         const refundStatuses = new Set(["No Refund", "Partially Refunded", "Fully Refunded", "N/A"]);
+        const categories = new Set([
+            "Reservation Changes",
+            "Cancellation & Rebooking",
+            "Refunds & Compensation",
+            "Payment & Charges",
+            "Check-In & Property Access",
+            "Property Condition & Amenities",
+            "Safety & Incidents",
+            "Guest Conduct & Policy",
+            "Accessibility & Discrimination",
+            "Reviews & Complaint Resolution",
+            "Documentation & Evidence",
+            "Account & Platform Support",
+            "Other / Needs Review",
+        ]);
         if (patch.status !== undefined) {
             const status = String(patch.status || "").trim();
             if (!caseStatuses.has(status)) throw new CustomErrorHandler(400, "Invalid Airbnb case status");
@@ -498,8 +513,24 @@ export class InboxService {
         }
         if (patch.refundStatus !== undefined) {
             const refundStatus = String(patch.refundStatus || "").trim();
-            if (!refundStatuses.has(refundStatus)) throw new CustomErrorHandler(400, "Invalid Airbnb refund status");
-            conversation.airbnbRefundStatus = refundStatus;
+            if (refundStatus && !refundStatuses.has(refundStatus)) throw new CustomErrorHandler(400, "Invalid Airbnb refund status");
+            conversation.airbnbRefundStatus = refundStatus || null;
+        }
+        if (patch.category !== undefined) {
+            const category = String(patch.category || "").trim();
+            if (category && !categories.has(category)) {
+                throw new CustomErrorHandler(400, "Invalid Airbnb case category");
+            }
+            conversation.airbnbCaseCategory = category || null;
+        }
+        if (patch.refundedAmount !== undefined) {
+            const raw = String(patch.refundedAmount ?? "").trim();
+            if (!raw) conversation.airbnbRefundedAmount = null;
+            else {
+                const amount = Number(raw);
+                if (!Number.isFinite(amount) || amount < 0) throw new CustomErrorHandler(400, "Refunded amount must be a non-negative number");
+                conversation.airbnbRefundedAmount = amount;
+            }
         }
         return this.conversationRepo.save(conversation);
     }
@@ -2506,7 +2537,9 @@ export class InboxService {
      */
     private async saveOutgoingOrAdoptWebhook(message: InboxMessageEntity): Promise<InboxMessageEntity> {
         try {
-            return await this.messageRepo.save(message);
+            const saved = await this.messageRepo.save(message);
+            await this.markAirbnbSupportCaseInProgressOnce(message.threadId, message.sentByUserId);
+            return saved;
         } catch (err: any) {
             if (!String(err?.message || "").includes("Duplicate entry")) throw err;
             const existing = await this.messageRepo.findOne({ where: { externalId: message.externalId } });
@@ -2524,8 +2557,19 @@ export class InboxService {
             logger.info(
                 `[InboxService] outgoing ${message.externalId} already stored by webhook — attributed via=${message.sentVia || "inbox"}`
             );
+            await this.markAirbnbSupportCaseInProgressOnce(message.threadId, message.sentByUserId);
             return saved;
         }
+    }
+
+    private async markAirbnbSupportCaseInProgressOnce(threadId: number, sentByUserId: number | null) {
+        if (sentByUserId == null) return;
+        const conversation = await this.conversationRepo.findOne({ where: { threadId } });
+        if (!conversation || !this.isAirbnbSupportConversation(conversation, [])) return;
+        if (conversation.airbnbCaseAutoStatusAppliedAt || ![null, "", "New"].includes(conversation.airbnbCaseStatus)) return;
+        conversation.airbnbCaseStatus = "In Progress";
+        conversation.airbnbCaseAutoStatusAppliedAt = new Date();
+        await this.conversationRepo.save(conversation);
     }
 
     private getLocalInboxAttachmentPath(attachment: InboxReplyAttachment): string | null {
@@ -2657,8 +2701,9 @@ export class InboxService {
 
         const { userId, userName } = await this.resolveSender(user);
         const attachmentUrls = (opts.attachmentUrls || []).filter(Boolean);
-        const fileText = attachmentUrls.length ? attachmentUrls.map((url) => `Attachment: ${url}`).join("\n") : "";
-        const noteText = [note, fileText].filter(Boolean).join("\n\n");
+        // Attachments have their own structured field and are rendered inline by
+        // Inbox V2. Do not duplicate a URL in the note body.
+        const noteText = note;
 
         const message = this.messageRepo.create({
             externalId: -Date.now(),

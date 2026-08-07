@@ -195,6 +195,15 @@ export class InboxConversationEntity {
     @Column({ length: 32, nullable: true })
     airbnbRefundStatus: string | null;
 
+    @Column({ length: 48, nullable: true })
+    airbnbCaseCategory: string | null;
+
+    @Column({ type: "decimal", precision: 12, scale: 2, nullable: true })
+    airbnbRefundedAmount: number | null;
+
+    @Column({ type: "datetime", nullable: true })
+    airbnbCaseAutoStatusAppliedAt: Date | null;
+
     @CreateDateColumn({ type: "timestamp" })
     createdAt: Date;
 
