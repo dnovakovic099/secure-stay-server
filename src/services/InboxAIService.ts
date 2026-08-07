@@ -2513,6 +2513,29 @@ export class InboxAIService {
                 logger.warn(`[InboxAI] Quo learning prompt raise failed: ${e.message}`);
             }
         }
+
+        // Same AI plans / ops_course path as Hostify (preview only).
+        // Quo synthetic conversation uses threadId=0 for context building — plans
+        // must key off the Quo conversation row id so listForThread can find them.
+        if (!isPmLine && target && target.direction === "incoming") {
+            try {
+                const { AIProposedActionService } = await import("./AIProposedActionService");
+                const planConv = Object.assign(
+                    Object.create(Object.getPrototypeOf(conversation)),
+                    conversation,
+                    { threadId: Number(conv.id) }
+                ) as InboxConversationEntity;
+                new AIProposedActionService()
+                    .detectForMessage({
+                        conversation: planConv,
+                        guestMessage: target,
+                        suggestion,
+                    })
+                    .catch(() => {});
+            } catch {
+                /* non-fatal */
+            }
+        }
         return this.quoResult(suggestion, conv);
     }
 

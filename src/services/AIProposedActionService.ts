@@ -1,3 +1,4 @@
+import OpenAI from "openai";
 import { In, Not } from "typeorm";
 import { appDatabase } from "../utils/database.util";
 import logger from "../utils/logger.utils";
@@ -9,6 +10,11 @@ import { ActionItems } from "../entity/ActionItems";
 import { Hostify } from "../client/Hostify";
 import { AIMessagingSettingsService } from "./AIMessagingSettingsService";
 import { AIMemoryService } from "./AIMemoryService";
+import {
+    buildOpsCoursePlan,
+    OPS_COURSE_ACTION_TYPE,
+    shouldProposeOpsCourse,
+} from "./InboxAIOpsCourse";
 
 /**
  * AIProposedActionService
@@ -47,7 +53,7 @@ export const BOT_ACTION_EXECUTION_ENABLED = false;
 
 export const PROPOSED_ACTION_DEFAULTS = {
     proposedActionInstructions:
-        "Proposed Actions are generated after an AI suggestion is saved for an incoming guest message. The detector looks for early check-in, late checkout, stay extensions, and access-code/lockout requests. Operational problem reports are handled by Guest Issues tickets instead. Existing open proposals of the same action type on the thread block duplicates. Accept is currently disabled — cards show the AI plan only.",
+        "Proposed Actions are generated after an AI suggestion is saved for an incoming guest message. Specialty detectors cover early check-in, late checkout, stay extensions, and access-code/lockout. A general ops_course plan also proposes the full course of action a rep might take (follow up guest/owner/vendor, update tickets, notify reps) — including low-confidence guesses when unsure. Accept is currently disabled — cards show the AI plan only behind Open.",
     proposedActionApproveInstructions:
         "Approve creates the internal task/action tied to the proposal and marks the proposal executed. It does not send the proposed guest reply. Currently disabled — preview only.",
     proposedActionApproveSendInstructions:
@@ -66,15 +72,28 @@ export type RecommendedActionStep = {
     id: string;
     label: string;
     detail?: string;
-    status: "recommended" | "optional" | "blocked";
+    status: "recommended" | "optional" | "blocked" | "guess";
+    /** 0..1 — how sure the planner is this step is right. */
+    confidence?: number;
+    /** Who this step is aimed at. */
+    actor?: string;
+    /** Delivery channel hint (hostify / quo / internal). */
+    channel?: string;
 };
 
 export class AIProposedActionService {
     private repo = appDatabase.getRepository(AIProposedActionEntity);
     private hostify = new Hostify();
+    private openai: OpenAI | null = null;
 
     private get hostifyApiKey(): string {
         return process.env.HOSTIFY_API_KEY as string;
+    }
+
+    private getOpenAI(): OpenAI | null {
+        if (!process.env.OPENAI_API_KEY) return null;
+        if (!this.openai) this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        return this.openai;
     }
 
     static isEnabled(): boolean {
@@ -116,13 +135,11 @@ export class AIProposedActionService {
             const text = String(input.guestMessage?.body || "").trim();
             if (!text) return created;
 
-            // Cheap regex screen first — only hit the DB when something matched.
-            const matchedAny =
+            const matchedSpecialty =
                 LATE_CHECKOUT_RE.test(text) ||
                 EARLY_CHECKIN_RE.test(text) ||
                 LOCKOUT_RE.test(text) ||
                 EXTENSION_RE.test(text);
-            if (!matchedAny) return created;
 
             const open = await this.repo.find({
                 where: {
@@ -132,30 +149,32 @@ export class AIProposedActionService {
             });
             const hasOpen = (type: string) => open.some((a) => a.actionType === type);
 
-            if (LATE_CHECKOUT_RE.test(text) && !hasOpen("late_checkout")) {
-                const a = await this.proposeScheduleChange(input, "late_checkout", text, reference);
-                if (a) created.push(a);
-            }
-            if (EARLY_CHECKIN_RE.test(text) && !hasOpen("early_check_in")) {
-                const a = await this.proposeScheduleChange(input, "early_check_in", text, reference);
-                if (a) created.push(a);
-            }
-            // Extensions are not late checkout — separate plan (human prices the night).
-            if (
-                EXTENSION_RE.test(text) &&
-                !LATE_CHECKOUT_RE.test(text) &&
-                !hasOpen("extension")
-            ) {
-                const a = await this.proposeExtension(input, text, reference);
-                if (a) created.push(a);
-            }
-            // Lockout / access — prefer live code resend; else access walkthrough plan.
-            if (LOCKOUT_RE.test(text) && !hasOpen("resend_access_code") && !hasOpen("access")) {
-                const codePlan = await this.proposeAccessCodeResend(input, text, reference);
-                if (codePlan) created.push(codePlan);
-                else {
-                    const accessPlan = await this.proposeHandoverPlan(input, "access", text, reference);
-                    if (accessPlan) created.push(accessPlan);
+            if (matchedSpecialty) {
+                if (LATE_CHECKOUT_RE.test(text) && !hasOpen("late_checkout")) {
+                    const a = await this.proposeScheduleChange(input, "late_checkout", text, reference);
+                    if (a) created.push(a);
+                }
+                if (EARLY_CHECKIN_RE.test(text) && !hasOpen("early_check_in")) {
+                    const a = await this.proposeScheduleChange(input, "early_check_in", text, reference);
+                    if (a) created.push(a);
+                }
+                // Extensions are not late checkout — separate plan (human prices the night).
+                if (
+                    EXTENSION_RE.test(text) &&
+                    !LATE_CHECKOUT_RE.test(text) &&
+                    !hasOpen("extension")
+                ) {
+                    const a = await this.proposeExtension(input, text, reference);
+                    if (a) created.push(a);
+                }
+                // Lockout / access — prefer live code resend; else access walkthrough plan.
+                if (LOCKOUT_RE.test(text) && !hasOpen("resend_access_code") && !hasOpen("access")) {
+                    const codePlan = await this.proposeAccessCodeResend(input, text, reference);
+                    if (codePlan) created.push(codePlan);
+                    else {
+                        const accessPlan = await this.proposeHandoverPlan(input, "access", text, reference);
+                        if (accessPlan) created.push(accessPlan);
+                    }
                 }
             }
 
@@ -171,6 +190,15 @@ export class AIProposedActionService {
                 }
             } catch {
                 /* pin service optional for detect */
+            }
+
+            // General ops course — anything a rep might do. Always propose when
+            // the guest message needs work (even if unsure → low-confidence guess).
+            // Refreshes an existing open ops_course so Anj sees the latest plan.
+            if (shouldProposeOpsCourse(text)) {
+                const existingCourse = open.find((a) => a.actionType === OPS_COURSE_ACTION_TYPE) || null;
+                const course = await this.proposeOpsCourse(input, text, reference, existingCourse);
+                if (course && !existingCourse) created.push(course);
             }
         } catch (err: any) {
             logger.warn(`[AIProposedAction] detection failed (thread ${input.conversation.threadId}): ${err.message}`);
@@ -794,6 +822,116 @@ export class AIProposedActionService {
             executionEnabled: false,
             disableReason: "Bot Accept is disabled for now — view the AI plan only",
         };
+    }
+
+    /**
+     * General course-of-action plan (ops_course): follow up guest/owner/vendor,
+     * update tickets, notify reps, or low-confidence guesses when unsure.
+     * Preview only — reuses the existing AI plan Open / View UI.
+     */
+    private async proposeOpsCourse(
+        input: ProposedActionInput,
+        guestText: string,
+        settingsReference: string | null,
+        existing: AIProposedActionEntity | null
+    ): Promise<AIProposedActionEntity | null> {
+        const conv = input.conversation;
+        const suggestion = input.suggestion;
+
+        let suggestedActionItems: string[] = [];
+        let warnings: string[] = [];
+        try {
+            const rawItems = suggestion?.suggestedActionItems;
+            if (typeof rawItems === "string" && rawItems.trim()) {
+                const parsed = JSON.parse(rawItems);
+                if (Array.isArray(parsed)) suggestedActionItems = parsed.map((x) => String(x));
+            } else if (Array.isArray(rawItems)) {
+                suggestedActionItems = (rawItems as any[]).map((x) => String(x));
+            }
+        } catch {
+            /* ignore */
+        }
+        try {
+            const rawWarn = suggestion?.warnings;
+            if (typeof rawWarn === "string" && rawWarn.trim()) {
+                const parsed = JSON.parse(rawWarn);
+                if (Array.isArray(parsed)) warnings = parsed.map((x) => String(x));
+            } else if (Array.isArray(rawWarn)) {
+                warnings = (rawWarn as any[]).map((x) => String(x));
+            }
+        } catch {
+            /* ignore */
+        }
+
+        const plan = await buildOpsCoursePlan(this.getOpenAI(), {
+            guestText,
+            guestName: conv.guestName,
+            listingName: conv.listingName,
+            reservationStatus: conv.reservationStatus,
+            draftReply: suggestion?.suggestedReply || null,
+            escalationRequired: Number(suggestion?.escalationRequired) === 1,
+            escalationReason: suggestion?.escalationReason || null,
+            suggestedActionItems,
+            warnings,
+            confidencePct: suggestion?.confidence ?? null,
+        });
+
+        const payload = this.previewOnlyPayload({
+            guestQuote: guestText.slice(0, 500),
+            recommendedSteps: plan.recommendedSteps,
+            planSummary: plan.planSummary,
+            plannedChannels: plan.plannedChannels,
+            overallConfidence: plan.overallConfidence,
+            handoverKind: OPS_COURSE_ACTION_TYPE,
+            courseKind: "general_ops",
+        });
+
+        const evidence = this.withSettingsReference(plan.evidence, settingsReference);
+
+        if (existing && existing.status === "proposed") {
+            existing.suggestionId = suggestion?.id ?? existing.suggestionId;
+            existing.title = plan.title.slice(0, 255);
+            existing.evidence = evidence;
+            existing.proposedReply = plan.proposedReply;
+            existing.taskDescription = plan.taskDescription;
+            existing.payload = JSON.stringify(payload);
+            existing.messageId =
+                input.guestMessage?.externalId != null
+                    ? Number(input.guestMessage.externalId)
+                    : existing.messageId;
+            const saved = await this.repo.save(existing);
+            logger.info(
+                `[AIProposedAction] refreshed ops_course #${saved.id} thread=${conv.threadId} ` +
+                    `steps=${plan.recommendedSteps.length} conf=${Math.round(plan.overallConfidence * 100)}`
+            );
+            return saved;
+        }
+
+        const saved = await this.repo.save(
+            this.repo.create({
+                suggestionId: suggestion?.id ?? null,
+                source: "hostify",
+                threadId: Number(conv.threadId),
+                messageId:
+                    input.guestMessage?.externalId != null
+                        ? Number(input.guestMessage.externalId)
+                        : null,
+                reservationId: conv.reservationId ? Number(conv.reservationId) : null,
+                listingId: conv.listingId ? Number(conv.listingId) : null,
+                actionType: OPS_COURSE_ACTION_TYPE,
+                title: plan.title.slice(0, 255),
+                evidence,
+                proposedReply: plan.proposedReply,
+                taskDescription: plan.taskDescription,
+                payload: JSON.stringify(payload),
+                status: "proposed",
+            })
+        );
+        logger.info(
+            `[AIProposedAction] created ops_course #${saved.id} thread=${conv.threadId} ` +
+                `steps=${plan.recommendedSteps.length} conf=${Math.round(plan.overallConfidence * 100)}`
+        );
+        return saved;
     }
 
     /**
@@ -1591,6 +1729,11 @@ export class AIProposedActionService {
         if (action.status !== "proposed") throw new Error(`Action ${id} is already ${action.status}`);
         // Refuse rather than silently no-op: this type no longer has a reply or a
         // task to create, so executing it would just mark the row done.
+        if (action.actionType === OPS_COURSE_ACTION_TYPE) {
+            throw new Error(
+                `Action ${id} is a general ops course (preview only) — Accept is not wired for multi-party follow-ups yet. Dismiss or follow the steps manually.`
+            );
+        }
         if (action.actionType === RETIRED_ACTION_TYPE) {
             throw new Error(
                 `Action ${id} is a retired ${RETIRED_ACTION_TYPE} proposal — Guest Issues tickets cover these now. Dismiss it instead.`
