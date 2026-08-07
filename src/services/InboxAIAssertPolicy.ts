@@ -666,5 +666,55 @@ export function wrongInfoHoldingReply(guestText?: string | null): string {
     if (/\b(early|late).{0,12}check|extend|extra night\b/i.test(t)) {
         return "Thanks for asking — I'm checking availability with the team and we'll confirm the exact details (including any fee) shortly.";
     }
+    if (/\b(fee|price|cost|charge|payment)\b/i.test(t)) {
+        return "Thanks for asking — I want to quote the exact amount from our system, so I'm confirming the live fee with the team and we'll follow up shortly.";
+    }
     return "Thanks for your message — I want to make sure we give you accurate details, so I'm having the team confirm and follow up shortly.";
+}
+
+/**
+ * Dollar amounts in a reply that are NOT grounded in context as money.
+ * Requires a currency-ish appearance in context (not a raw digit substring match),
+ * so a phone number containing "206" does not excuse inventing "$206".
+ */
+export function inventedMoneyAmounts(reply: string, contextHaystack: string): string[] {
+    const hay = String(contextHaystack || "").toLowerCase();
+    const replyText = String(reply || "");
+    const leaks: string[] = [];
+    const re = /[$€£]\s?([\d,]+(?:\.\d+)?)/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(replyText))) {
+        const raw = m[0].replace(/\s+/g, "");
+        const amount = m[1].replace(/,/g, "");
+        if (!amount || !Number.isFinite(Number(amount))) continue;
+        if (moneyAmountGroundedInContext(hay, amount)) continue;
+        leaks.push(raw.startsWith("$") || raw.startsWith("€") || raw.startsWith("£") ? raw : `$${amount}`);
+    }
+    return [...new Set(leaks)];
+}
+
+function moneyAmountGroundedInContext(haystack: string, amount: string): boolean {
+    const n = Number(amount);
+    if (!Number.isFinite(n)) return false;
+    const variants = new Set<string>([
+        amount,
+        amount.replace(/\.00$/, ""),
+        n.toFixed(2),
+        String(Math.round(n)),
+    ]);
+    for (const v of variants) {
+        const esc = v.replace(/\./g, "\\.");
+        if (new RegExp(`[$€£]\\s*${esc}\\b`).test(haystack)) return true;
+        if (new RegExp(`\\b${esc}\\s*(?:usd|dollars?)\\b`, "i").test(haystack)) return true;
+        if (haystack.includes(`fee $${v}`) || haystack.includes(`guestfee: ${v}`)) return true;
+        if (haystack.includes(`$${v}`)) return true;
+    }
+    return false;
+}
+
+/** True when the guest ask is about early/late check-in/out. */
+export function guestAsksEarlyOrLateCheck(text: string): boolean {
+    return /\b(early check|late check|check[- ]?in early|check[- ]?out late|arrive early|checkout late|early arrival|late departure)\b/i.test(
+        String(text || "")
+    );
 }

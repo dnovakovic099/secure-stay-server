@@ -56,7 +56,9 @@ import {
     AssertEvalContext,
     derivePaymentState,
     guestAsksAgreement,
+    guestAsksEarlyOrLateCheck,
     guestAsksWifi,
+    inventedMoneyAmounts,
     PaymentState,
     renderAssertPolicyBlock,
     renderEarlyLateCheckPolicy,
@@ -80,6 +82,14 @@ import {
     runReplyEditor,
     verifierFromEditor,
 } from "./InboxAIReplyEditor";
+import {
+    buildFeeSystemPrompt,
+    contextAllowsSection,
+    ContextSection,
+    PromptBucket,
+    promptVersionForBucket,
+    resolvePromptBucket,
+} from "./InboxAIPromptBuckets";
 
 /**
  * InboxAIService
@@ -104,7 +114,7 @@ import {
  * human via the escalation keyword safety net.
  */
 
-export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v8.2"; // v8.2: risk-triggered reply Editor rewrite pass (shadow/live)
+export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v9.0"; // v9.0: intent-bucket prompts (fee specialist strips non-fee context)
 const INBOX_AI_MODEL = process.env.AI_MESSAGING_MODEL || "gpt-4.1";
 
 // How long a finished ops item stays in the ledger. Long enough that the bot can
@@ -703,9 +713,23 @@ export class InboxAIService {
         }
 
         const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
+        const guestAskForBucket =
+            targetMessage?.direction === "incoming" && !Number(targetMessage.isAutomatic)
+                ? targetMessage.body || ""
+                : "";
+        // Staff Refine/Generate can ask for anything — keep the full prompt.
+        const promptBucket = instructions?.trim()
+            ? ("general" as PromptBucket)
+            : resolvePromptBucket(guestAskForBucket);
+        if (promptBucket !== "general") {
+            logger.info(
+                `[InboxAI] prompt_bucket=${promptBucket} thread=${threadId} listing=${conversation.listingId ?? "?"}`
+            );
+        }
         const context = await this.buildContext(conversation, messages, targetMessage, {
             instructions,
             baseDraft,
+            promptBucket,
         });
         const keywordEscalation = this.scanForEscalation(targetMessage?.body || conversation.lastMessageText || "");
         const inquirySales =
@@ -718,7 +742,7 @@ export class InboxAIService {
             const client = this.getClient();
             const completion = await client.chat.completions.create({
                 model: INBOX_AI_MODEL,
-                temperature: 0.4,
+                temperature: promptBucket === "fee" ? 0.2 : 0.4,
                 response_format: { type: "json_object" },
                 messages: [
                     {
@@ -726,6 +750,7 @@ export class InboxAIService {
                         content: this.systemPrompt(settings, {
                             airbnbSupport: this.isAirbnbSupportThread(conversation, messages),
                             inquirySales,
+                            promptBucket,
                         }),
                     },
                     { role: "user", content: context },
@@ -771,27 +796,9 @@ export class InboxAIService {
         }
 
         // (b) Anti-invention net: flag codes/prices in the reply that do not appear
-        //     verbatim anywhere in the provided context (history + listing block).
+        //     in the provided context (history + listing block).
         const contextHaystack = (context + " " + messages.map((m) => m.body || "").join(" ")).toLowerCase();
         let reply = output.suggested_reply || "";
-        const leaks: string[] = [];
-        for (const tok of reply.match(/\b\d{4,8}#?/g) || []) {
-            const digits = tok.replace(/\D/g, "");
-            if (digits && !contextHaystack.includes(digits)) leaks.push(tok);
-        }
-        for (const tok of reply.match(/[$€£]\s?\d[\d,]*(?:\.\d+)?/g) || []) {
-            const num = tok.replace(/[^\d.]/g, "");
-            if (num && !contextHaystack.includes(num)) leaks.push(tok);
-        }
-        if (leaks.length) {
-            warnings.push(
-                `Reply may contain unverified value(s) not found in context: ${leaks.join(", ")}. Verify before sending.`
-            );
-        }
-
-        // (b3) Speech-act gate — codes, discretionary approvals, unconfirmed ops
-        //      completions, Hostify-as-agreement — even when raw values exist in context.
-        const stageLine = this.stayStageLine(conversation.checkin, conversation.checkout);
         // Only the guest's inbound turn counts for extension detection — never fall
         // back to lastMessageText (often our automated welcome, which markets
         // "extend your stay" and was false-pinning brand-new bookings).
@@ -799,6 +806,35 @@ export class InboxAIService {
             targetMessage?.direction === "incoming" && !Number(targetMessage.isAutomatic)
                 ? targetMessage.body || ""
                 : "";
+        const leaks: string[] = [];
+        for (const tok of reply.match(/\b\d{4,8}#?/g) || []) {
+            const digits = tok.replace(/\D/g, "");
+            if (digits && !contextHaystack.includes(digits)) leaks.push(tok);
+        }
+        // Money: require currency-grounded match (not raw digit substring).
+        const moneyLeaks = inventedMoneyAmounts(reply, contextHaystack);
+        for (const tok of moneyLeaks) leaks.push(tok);
+        if (leaks.length) {
+            warnings.push(
+                `Reply may contain unverified value(s) not found in context: ${leaks.join(", ")}. Verify before sending.`
+            );
+        }
+        // Invented dollar amounts are wrong_info — replace draft (do not ship a bad fee).
+        if (moneyLeaks.length) {
+            reply = wrongInfoHoldingReply(guestAskText);
+            output.suggested_reply = reply;
+            output.escalation_required = true;
+            output.escalation_reason = output.escalation_reason
+                ? `${output.escalation_reason}; invented_money:${moneyLeaks.join("|")}`
+                : `invented_money:${moneyLeaks.join("|")}`;
+            warnings.push(
+                `Replaced draft — invented money amount(s) not in context (${moneyLeaks.join(", ")}).`
+            );
+        }
+
+        // (b3) Speech-act gate — codes, discretionary approvals, unconfirmed ops
+        //      completions, Hostify-as-agreement — even when raw values exist in context.
+        const stageLine = this.stayStageLine(conversation.checkin, conversation.checkout);
 
         // (b2) Ops-ledger gate: the reply asserts an operational action is done,
         //      under way, or approved. The ops ledger in the context is the only
@@ -1008,7 +1044,7 @@ export class InboxAIService {
             warnings: JSON.stringify(warnings || []),
             suggestedActionItems: JSON.stringify(output.suggested_action_items || []),
             modelName: INBOX_AI_MODEL,
-            promptVersion: INBOX_AI_PROMPT_VERSION,
+            promptVersion: promptVersionForBucket(INBOX_AI_PROMPT_VERSION, promptBucket),
             status: "suggested",
             salesMode: inquirySales ? 1 : 0,
             rawResponse: reviewed.rawResponse,
@@ -1017,7 +1053,7 @@ export class InboxAIService {
         const saved = await this.suggestionRepo.save(suggestion);
         logger.info(
             `[InboxAIService] suggestion ${saved.id} generated for thread ${threadId} ` +
-            `(conf ${confidencePct ?? "?"}, verified ${reviewed.verifier?.confidence ?? "?"}, escalate ${saved.escalationRequired}` +
+            `(bucket=${promptBucket}, conf ${confidencePct ?? "?"}, verified ${reviewed.verifier?.confidence ?? "?"}, escalate ${saved.escalationRequired}` +
             `${reviewed.editorApplied ? ", editor=applied" : reviewed.editorRan ? ", editor=shadow" : ""})`
         );
 
@@ -1247,9 +1283,27 @@ export class InboxAIService {
                     const draftBefore = reply;
                     reply = stripDashes(editor.reply);
                     editorApplied = true;
-                    const v = verifierFromEditor(editor);
+                    // Editor must not re-introduce invented dollar amounts.
+                    const postMoney = inventedMoneyAmounts(reply, params.context.toLowerCase());
+                    if (postMoney.length) {
+                        reply = wrongInfoHoldingReply(params.guestText);
+                        escalationRequired = true;
+                        escalationReason = escalationReason
+                            ? `${escalationReason}; editor_invented_money`
+                            : `editor_invented_money:${postMoney.join("|")}`;
+                        extraWarnings.push(
+                            `Editor invented money amount(s) not in context (${postMoney.join(", ")}); held.`
+                        );
+                    }
+                    const v = verifierFromEditor({
+                        ...editor,
+                        reply,
+                        stillUnanswered: postMoney.length
+                            ? [...editor.stillUnanswered, ...postMoney.map((m) => `ungrounded fee ${m}`)]
+                            : editor.stillUnanswered,
+                    });
                     verifier = v;
-                    if (editor.stillUnanswered.length) {
+                    if (editor.stillUnanswered.length && !postMoney.length) {
                         // Incomplete after rewrite → human must finish; also blocks autosend.
                         escalationRequired = true;
                         escalationReason = escalationReason
@@ -1260,17 +1314,18 @@ export class InboxAIService {
                         );
                     }
                     // Successful edits are logged only — do NOT push into warnings
-                    // (any warning blocks autosend).
+                    // (any warning blocks autosend) unless we held for invented money.
                     rawResponse = attachEditorToRawResponse(rawResponse, {
                         mode,
                         triggeredBy: triggers,
-                        result: editor,
+                        result: { ...editor, reply },
                         applied: true,
                         draftBefore,
                     });
                     logger.info(
                         `[InboxAIService] editor live applied triggers=${triggers.join("|")} ` +
-                            `unanswered=${editor.stillUnanswered.length} changes=${editor.changesMade.length}`
+                            `unanswered=${editor.stillUnanswered.length} changes=${editor.changesMade.length}` +
+                            `${postMoney.length ? ` moneyHold=${postMoney.join("|")}` : ""}`
                     );
                 } else {
                     // Editor failed — fall back to score verifier so autosend still gated.
@@ -1502,7 +1557,10 @@ export class InboxAIService {
     }> {
         const { conversation, messagesThroughTarget: messages, targetMessage, mode } = params;
         const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
-        let flatContext = await this.buildContext(conversation, messages, targetMessage, {});
+        const replayBucket = resolvePromptBucket(targetMessage?.body || "");
+        let flatContext = await this.buildContext(conversation, messages, targetMessage, {
+            promptBucket: replayBucket,
+        });
         let ledger = new FactLedger();
         let verifierContext = flatContext;
         let context = flatContext;
@@ -1521,13 +1579,14 @@ export class InboxAIService {
         let system = this.systemPrompt(settings, {
             airbnbSupport: this.isAirbnbSupportThread(conversation, messages),
             inquirySales,
+            promptBucket: replayBucket,
         });
         if (mode === "hard_fact") system += hardFactSystemAddendum();
 
         const client = this.getClient();
         const completion = await client.chat.completions.create({
             model: INBOX_AI_MODEL,
-            temperature: 0.4,
+            temperature: replayBucket === "fee" ? 0.2 : 0.4,
             response_format: { type: "json_object" },
             messages: [
                 { role: "system", content: system },
@@ -1690,20 +1749,23 @@ export class InboxAIService {
         if (!target) throw new Error("At least one guest message is required");
 
         const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
+        const sandboxBucket = resolvePromptBucket(target.body || "");
         const context = await this.buildContext(conversation, messages, target, {
             includeKnowledge: true,
+            promptBucket: sandboxBucket,
         });
 
         const client = this.getClient();
         const completion = await client.chat.completions.create({
             model: INBOX_AI_MODEL,
-            temperature: 0.4,
+            temperature: sandboxBucket === "fee" ? 0.2 : 0.4,
             response_format: { type: "json_object" },
             messages: [
                 {
                     role: "system",
                     content: this.systemPrompt(settings, {
                         inquirySales: opts.reservationStatus === "inquiry",
+                        promptBucket: sandboxBucket,
                     }),
                 },
                 { role: "user", content: context },
@@ -2194,12 +2256,19 @@ export class InboxAIService {
         }
 
         const settings = await new AIMessagingSettingsService().getGlobalCached().catch(() => null);
+        const quoPromptBucket = isPmLine ? "general" : resolvePromptBucket(target.body || "");
+        if (quoPromptBucket !== "general") {
+            logger.info(
+                `[InboxAI] prompt_bucket=${quoPromptBucket} quoConv=${conversationId} listing=${conversation.listingId ?? "?"}`
+            );
+        }
         let context = await this.buildContext(conversation, messages, target, {
             // PM-line threads skip the guest-oriented knowledge blocks (KB,
             // upsells, exemplars) — the client block below carries their context.
             includeKnowledge: !isPmLine,
             instructions: opts.instructions ?? null,
             baseDraft: opts.baseDraft ?? null,
+            promptBucket: quoPromptBucket,
         });
         context += `\n\n## Delivery channel note\n${textOrDefault(settings?.quoSmsRules, AI_REPLY_RULE_DEFAULTS.quoSmsRules)}`;
         if (isGroupThread) {
@@ -2226,7 +2295,7 @@ export class InboxAIService {
         const client = this.getClient();
         const completion = await client.chat.completions.create({
             model: INBOX_AI_MODEL,
-            temperature: 0.4,
+            temperature: quoPromptBucket === "fee" ? 0.2 : 0.4,
             response_format: { type: "json_object" },
             messages: [
                 {
@@ -2234,6 +2303,7 @@ export class InboxAIService {
                     content: this.systemPrompt(settings, {
                         inquirySales: !isPmLine && InboxAIService.isInquiryStatus(reservationStatus),
                         pmClient: isPmLine,
+                        promptBucket: quoPromptBucket,
                     }),
                 },
                 { role: "user", content: context },
@@ -2252,22 +2322,31 @@ export class InboxAIService {
         // Anti-invention net: flag codes/prices not present in the context.
         const haystack = (context + " " + messages.map((m) => m.body || "").join(" ")).toLowerCase();
         let reply = output.suggested_reply || "";
+        const quoGuest = target.body || "";
         const leaks: string[] = [];
         for (const tok of reply.match(/\b\d{4,8}#?/g) || []) {
             const digits = tok.replace(/\D/g, "");
             if (digits && !haystack.includes(digits)) leaks.push(tok);
         }
-        for (const tok of reply.match(/[$€£]\s?\d[\d,]*(?:\.\d+)?/g) || []) {
-            const num = tok.replace(/[^\d.]/g, "");
-            if (num && !haystack.includes(num)) leaks.push(tok);
-        }
+        const moneyLeaks = inventedMoneyAmounts(reply, haystack);
+        for (const tok of moneyLeaks) leaks.push(tok);
         const warnings = Array.isArray(output.warnings) ? [...output.warnings] : [];
         if (leaks.length) {
             warnings.push(`Reply may contain unverified value(s) not found in context: ${leaks.join(", ")}.`);
         }
+        if (moneyLeaks.length) {
+            reply = wrongInfoHoldingReply(quoGuest);
+            output.suggested_reply = reply;
+            output.escalation_required = true;
+            output.escalation_reason = output.escalation_reason
+                ? `${output.escalation_reason}; invented_money:${moneyLeaks.join("|")}`
+                : `invented_money:${moneyLeaks.join("|")}`;
+            warnings.push(
+                `Replaced draft — invented money amount(s) not in context (${moneyLeaks.join(", ")}).`
+            );
+        }
 
         // Quo rows lack stay dates here — only allow codes on explicit lockout reports.
-        const quoGuest = target.body || "";
 
         // Ops-ledger gate — critical on PM threads, where "I've blocked off 7/19"
         // to an owner (self-score AND verifier 100 in the July audit) would
@@ -2394,7 +2473,7 @@ export class InboxAIService {
                 warnings: JSON.stringify(warnings),
                 suggestedActionItems: JSON.stringify(output.suggested_action_items || []),
                 modelName: INBOX_AI_MODEL,
-                promptVersion: INBOX_AI_PROMPT_VERSION,
+                promptVersion: promptVersionForBucket(INBOX_AI_PROMPT_VERSION, quoPromptBucket),
                 status: "suggested",
                 rawResponse: reviewed.rawResponse,
                 generatedAt: new Date(),
@@ -3823,8 +3902,16 @@ export class InboxAIService {
 
     private systemPrompt(
         settings?: AIMessagingSettingsEntity | null,
-        opts: { airbnbSupport?: boolean; inquirySales?: boolean; pmClient?: boolean } = {}
+        opts: {
+            airbnbSupport?: boolean;
+            inquirySales?: boolean;
+            pmClient?: boolean;
+            promptBucket?: PromptBucket;
+        } = {}
     ): string {
+        if (opts.promptBucket === "fee" && !opts.airbnbSupport && !opts.pmClient) {
+            return buildFeeSystemPrompt(settings);
+        }
         const toneLabel = (settings?.tone || "warm").trim();
         // Prefer structured per-topic entries (Settings UI); fall back / append legacy free-text.
         const customRules = buildTeamCommunicationRulesText(settings);
@@ -5331,11 +5418,21 @@ export class InboxAIService {
         conversation: InboxConversationEntity,
         messages: InboxMessageEntity[],
         targetMessage: InboxMessageEntity | null,
-        opts: { includeKnowledge?: boolean; instructions?: string | null; baseDraft?: string | null } = {}
+        opts: {
+            includeKnowledge?: boolean;
+            instructions?: string | null;
+            baseDraft?: string | null;
+            promptBucket?: PromptBucket;
+        } = {}
     ): Promise<string> {
         const includeKnowledge = opts.includeKnowledge !== false;
+        const promptBucket: PromptBucket = opts.promptBucket || "general";
+        const want = (section: ContextSection) => contextAllowsSection(promptBucket, section);
         const lines: string[] = [];
         lines.push("## Conversation context");
+        if (promptBucket !== "general") {
+            lines.push(`Prompt mode: ${promptBucket} (specialist — only relevant facts are included below)`);
+        }
         lines.push(`Channel: ${conversation.channel || "unknown"}`);
         lines.push(`Guest: ${conversation.guestName || "unknown"}`);
         lines.push(`Listing: ${conversation.listingName || "unknown"}`);
@@ -5344,7 +5441,7 @@ export class InboxAIService {
             const stage = this.stayStageLine(conversation.checkin, conversation.checkout);
             if (stage) lines.push(stage);
         }
-        if (conversation.price != null) {
+        if (conversation.price != null && promptBucket === "general") {
             lines.push(`Booking total: ${conversation.price} ${conversation.currency || ""}`.trim());
         }
         if (conversation.reservationStatus) lines.push(`Reservation status: ${conversation.reservationStatus}`);
@@ -5361,7 +5458,7 @@ export class InboxAIService {
         // The thin conversation columns above are frequently empty, which is why
         // the bot previously "didn't detect" reservation dates or cancellation
         // policy — this block is what lets it answer those accurately.
-        if (includeKnowledge) try {
+        if (includeKnowledge && want("reservation")) try {
             const resvBlock = await this.buildReservationBlock(conversation, messages);
             if (resvBlock) {
                 lines.push("");
@@ -5372,7 +5469,7 @@ export class InboxAIService {
         }
 
         // Smart-lock door codes — only injected on check-in day / mid-stay / lockout.
-        if (includeKnowledge) try {
+        if (includeKnowledge && want("access")) try {
             const access = await this.buildAccessBlock(conversation, guestQueryEarly);
             assertFacts.push(...access.facts);
             if (access.text) {
@@ -5401,7 +5498,7 @@ export class InboxAIService {
         // Verified Property Facts — the top of the knowledge hierarchy. Human-
         // confirmed preset fields that override listing descriptions, KB and
         // learned facts. Unverified prefills are intentionally NOT included.
-        if (includeKnowledge && groupIds.length) {
+        if (includeKnowledge && groupIds.length && want("property_facts")) {
             try {
                 const { PropertyFactsService } = require("./PropertyFactsService");
                 const block = await new PropertyFactsService().buildPromptBlock(groupIds);
@@ -5421,7 +5518,7 @@ export class InboxAIService {
         let conflictExcludeFactIds = new Set<number>();
         let conflictExcludeKbIds = new Set<number>();
         let conflictTopics: string[] = [];
-        if (includeKnowledge && groupIds.length) {
+        if (includeKnowledge && groupIds.length && want("conflicts")) {
             try {
                 const { AIConflictDetectorService } = require("./AIConflictDetectorService");
                 const suppressed = await new AIConflictDetectorService().getGuestReplySuppressions(groupIds);
@@ -5445,7 +5542,7 @@ export class InboxAIService {
         // Internal operations context: what the team already has in motion for
         // this guest (open tasks, property issues). The team's replies are often
         // driven by this, so the bot must see it to stay consistent with them.
-        if (includeKnowledge) try {
+        if (includeKnowledge && want("ops")) try {
             const ops = await this.buildOpsBlock(conversation, groupIds);
             opsExplicitConfirm = ops.hasExplicitConfirmation;
             assertFacts.push({
@@ -5469,7 +5566,7 @@ export class InboxAIService {
         // patterns observed about the people involved. Staff-only — this steers
         // behaviour so an exception request is answered consistently, and never
         // becomes an answer the bot quotes.
-        if (includeKnowledge) try {
+        if (includeKnowledge && want("precedent")) try {
             const precedent = await new AIMemoryService().renderMemoryContext(groupIds, guestQueryEarly);
             if (precedent) {
                 lines.push("");
@@ -5480,7 +5577,7 @@ export class InboxAIService {
         }
 
         // Paid add-on services from Upsells DB (SDTO + LOS-calculated fees).
-        if (includeKnowledge) try {
+        if (includeKnowledge && want("upsells")) try {
             const ups = await this.buildUpsellsBlock(groupIds, conversation.listingId, {
                 nights: conversation.nights != null ? Number(conversation.nights) : null,
                 checkin: conversation.checkin,
@@ -5491,13 +5588,26 @@ export class InboxAIService {
             if (ups.text) {
                 lines.push("");
                 lines.push(ups.text);
+                // Early/late asks: when Upsells already quoted a fee, force the
+                // model to use THAT number — inventing a different fee is the
+                // top recurring wrong_info class (Aug audit).
+                if (guestAsksEarlyOrLateCheck(guestQueryEarly) && /\$\s?\d/.test(ups.text)) {
+                    lines.push("");
+                    lines.push(
+                        "## HARD FEE RULE FOR THIS MESSAGE (early/late check)",
+                        "The guest asked about early check-in or late check-out.",
+                        "You MUST quote the guest fee exactly as shown in Available paid services above (same dollar amount).",
+                        "Do NOT invent a different fee. Do NOT defer with 'I'll check the fee' when a fee is already listed — quote it subject to availability per SDTO rules.",
+                        "If SDTO says decline, decline with the cleaner turnover explanation and no fee."
+                    );
+                }
             }
         } catch {
             /* non-fatal */
         }
 
         // Recent team feedback on AI replies — direct steering from staff.
-        if (includeKnowledge) try {
+        if (includeKnowledge && want("feedback")) try {
             const fb = await this.buildFeedbackBlock(groupIds, guestQueryEarly);
             if (fb) {
                 lines.push("");
@@ -5509,7 +5619,7 @@ export class InboxAIService {
 
         // Contested facts (checkout/check-in times, capacity): staff/ops beat PMS.
         let contestedConflicts = false;
-        if (includeKnowledge) try {
+        if (includeKnowledge && want("contested")) try {
             const contested = await resolveContestedFacts({
                 listingIds: groupIds,
                 canonicalListingId,
@@ -5557,11 +5667,14 @@ export class InboxAIService {
 
         // Listing profile WITHOUT asserting PMS checkout/capacity (those come from
         // the contested ladder above). WiFi is assert_when=booked_and_ask only.
-        try {
-            const listing = canonicalListingId
-                ? await this.listingRepo.findOne({ where: { id: Number(canonicalListingId) }, withDeleted: true })
-                : null;
-            if (listing) {
+        // Fee specialist mode skips this entirely — description/pet-fee lines have
+        // been a top source of invented competing dollar amounts.
+        if (want("listing_details") || want("cancellation")) try {
+            const listing =
+                want("listing_details") && canonicalListingId
+                    ? await this.listingRepo.findOne({ where: { id: Number(canonicalListingId) }, withDeleted: true })
+                    : null;
+            if (listing && want("listing_details")) {
                 const l: any = listing;
                 const details: string[] = [];
                 const loc = [l.address, l.city, l.state].filter((v: any) => v && String(v).trim() && String(v) !== "(NOT SPECIFIED)");
@@ -5606,7 +5719,7 @@ export class InboxAIService {
             // Standing cancellation policy from the listing intake record (the
             // Hostify reservation block above only carries booking-level billing
             // signals; this is the property's documented standing policy).
-            if (canonicalListingId) {
+            if (want("cancellation") && canonicalListingId) {
                 const intakeRepo = appDatabase.getRepository(ListingIntake);
                 const intake = await intakeRepo
                     .createQueryBuilder("i")
@@ -5637,7 +5750,7 @@ export class InboxAIService {
         // page). External entries are guest-shareable; internal entries inform the
         // reply but must not be quoted to the guest.
         const guestQuery = guestQueryEarly;
-        if (includeKnowledge) try {
+        if (includeKnowledge && want("kb")) try {
             let rendered = false;
             // Prefer semantic KB retrieval (embedding-ranked, group-scoped,
             // visibility-split) when RAG is enabled and the KB has been indexed.
@@ -5695,7 +5808,8 @@ export class InboxAIService {
         // Learned answers: frequently-asked facts the team has answered before,
         // approved by staff (per-property + portfolio-wide). These are the bot's
         // accumulated memory that makes it smarter over time.
-        if (includeKnowledge) try {
+        // Fee mode skips these — stale "$50 early check-in" facts compete with Upsells.
+        if (includeKnowledge && want("learned")) try {
             let learned: string | null = null;
             if (ExemplarService.isEnabled() && guestQuery.trim()) {
                 // Semantic fact retrieval — paraphrase-robust, ranked by meaning.
@@ -5730,7 +5844,7 @@ export class InboxAIService {
         // Proven replies (RAG): the highest-value signal — how OUR team actually
         // answered semantically similar questions on this SAME property group in
         // the past. Retrieved by embedding similarity over real message history.
-        if (includeKnowledge && ExemplarService.isEnabled() && guestQuery.trim()) try {
+        if (includeKnowledge && want("exemplars") && ExemplarService.isEnabled() && guestQuery.trim()) try {
             const exemplars = await new ExemplarService().retrieveForQuery(canonicalListingId, guestQuery, {
                 k: 4,
                 minSim: 0.55,
@@ -5757,7 +5871,7 @@ export class InboxAIService {
         // retrieve the most relevant chunks, kept separate by visibility so the
         // model quotes guest-shareable content but only uses internal docs to
         // inform its reply.
-        if (includeKnowledge && ExemplarService.isEnabled() && guestQuery.trim()) try {
+        if (includeKnowledge && want("documents") && ExemplarService.isEnabled() && guestQuery.trim()) try {
             const docs = await new RetrievalService().retrieveDocs(canonicalListingId, guestQuery, { k: 3 });
             // External only — internal documents never reach guest-facing prompts.
             if (docs.external.length) {
@@ -5772,7 +5886,7 @@ export class InboxAIService {
         // Live availability: when the guest is asking about availability / dates /
         // extending their stay, pull the real calendar so the reply can answer
         // directly ("the 5th is open at $220") instead of "we'll check".
-        if (includeKnowledge) try {
+        if (includeKnowledge && want("availability")) try {
             const guestText = (
                 targetMessage?.direction === "incoming" && !Number(targetMessage.isAutomatic)
                     ? targetMessage.body || ""
@@ -5833,7 +5947,7 @@ export class InboxAIService {
         // Same-city alternatives: inquiry dates that this listing can't take
         // (calendar closed, or the guest literally can't get the booking
         // through) → offer sibling homes that ARE open for those exact nights.
-        if (includeKnowledge) try {
+        if (includeKnowledge && want("listing_search")) try {
             const guestText = (targetMessage?.body || conversation.lastMessageText || "").toString();
             const altBlock = await this.buildAlternativesBlock(conversation, guestText);
             if (altBlock) {
@@ -5846,7 +5960,7 @@ export class InboxAIService {
 
         // Cross-portfolio search: guest shopping for a place (typical on unlinked
         // SMS leads) → run the real search and inject bookable options.
-        if (includeKnowledge) try {
+        if (includeKnowledge && want("listing_search")) try {
             const guestText = (targetMessage?.body || conversation.lastMessageText || "").toString();
             const searchBlock = await this.buildListingSearchBlock(guestText);
             if (searchBlock) {
@@ -5859,7 +5973,7 @@ export class InboxAIService {
 
         // Structural assert_when gate (after fact sources): only ASSERTABLE lines
         // may be stated as certain; otherwise the model gets a POLICY substitute.
-        if (includeKnowledge && assertFacts.length) {
+        if (includeKnowledge && want("assert_policy") && assertFacts.length) {
             const assertCtx: AssertEvalContext = {
                 stayStageLine: stageLineEarly,
                 isBooked,
@@ -5886,7 +6000,9 @@ export class InboxAIService {
         // Automatic suggestions keep the existing bounded context. A deliberate
         // Generate/Refine request must see the full thread so broad instructions
         // such as "follow up on all pending issues" can account for older asks.
-        const historyMessages = staffInstructions ? messages : messages.slice(-25);
+        // Fee specialist: shorter history — long threads add competing $ amounts.
+        const historyWindow = promptBucket === "fee" ? 12 : 25;
+        const historyMessages = staffInstructions ? messages : messages.slice(-historyWindow);
         for (const m of historyMessages) {
             const who =
                 m.direction === "incoming"
