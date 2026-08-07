@@ -2490,7 +2490,7 @@ export class InboxAIService {
 
         logger.info(
             `[InboxAI] Quo suggestion ${suggestion.id} for ${conversationId} ` +
-                `(linked=${Boolean(conv.reservationId)}, conf=${confidencePct ?? "n/a"}, verified=${verifier?.confidence ?? "n/a"})`
+                `(linked=${Boolean(conv.reservationId)}, conf=${confidencePct ?? "n/a"}, verified=${reviewed.verifier?.confidence ?? "n/a"})`
         );
 
         // Knowledge gap flagged → raise a learning prompt on this SMS thread,
