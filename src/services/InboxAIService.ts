@@ -90,6 +90,14 @@ import {
     promptVersionForBucket,
     resolvePromptBucket,
 } from "./InboxAIPromptBuckets";
+import {
+    BLOCKING_RESERVATION_STATUSES,
+    computeCalendarFetchWindow,
+    DbBlockingStay,
+    formatAvailabilityPromptBlock,
+    mergeCalendarWithDb,
+    normalizeHostifyDays,
+} from "./InboxAIAvailability";
 
 /**
  * InboxAIService
@@ -114,7 +122,7 @@ import {
  * human via the escalation keyword safety net.
  */
 
-export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v9.0"; // v9.0: intent-bucket prompts (fee specialist strips non-fee context)
+export const INBOX_AI_PROMPT_VERSION = "inbox-ai-v9.1"; // v9.1: date-aware Hostify calendar + reservation_info backup
 const INBOX_AI_MODEL = process.env.AI_MESSAGING_MODEL || "gpt-4.1";
 
 // How long a finished ops item stays in the ledger. Long enough that the bot can
@@ -122,7 +130,7 @@ const INBOX_AI_MODEL = process.env.AI_MESSAGING_MODEL || "gpt-4.1";
 // earlier stay never licenses a completion claim about something new.
 const OPS_DONE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-// Default calendar look-ahead. Extended per-conversation to reach past checkout.
+// Default calendar look-ahead. Extended when the guest names farther dates.
 const AVAILABILITY_HORIZON_DAYS = 45;
 
 const textOrDefault = (value: string | null | undefined, fallback: string): string =>
@@ -4057,7 +4065,8 @@ export class InboxAIService {
             "- Reply in the same language the guest used.",
             "",
             "AVAILABILITY / EXTENSIONS:",
-            "- If a 'Live availability' section is present without the extension-pricing security banner, it is real calendar data — you MAY state open dates and nightly prices for general availability questions.",
+            "- If a 'Live availability' section is present without the extension-pricing security banner, it is real calendar data (Hostify live + reservation_info backup) — you MAY state open dates and nightly prices for general availability questions.",
+            "- HARD: never invent open dates. Never say a month/range is fully available unless the guest-asked window summary in Live availability says fullyAvailable=yes. If only some nights are open, say so explicitly.",
             "- When a date range shows a price band (e.g. ~$40–$55/night), do NOT collapse it to a single number — say rates vary by date in that range.",
             "- EXTENSION PRICING (hard security rule): if the guest wants to extend / add nights, NEVER quote a nightly rate, total, or dollar amount — even if a calendar price appears elsewhere in context. Acknowledge → say a teammate will confirm availability and the exact price → escalation_required=true. A human must price extensions.",
             "- For an extension request you MAY say whether the night after checkout looks open/closed from Live availability (dates only). You cannot modify the reservation yourself.",
@@ -4169,124 +4178,138 @@ export class InboxAIService {
     }
 
     /**
-     * Fetch the live Hostify calendar for the conversation's listing and render a
-     * compact availability summary the model can quote. Window: from today (or
-     * check-in, whichever is earlier-relevant) through ~45 days out; when we know
-     * the checkout date we specifically flag the nights right after it (the exact
-     * dates an extension request is about).
+     * Live Hostify calendar (primary) + reservation_info backup for the listing
+     * group. Expands the fetch window when the guest names farther dates/months
+     * so we stop inventing availability outside a blind 45-day horizon.
      */
     private async buildAvailabilityBlock(
         conversation: InboxConversationEntity,
-        opts: { hidePrices?: boolean } = {}
+        opts: {
+            hidePrices?: boolean;
+            guestText?: string | null;
+            groupListingIds?: number[];
+        } = {}
     ): Promise<string | null> {
-        if (!conversation.listingId || !this.hostifyApiKey) return null;
+        if (!conversation.listingId) return null;
 
         const hidePrices = Boolean(opts.hidePrices);
-        const toKey = (d: Date) => d.toISOString().slice(0, 10);
-        const today = new Date();
-        // `start` stays at today so "can we come earlier" cases are covered too.
-        const start = new Date(today);
-        const end = new Date(start);
-        end.setDate(end.getDate() + AVAILABILITY_HORIZON_DAYS);
-        // A long stay can end past the default horizon, which left extension asks
-        // with no calendar data for the exact nights in question — the block then
-        // said "no open nights", which reads as a refusal. Always reach past
-        // checkout so the nights an extension is about are actually in the window.
-        if (conversation.checkout) {
-            const co = new Date(conversation.checkout as any);
-            if (!isNaN(co.getTime())) {
-                const pastCheckout = new Date(co);
-                pastCheckout.setDate(pastCheckout.getDate() + 14);
-                if (pastCheckout > end) end.setTime(pastCheckout.getTime());
+        const listingId = Number(conversation.listingId);
+        const groupIds = Array.from(
+            new Set(
+                [listingId, ...(opts.groupListingIds || []).map(Number)].filter(
+                    (n) => Number.isFinite(n) && n > 0
+                )
+            )
+        );
+
+        const { start, end, guestWindows } = computeCalendarFetchWindow({
+            defaultHorizonDays: AVAILABILITY_HORIZON_DAYS,
+            checkout: conversation.checkout,
+            guestText: opts.guestText || "",
+        });
+
+        let hostifyRaw: any[] = [];
+        let hostifyOk = false;
+        if (this.hostifyApiKey) {
+            try {
+                hostifyRaw = await this.hostify.getCalendar(
+                    this.hostifyApiKey,
+                    listingId,
+                    start,
+                    end
+                );
+                hostifyOk = Array.isArray(hostifyRaw) && hostifyRaw.length > 0;
+            } catch (err: any) {
+                logger.warn(
+                    `[InboxAI] Hostify calendar failed listing=${listingId} ${start}→${end}: ${err?.message || err}`
+                );
             }
         }
-        let days;
+
+        const hostifyDays = normalizeHostifyDays(hostifyOk ? hostifyRaw : []);
+        const dbStays = await this.loadDbBlockingStays(groupIds, start, end);
+        const merged = mergeCalendarWithDb({
+            hostifyDays,
+            dbStays,
+            windowStart: start,
+            windowEnd: end,
+        });
+
+        if (!merged.days.length && !guestWindows.length) return null;
+
+        if (merged.conflicts.length) {
+            logger.warn(
+                `[InboxAI] calendar DB conflict listing=${listingId} nights=${merged.conflicts
+                    .slice(0, 8)
+                    .join(",")}`
+            );
+        }
+
+        return formatAvailabilityPromptBlock({
+            days: merged.days,
+            windowStart: start,
+            windowEnd: end,
+            guestWindows,
+            conflicts: merged.conflicts,
+            hidePrices,
+            currency: conversation.currency || undefined,
+            checkout: conversation.checkout ? String(conversation.checkout).slice(0, 10) : null,
+            hostifyOk,
+        });
+    }
+
+    /** Blocking stays from reservation_info for calendar backup / conflict check. */
+    private async loadDbBlockingStays(
+        listingIds: number[],
+        windowStart: string,
+        windowEnd: string
+    ): Promise<DbBlockingStay[]> {
+        if (!listingIds.length) return [];
         try {
-            days = await this.hostify.getCalendar(this.hostifyApiKey, Number(conversation.listingId), toKey(start), toKey(end));
-        } catch {
-            return null;
+            const rows = await this.reservationRepo
+                .createQueryBuilder("r")
+                .select([
+                    "r.id",
+                    "r.listingMapId",
+                    "r.status",
+                    "r.arrivalDate",
+                    "r.departureDate",
+                ])
+                .where("r.listingMapId IN (:...ids)", { ids: listingIds })
+                .andWhere("r.status IN (:...statuses)", {
+                    statuses: BLOCKING_RESERVATION_STATUSES,
+                })
+                // Overlap: arrival < windowEnd+1day AND departure > windowStart
+                .andWhere("r.arrivalDate <= :end", { end: windowEnd })
+                .andWhere("r.departureDate > :start", { start: windowStart })
+                .orderBy("r.arrivalDate", "ASC")
+                .take(200)
+                .getMany();
+
+            return rows
+                .map((r) => {
+                    const arrival = r.arrivalDate
+                        ? String(r.arrivalDate).slice(0, 10)
+                        : "";
+                    const departure = r.departureDate
+                        ? String(r.departureDate).slice(0, 10)
+                        : "";
+                    if (!/^\d{4}-\d{2}-\d{2}$/.test(arrival) || !/^\d{4}-\d{2}-\d{2}$/.test(departure)) {
+                        return null;
+                    }
+                    return {
+                        id: Number(r.id),
+                        listingMapId: Number(r.listingMapId),
+                        status: String(r.status || ""),
+                        arrivalDate: arrival,
+                        departureDate: departure,
+                    } as DbBlockingStay;
+                })
+                .filter((x): x is DbBlockingStay => !!x);
+        } catch (err: any) {
+            logger.warn(`[InboxAI] reservation_info calendar backup failed: ${err?.message || err}`);
+            return [];
         }
-        if (!days || days.length === 0) return null;
-
-        const isAvailable = (d: any) => String(d?.status || "").toLowerCase() === "available";
-        const currency = (days.find((d: any) => d?.currency)?.currency) || conversation.currency || "USD";
-
-        // Collapse consecutive available days into ranges for a tight summary.
-        // Track min/max nightly price across the range — quoting only night-1
-        // caused wrong_info misses (AI said ~$40 while later nights were ~$50).
-        const ranges: Array<{ from: string; to: string; minPrice: number; maxPrice: number }> = [];
-        for (const d of days) {
-            if (!isAvailable(d)) continue;
-            const price = Number(d.price) || 0;
-            const last = ranges[ranges.length - 1];
-            const prevDate = last ? new Date(last.to) : null;
-            const thisDate = new Date(d.date);
-            const contiguous =
-                last && prevDate && (thisDate.getTime() - prevDate.getTime()) === 86400000;
-            if (contiguous && last) {
-                last.to = d.date;
-                if (price > 0) {
-                    if (!last.minPrice || price < last.minPrice) last.minPrice = price;
-                    if (price > last.maxPrice) last.maxPrice = price;
-                }
-            } else {
-                ranges.push({ from: d.date, to: d.date, minPrice: price, maxPrice: price });
-            }
-        }
-
-        const fmtRangePrice = (r: { minPrice: number; maxPrice: number }): string => {
-            if (hidePrices) return "";
-            if (!r.minPrice && !r.maxPrice) return "";
-            if (!r.maxPrice || r.minPrice === r.maxPrice) return ` (~${currency} ${r.minPrice}/night)`;
-            return ` (~${currency} ${r.minPrice}–${r.maxPrice}/night, varies by date)`;
-        };
-
-        const out: string[] = [];
-        if (hidePrices) {
-            out.push(
-                "EXTENSION PRICING SECURITY (hard rule): Hostify calendar nightly rates are NOT guest-quotable for extensions — they have been wrong. " +
-                    "You may say whether nights look open/closed. You must NEVER quote a dollar amount, nightly rate, or total. " +
-                    "Acknowledge the extension ask, say a teammate will confirm availability and the exact price, set escalation_required=true."
-            );
-        }
-        // The window is explicit: a guest asking about dates beyond it must get a
-        // "let me check", not a confident "we're fully booked".
-        const windowLabel = `${toKey(start)} to ${toKey(end)}`;
-        if (ranges.length === 0) {
-            out.push(
-                `No open nights between ${windowLabel} — the calendar is fully booked/blocked for that window. ` +
-                    `This says NOTHING about dates after ${toKey(end)}; for those, say you'll confirm with the team.`
-            );
-        } else {
-            out.push(
-                `${hidePrices ? "Open date ranges — dates only, no prices" : "Open date ranges"} ` +
-                    `(calendar checked ${windowLabel}; nothing is known about dates after ${toKey(end)}):`
-            );
-            for (const r of ranges.slice(0, 12)) {
-                const label = r.from === r.to ? r.from : `${r.from} → ${r.to}`;
-                out.push(`- ${label}${fmtRangePrice(r)}`);
-            }
-        }
-
-        // Extension-specific: is the night immediately after checkout open?
-        if (conversation.checkout) {
-            const co = new Date(conversation.checkout as any);
-            if (!isNaN(co.getTime())) {
-                const nextNightKey = toKey(co);
-                const day = days.find((d: any) => String(d.date).slice(0, 10) === nextNightKey);
-                if (day) {
-                    out.push(
-                        isAvailable(day)
-                            ? hidePrices
-                                ? `Extension check: the night of ${nextNightKey} (right after current checkout) IS available — do NOT quote a rate; team prices it.`
-                                : `Extension check: the night of ${nextNightKey} (right after current checkout) IS available${day.price ? ` at ~${currency} ${Number(day.price)}/night` : ""}.`
-                            : `Extension check: the night of ${nextNightKey} (right after current checkout) is NOT available.`
-                    );
-                }
-            }
-        }
-
-        return out.join("\n");
     }
 
     /**
@@ -5924,13 +5947,15 @@ export class InboxAIService {
                 if (conversation.listingId) {
                     const avail = await this.buildAvailabilityBlock(conversation, {
                         hidePrices: extensionAskFromGuest,
+                        guestText,
+                        groupListingIds: groupIds,
                     });
                     if (avail) {
                         lines.push("");
                         lines.push(
                             extensionAskFromGuest
                                 ? "## Live availability (dates only — NEVER quote Hostify nightly prices for extensions; a human prices them)"
-                                : "## Live availability (from the calendar — you MAY state these facts to the guest)"
+                                : "## Live availability (Hostify primary + reservation_info backup — you MAY state these facts to the guest)"
                         );
                         lines.push(avail);
                     } else {
