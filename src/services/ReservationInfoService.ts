@@ -36,6 +36,7 @@ import { ReviewDiscussionService } from "./ReviewDiscussionService";
 import { getEasternDateString } from "../utils/easternTime.util";
 import { TurnoverReservationChangeService } from "./TurnoverReservationChangeService";
 import { FERDY_SLACK_USER_ID } from "../utils/slackMessageBuilder";
+import { InboxConversationEntity } from "../entity/InboxConversation";
 
 const ANJ_SLACK_USER_ID = "U08END0JTBM";
 
@@ -1096,6 +1097,7 @@ export class ReservationInfoService {
     totalPrice: string;
     reservationId: string;
     channelReservationId: string;
+    inboxThreadId: number | null;
   }[]> {
     const safeLimit = Math.min(Math.max(Number(limit) || 40, 1), 75);
     const normalizedKeyword = String(keyword || "").trim().toLowerCase();
@@ -1132,6 +1134,31 @@ export class ReservationInfoService {
       .limit(safeLimit)
       .getMany();
 
+    const reservationIds = reservations
+      .map((reservation) => Number(reservation.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    const conversations = reservationIds.length
+      ? await appDatabase
+        .getRepository(InboxConversationEntity)
+        .find({
+          where: { reservationId: In(reservationIds) },
+          order: { lastMessageAt: "DESC" as any, updatedAt: "DESC" as any },
+        })
+        .catch(() => [] as InboxConversationEntity[])
+      : [];
+    const threadIdByReservationId = new Map<number, number>();
+    for (const conversation of conversations) {
+      const reservationId = Number(conversation.reservationId);
+      const threadId = Number(conversation.threadId);
+      if (
+        Number.isFinite(reservationId) &&
+        Number.isFinite(threadId) &&
+        !threadIdByReservationId.has(reservationId)
+      ) {
+        threadIdByReservationId.set(reservationId, threadId);
+      }
+    }
+
     return reservations.map((r) => ({
       id: r.id,
       listingMapId: r.listingMapId,
@@ -1146,6 +1173,7 @@ export class ReservationInfoService {
       totalPrice: r.totalPrice,
       reservationId: r.reservationId,
       channelReservationId: r.channelReservationId,
+      inboxThreadId: threadIdByReservationId.get(Number(r.id)) ?? null,
     }));
   }
 

@@ -88,6 +88,37 @@ export class IssuesService {
   private actionItemUpdatesRepo = appDatabase.getRepository(ActionItemsUpdates);
   private issueUpdatesRepo = appDatabase.getRepository(IssueUpdates);
   private usersRepo = appDatabase.getRepository(UsersEntity);
+
+  private getLinkedReservationIds(issue: Issue): Set<string> {
+    const ids = new Set<string>();
+    const raw = (issue as any).linked_reservations;
+    if (!raw || raw === "null") return ids;
+
+    try {
+      const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      if (!Array.isArray(parsed)) return ids;
+      for (const reservation of parsed) {
+        const id = String(
+          reservation?.id ||
+          reservation?.reservation_id ||
+          reservation?.reservationId ||
+          ""
+        ).trim();
+        if (id && id !== "NA") ids.add(id);
+      }
+    } catch {
+      return ids;
+    }
+
+    return ids;
+  }
+
+  private getCurrentIssueReservationKeys(issue: Issue): Set<string> {
+    const keys = this.getLinkedReservationIds(issue);
+    const primaryId = String((issue as any).reservation_id || "").trim();
+    if (primaryId && primaryId !== "NA") keys.add(primaryId);
+    return keys;
+  }
   private fileInfoRepo = appDatabase.getRepository(FileInfo);
   private slackMessageRepo = appDatabase.getRepository(SlackMessageEntity);
   private employeeRepo = appDatabase.getRepository(Employee);
@@ -1659,22 +1690,27 @@ export class IssuesService {
         .find({ where: { id: In(detectedIds) } })
         .catch(() => [] as AIDetectedItemEntity[]);
 
-      const threadIdByDetected = new Map<number, number>();
+      const detectedSourceById = new Map<number, { threadId: number | null; reservationId: string }>();
       for (const d of detectedItems) {
-        if (d.threadId != null) threadIdByDetected.set(d.id, Number(d.threadId));
+        detectedSourceById.set(d.id, {
+          threadId: d.threadId != null ? Number(d.threadId) : null,
+          reservationId: String(d.reservationId || "").trim(),
+        });
       }
       for (const issue of issues) {
         const detectedId = detectedIdByIssue.get(issue.id);
-        const threadId = detectedId != null ? threadIdByDetected.get(detectedId) : null;
-        if (threadId != null) threadIdByIssue.set(issue.id, threadId);
+        const source = detectedId != null ? detectedSourceById.get(detectedId) : null;
+        const currentReservationKeys = this.getCurrentIssueReservationKeys(issue);
+        const sourceStillApplies =
+          !currentReservationKeys.size ||
+          (source?.reservationId ? currentReservationKeys.has(source.reservationId) : false);
+        if (source?.threadId != null && sourceStillApplies) {
+          threadIdByIssue.set(issue.id, source.threadId);
+        }
       }
     }
 
-    for (const [issueId, threadId] of noteThreadIdByIssue) {
-      if (!threadIdByIssue.has(issueId)) {
-        threadIdByIssue.set(issueId, threadId);
-      }
-    }
+    const fallbackThreadIdByIssue = new Map<number, number>();
 
     if (inboxMessageExternalIdByIssue.size) {
       const messageExternalIds = Array.from(new Set(inboxMessageExternalIdByIssue.values()));
@@ -1692,10 +1728,49 @@ export class IssuesService {
       }
       for (const [issueId, externalMessageId] of inboxMessageExternalIdByIssue) {
         const threadId = threadIdByExternalMessageId.get(externalMessageId);
-        if (threadId != null && !threadIdByIssue.has(issueId)) {
-          threadIdByIssue.set(issueId, threadId);
+        if (threadId != null) {
+          fallbackThreadIdByIssue.set(issueId, threadId);
         }
       }
+    }
+
+    const fallbackThreadIds = Array.from(
+      new Set([...Array.from(noteThreadIdByIssue.values()), ...Array.from(fallbackThreadIdByIssue.values())])
+    );
+    const fallbackConversations = fallbackThreadIds.length
+      ? await appDatabase
+        .getRepository(InboxConversationEntity)
+        .find({ where: { threadId: In(fallbackThreadIds) } })
+        .catch(() => [] as InboxConversationEntity[])
+      : [];
+    const reservationIdByFallbackThread = new Map<number, string>();
+    for (const conversation of fallbackConversations) {
+      const threadId = Number(conversation.threadId);
+      const reservationId = String(conversation.reservationId || "").trim();
+      if (Number.isFinite(threadId) && reservationId) {
+        reservationIdByFallbackThread.set(threadId, reservationId);
+      }
+    }
+
+    const applyFallbackThread = (issueId: number, threadId: number) => {
+      if (threadIdByIssue.has(issueId)) return;
+      const issue = issues.find((candidate) => candidate.id === issueId);
+      if (!issue) return;
+      const currentReservationKeys = this.getCurrentIssueReservationKeys(issue);
+      const threadReservationId = reservationIdByFallbackThread.get(threadId);
+      const fallbackStillApplies = !currentReservationKeys.size || (
+        threadReservationId ? currentReservationKeys.has(threadReservationId) : false
+      );
+      if (fallbackStillApplies) {
+        threadIdByIssue.set(issueId, threadId);
+      }
+    };
+
+    for (const [issueId, threadId] of noteThreadIdByIssue) {
+      applyFallbackThread(issueId, threadId);
+    }
+    for (const [issueId, threadId] of fallbackThreadIdByIssue) {
+      applyFallbackThread(issueId, threadId);
     }
 
     const reservationIds = Array.from(new Set(reservationIdByIssue.values()));
@@ -1725,8 +1800,8 @@ export class IssuesService {
     const resolvedThreadIdByIssue = new Map<number, number>();
     for (const issue of issues) {
       const reservationId = reservationIdByIssue.get(issue.id);
-      const fallbackThreadId = reservationId != null ? threadIdByReservation.get(reservationId) : null;
-      const threadId = threadIdByIssue.get(issue.id) ?? fallbackThreadId;
+      const currentReservationThreadId = reservationId != null ? threadIdByReservation.get(reservationId) : null;
+      const threadId = currentReservationThreadId ?? threadIdByIssue.get(issue.id);
       if (threadId != null) {
         (issue as any).inboxThreadId = threadId;
         resolvedThreadIdByIssue.set(issue.id, threadId);
@@ -2465,6 +2540,19 @@ export class IssuesService {
       if (issue.reservation_id) addIssueKey(issue.id, String(issue.reservation_id));
     }
 
+    const linkedCandidateWhere = requestedIds.map((id) => ({
+      linked_reservations: Like(`%${id}%`),
+    }));
+    const linkedIssues = linkedCandidateWhere.length
+      ? await this.issueRepo.find({ where: linkedCandidateWhere }).catch(() => [] as Issue[])
+      : [];
+    for (const issue of linkedIssues) {
+      const linkedReservationIds = this.getLinkedReservationIds(issue);
+      for (const reservationKey of linkedReservationIds) {
+        if (requestedIds.includes(reservationKey)) addIssueKey(issue.id, reservationKey);
+      }
+    }
+
     const numericReservationIds = requestedIds
       .map((id) => Number(id))
       .filter((id) => Number.isFinite(id) && id > 0);
@@ -2507,20 +2595,26 @@ export class IssuesService {
           detectedItem?.threadId != null
             ? reservationIdByThread.get(Number(detectedItem.threadId)) || String(detectedItem.reservationId || "")
             : String(detectedItem?.reservationId || "");
-        if (reservationKey && requestedIds.includes(reservationKey)) {
+        const currentReservationKeys = this.getCurrentIssueReservationKeys(issue);
+        const sourceStillApplies = !currentReservationKeys.size || currentReservationKeys.has(reservationKey);
+        if (reservationKey && requestedIds.includes(reservationKey) && sourceStillApplies) {
           addIssueKey(issue.id, reservationKey);
         }
       }
     }
 
     const issuesById = new Map<number, Issue>();
-    for (const issue of [...directIssues, ...sourceIssues]) {
+    for (const issue of [...directIssues, ...linkedIssues, ...sourceIssues]) {
       issuesById.set(issue.id, issue);
     }
 
     const issues = Array.from(issuesById.values());
     await this.enrichHostifyReservationIds(issues);
     for (const issue of issues) {
+      const linkedReservationIds = this.getLinkedReservationIds(issue);
+      for (const reservationKey of linkedReservationIds) {
+        if (requestedIds.includes(reservationKey)) addIssueKey(issue.id, reservationKey);
+      }
       const canonicalReservationId = String((issue as any).hostifyReservationId || "");
       if (canonicalReservationId && requestedIds.includes(canonicalReservationId)) {
         addIssueKey(issue.id, canonicalReservationId);
