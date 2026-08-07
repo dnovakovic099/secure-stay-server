@@ -34,6 +34,22 @@ export class ReservationInfoController {
         }
     }
 
+    async searchReservationsForIssueLink(request: Request, response: Response, next: NextFunction) {
+        try {
+            const reservationInfoService = new ReservationInfoService();
+            const keyword = typeof request.query.keyword === "string" ? request.query.keyword : "";
+            const limit = Number(request.query.limit) || 40;
+            const includeCancelled = request.query.includeCancelled !== "false";
+            const result = await reservationInfoService.searchReservationsForIssueLink(keyword, limit, includeCancelled);
+            return response.status(200).json({
+                status: true,
+                data: result,
+            });
+        } catch (error) {
+            return next(error);
+        }
+    }
+
     async exportReservationToExcel(request: Request, response: Response, next: NextFunction) {
         try {
             const reservationInfoService = new ReservationInfoService();

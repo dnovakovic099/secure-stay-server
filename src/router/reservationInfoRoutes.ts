@@ -25,6 +25,8 @@ router.get('/by-listing/:listingId', verifySession, reservationInfoController.ge
 
 router.get('/past-stays', verifySession, reservationInfoController.getPastReservationsByListingId);
 
+router.get('/search', verifySession, reservationInfoController.searchReservationsForIssueLink);
+
 router.get('/tags/shared', verifySession, reservationInfoController.getSharedReservationTags);
 router.put('/tags/settings', verifySession, reservationInfoController.updateSharedReservationTagSettings);
 router.put('/tags/replace', verifySession, reservationInfoController.replaceSharedReservationTag);

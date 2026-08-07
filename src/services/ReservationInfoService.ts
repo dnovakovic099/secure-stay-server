@@ -1082,6 +1082,73 @@ export class ReservationInfoService {
     return await this.reservationInfoRepository.findOne({ where: { id: reservationId } });
   }
 
+  async searchReservationsForIssueLink(keyword: string = "", limit: number = 40, includeCancelled: boolean = true): Promise<{
+    id: number;
+    listingMapId: number;
+    listingName: string;
+    channelId: number;
+    channelName: string;
+    status: string;
+    guestName: string;
+    arrivalDate: Date;
+    departureDate: Date;
+    phone: string;
+    totalPrice: string;
+    reservationId: string;
+    channelReservationId: string;
+  }[]> {
+    const safeLimit = Math.min(Math.max(Number(limit) || 40, 1), 75);
+    const normalizedKeyword = String(keyword || "").trim().toLowerCase();
+    const qb = this.reservationInfoRepository
+      .createQueryBuilder("reservation");
+
+    if (!includeCancelled) {
+      qb.where("reservation.status IN (:...validStatuses)", { validStatuses: this.validStatus });
+    } else {
+      qb.where("reservation.status NOT IN (:...excludedStatuses)", {
+        excludedStatuses: this.getExcludedStatuses(true),
+      });
+    }
+
+    if (normalizedKeyword) {
+      qb.andWhere(
+        `(
+          LOWER(COALESCE(reservation.guestName, '')) LIKE :keyword
+          OR LOWER(COALESCE(reservation.guestFirstName, '')) LIKE :keyword
+          OR LOWER(COALESCE(reservation.guestLastName, '')) LIKE :keyword
+          OR LOWER(COALESCE(reservation.listingName, '')) LIKE :keyword
+          OR LOWER(COALESCE(reservation.channelName, '')) LIKE :keyword
+          OR CAST(reservation.id AS CHAR) LIKE :rawKeyword
+          OR LOWER(COALESCE(reservation.reservationId, '')) LIKE :keyword
+          OR LOWER(COALESCE(reservation.channelReservationId, '')) LIKE :keyword
+        )`,
+        { keyword: `%${normalizedKeyword}%`, rawKeyword: `%${normalizedKeyword}%` }
+      );
+    }
+
+    const reservations = await qb
+      .orderBy("reservation.arrivalDate", "DESC")
+      .addOrderBy("reservation.id", "DESC")
+      .limit(safeLimit)
+      .getMany();
+
+    return reservations.map((r) => ({
+      id: r.id,
+      listingMapId: r.listingMapId,
+      listingName: r.listingName,
+      channelId: r.channelId,
+      channelName: r.channelName,
+      status: r.status,
+      guestName: r.guestName || `${r.guestFirstName || ""} ${r.guestLastName || ""}`.trim(),
+      arrivalDate: r.arrivalDate,
+      departureDate: r.departureDate,
+      phone: r.phone,
+      totalPrice: r.totalPrice,
+      reservationId: r.reservationId,
+      channelReservationId: r.channelReservationId,
+    }));
+  }
+
   /**
    * Get reservations for a specific listing:
    * Default: past 1 month + ongoing + future 1 month
