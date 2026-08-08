@@ -14,5 +14,5 @@
 UPDATE lock_fleet_inventory
 SET provider = 'eufy',
     automation_path = 'api',
-    notes = 'eufy-security-client - consumer cloud via bropat/eufy-security-client; requires EUFY_ACCOUNTS_JSON secret'
+    notes = 'eufy-security-client - consumer cloud via bropat/eufy-security-client - requires EUFY_ACCOUNTS_JSON secret'
 WHERE platform = 'eufy Security';
