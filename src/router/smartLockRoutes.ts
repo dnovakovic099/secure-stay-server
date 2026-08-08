@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import axios from "axios";
 import { SmartLockDeviceService } from "../services/SmartLockDeviceService";
-import { SmartLockAccessCodeService } from "../services/SmartLockAccessCodeService";
+import { SmartLockAccessCodeService, buildAccessCodeName } from "../services/SmartLockAccessCodeService";
 import { LockOverviewService, LockOverviewQuery } from "../services/LockOverviewService";
 import { LockProviderHealthService } from "../services/LockProviderHealthService";
 import { LockFleetService } from "../services/LockFleetService";
@@ -898,17 +898,9 @@ router.post(
       // Generate preview code
       const previewCode = accessCodeService.generateAccessCode(guestPhone || null, settings);
 
-      // Calculate code name
-      const formatDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       const checkIn = checkInDate ? new Date(checkInDate) : new Date();
       const checkOut = checkOutDate ? new Date(checkOutDate) : null;
-      const codeName = guestName && checkOut
-        ? `${guestName} - ${formatDate(checkIn)} - ${formatDate(checkOut)}`
-        : guestName
-          ? `Guest: ${guestName}`
-          : reservationId
-            ? `Reservation #${reservationId}`
-            : "Access Code";
+      const codeName = buildAccessCodeName(guestName, checkIn, checkOut, reservationId);
 
       // Helper to format date as "Jan 18, 2 AM"
       const formatDateTime = (date: Date): string => {

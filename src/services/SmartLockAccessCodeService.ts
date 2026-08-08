@@ -66,6 +66,35 @@ export function primaryPhoneLastFour(guestPhone?: string | null): string | null 
 }
 
 /**
+ * Build a short access-code label like "Anj 8/7-8/10".
+ *
+ * Lock keypad displays and provider APIs truncate long names (Sifely cuts at
+ * ~24 chars), so we use the guest's first name plus numeric M/D dates and
+ * cap the final string at 23 characters. If the first name is too long to
+ * fit alongside the date range, it gets trimmed rather than dropping the dates.
+ */
+export function buildAccessCodeName(
+  guestName: string | null | undefined,
+  checkInDate: Date | null | undefined,
+  checkOutDate: Date | null | undefined,
+  reservationId?: number | string | null,
+): string {
+  const MAX_LEN = 23;
+  const formatDate = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
+  const firstName = guestName?.trim().split(/\s+/)[0] ?? "";
+
+  if (firstName && checkInDate && checkOutDate) {
+    const dateRange = `${formatDate(checkInDate)}-${formatDate(checkOutDate)}`;
+    const maxNameLen = Math.max(1, MAX_LEN - 1 - dateRange.length);
+    const name = firstName.length > maxNameLen ? firstName.slice(0, maxNameLen) : firstName;
+    return `${name} ${dateRange}`;
+  }
+  if (firstName) return firstName.slice(0, MAX_LEN);
+  if (reservationId != null) return `Res #${reservationId}`.slice(0, MAX_LEN);
+  return "Access Code";
+}
+
+/**
  * Whether a lock will refuse this passcode for being trivially guessable.
  *
  * Verified against the live Sifely API on a real lock: 1234, 4321, 1111 and
@@ -276,13 +305,7 @@ export class SmartLockAccessCodeService {
     // Generate the access code
     const code = this.generateAccessCode(guestPhone || null, settings);
 
-    // Generate code name: "Guest Name - Checkin Date - Checkout Date"
-    const formatDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const codeName = guestName && checkOutDate
-      ? `${guestName} - ${formatDate(checkInDate)} - ${formatDate(checkOutDate)}`
-      : guestName
-        ? `Guest: ${guestName}`
-        : `Reservation #${reservationId}`;
+    const codeName = buildAccessCodeName(guestName, checkInDate, checkOutDate, reservationId);
 
     // Calculate scheduled time (hours before check-in)
     // Use provided checkInTime, then the listing's configured check-in hour,
@@ -621,14 +644,15 @@ export class SmartLockAccessCodeService {
       );
     }
 
-    // Format code name: "Guest Name - Jan 8 - Jan 13"
-    const formatDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    let codeName = accessCode.codeName;
-    if (accessCode.guestName && checkInDate && checkOutDate) {
-      codeName = `${accessCode.guestName} - ${formatDate(new Date(checkInDate))} - ${formatDate(new Date(checkOutDate))}`;
-    } else if (accessCode.guestName) {
-      codeName = `Guest: ${accessCode.guestName}`;
-    }
+    const recalculatedName = buildAccessCodeName(
+      accessCode.guestName,
+      checkInDate ? new Date(checkInDate) : null,
+      checkOutDate ? new Date(checkOutDate) : null,
+      accessCode.reservationId,
+    );
+    const codeName = accessCode.guestName || checkInDate || checkOutDate
+      ? recalculatedName
+      : accessCode.codeName;
 
     logger.info(`Code validity calculated for timezone ${timezone}: startsAt=${startsAt.toISOString()}, endsAt=${endsAt?.toISOString()}, checkInHour=${checkInHour}, checkOutHour=${checkOutHour}, hoursBeforeCheckin=${settings.hoursBeforeCheckin}, hoursAfterCheckout=${settings.hoursAfterCheckout}`);
 

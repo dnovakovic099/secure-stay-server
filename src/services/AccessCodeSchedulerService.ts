@@ -153,17 +153,4 @@ export class AccessCodeSchedulerService {
 
     return { processed, skipped, failed };
   }
-
-  /**
-   * Generate access code name
-   * Format: "Guest Name - Checkin Date - Checkout Date"
-   */
-  private generateCodeName(
-    guestName: string,
-    checkInDate: Date,
-    checkOutDate: Date
-  ): string {
-    const formatDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    return `${guestName} - ${formatDate(checkInDate)} - ${formatDate(checkOutDate)}`;
-  }
 }
