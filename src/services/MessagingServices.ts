@@ -9,8 +9,6 @@ import { Hostify } from "../client/Hostify";
 import logger from "../utils/logger.utils";
 import { isEmojiOrThankYouMessage, isReactionMessage } from "../helpers/helpers";
 import { ReservationInfoEntity } from "../entity/ReservationInfo";
-import sendSlackMessage from "../utils/sendSlackMsg";
-import { buildUnansweredMessageAlert } from "../utils/slackMessageBuilder";
 import { Listing } from "../entity/Listing";
 import { ListingService } from "./ListingService";
 import { ListingGroupService } from "./ListingGroupService";
@@ -790,8 +788,7 @@ export class MessagingService {
 
         // Check if the difference is greater than 5 minutes
         if (differenceInMilliseconds > 5 * 60 * 1000) {
-            logger.info(`Sending Slack notification for unanswered guest message conversationId: ${msg.conversationId || msg.threadId} messageId: ${msg.messageId}`);
-            await this.notifyUnansweredMessageSlack(msg);
+            logger.info(`Unanswered guest message threshold exceeded for conversationId: ${msg.conversationId || msg.threadId} messageId: ${msg.messageId}`);
         }
     }
 
@@ -853,35 +850,6 @@ export class MessagingService {
         `;
 
         await sendEmail(subject, html, process.env.EMAIL_FROM, process.env.EMAIL_TO);
-    }
-
-    /**
-     * Send Slack notification for unanswered guest message
-     */
-    private async notifyUnansweredMessageSlack(msg: Message) {
-        try {
-            // Fetch the internal listing name if listingId is available
-            let propertyName: string | undefined;
-            if (msg.listingId) {
-                const listing = await appDatabase.getRepository(Listing).findOne({
-                    where: { id: Number(msg.listingId) },
-                    select: ['internalListingName']
-                });
-                propertyName = listing?.internalListingName || undefined;
-            }
-
-            const slackMessage = buildUnansweredMessageAlert(
-                msg.body,
-                msg.reservationId,
-                msg.receivedAt,
-                msg.guestName || undefined,
-                propertyName
-            );
-            await sendSlackMessage(slackMessage);
-            logger.info(`[Slack] Unanswered message notification sent for messageId: ${msg.messageId}`);
-        } catch (error) {
-            logger.error(`[Slack] Error sending unanswered message notification: ${error.message}`);
-        }
     }
 
     // ==================== HOSTIFY-SPECIFIC METHODS ====================

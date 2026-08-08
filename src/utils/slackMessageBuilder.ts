@@ -1,5 +1,4 @@
 import { format } from "date-fns";
-import { convert } from 'html-to-text';
 import { slackInteractivityEventNames } from "../constant";
 import { ActionItems } from "../entity/ActionItems";
 import { ClientTicket } from "../entity/ClientTicket";
@@ -32,7 +31,6 @@ const GUEST_RELATIONS = "#guest-relations";
 const CLAIMS = "#claims";
 const EXPENSE_CHANNEL = "#payment-requests";
 const ONBOARDING_CHANNEL = "#onboarding";
-const UNRESPONDED_MESSAGES_CHANNEL = "#unresponded-messages";
 const CLEANING_AND_MAINTENANCE = "#cleaning-and-maintenance";
 const INTERNAL_PHOTOGRAPHY = "#internal-photography";
 
@@ -2115,71 +2113,6 @@ export const buildZapierStatusChangeThreadMessage = (event: ZapierTriggerEvent, 
     };
 };
 
-
-
-export const buildUnansweredMessageAlert = (
-    guestMessage: string,
-    reservationId: number,
-    receivedAt: Date,
-    guestName?: string,
-    propertyName?: string
-) => {
-    // Convert HTML to readable plain text if message contains HTML tags
-    const isHtml = /<[a-z][\s\S]*>/i.test(guestMessage);
-    const displayMessage = isHtml
-        ? convert(guestMessage, { wordwrap: false, selectors: [{ selector: 'table', format: 'dataTable' }] })
-        : guestMessage;
-
-    const formattedTime = format(receivedAt, "MMM dd, yyyy 'at' hh:mm a");
-    const truncatedMessage = displayMessage.length > 500 ? displayMessage.slice(0, 500) + '...' : displayMessage;
-    const hostifyLink = `https://us.hostify.com/reservations/view/${reservationId}`;
-
-    // Build title with property name in brackets if available
-    const titleProperty = propertyName ? ` (🏠 ${propertyName})` : '';
-    const title = `*⚠️ Unanswered Guest Message Alert${titleProperty}*`;
-
-    const fields: any[] = [];
-
-    // Guest Name with Hostify link
-    if (guestName) {
-        fields.push({ type: "mrkdwn", text: `*👤 Guest:*\n<${hostifyLink}|${guestName}>` });
-    } else {
-        fields.push({ type: "mrkdwn", text: `*🔗 Reservation:*\n<${hostifyLink}|View in Hostify>` });
-    }
-
-    // Property Name with icon
-    if (propertyName) {
-        fields.push({ type: "mrkdwn", text: `*🏠 Property:*\n${propertyName}` });
-    }
-
-    // Received time
-    fields.push({ type: "mrkdwn", text: `*🕐 Received At:*\n${formattedTime}` });
-
-    return {
-        channel: UNRESPONDED_MESSAGES_CHANNEL,
-        text: `⚠️ Unanswered Guest Message Alert${propertyName ? ` - ${propertyName}` : ''}`,
-        blocks: [
-            {
-                type: "section",
-                text: {
-                    type: "mrkdwn",
-                    text: title
-                }
-            },
-            {
-                type: "section",
-                text: {
-                    type: "mrkdwn",
-                    text: `*💬 Message:*\n>${truncatedMessage.replace(/\n/g, '\n>')}`
-                }
-            },
-            {
-                type: "section",
-                fields
-            }
-        ]
-    };
-};
 
 
 export const buildCleanerRequestSlackMessage = (request: CleanerRequest, formLink: string) => {
