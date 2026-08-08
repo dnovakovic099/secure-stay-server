@@ -773,10 +773,17 @@ export class SmartLockAccessCodeService {
 
     try {
       const provider = LockProviderFactory.getProvider(existing.device.provider);
-      await provider.updateAccessCode(existing.externalCodeId, {
+      const result = await provider.updateAccessCode(existing.externalCodeId, {
         code: codeChanged ? refreshed.code : undefined,
         name: nameChanged ? refreshed.codeName : undefined,
       });
+      // Some providers (Eufy) key access codes by their user-visible name, so
+      // a rename changes the id we need to talk to the lock with. Capture the
+      // new id here — future updates and deletes for this row would otherwise
+      // hit a stale key and fail.
+      if (result?.externalCodeId && result.externalCodeId !== existing.externalCodeId) {
+        refreshed.externalCodeId = result.externalCodeId;
+      }
       refreshed.errorMessage = null;
     } catch (error: any) {
       // Persist the failure so the UI can surface a warning; don't roll back

@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import axios from "axios";
 import { SmartLockDeviceService } from "../services/SmartLockDeviceService";
 import { SmartLockAccessCodeService, buildAccessCodeName } from "../services/SmartLockAccessCodeService";
+import { EufyClientService } from "../services/EufyClientService";
 import { LockOverviewService, LockOverviewQuery } from "../services/LockOverviewService";
 import { LockProviderHealthService } from "../services/LockProviderHealthService";
 import { LockFleetService } from "../services/LockFleetService";
@@ -1365,6 +1366,57 @@ router.get("/providers", async (req: Request, res: Response) => {
       success: false,
       message: error.message || "Failed to get providers",
     });
+  }
+});
+
+/**
+ * Eufy account challenge state — captcha and 2FA responses are handed back
+ * here when the eufy-security-client blocks a login on a challenge. This is
+ * the only Eufy-specific admin surface; everything else routes through the
+ * generic provider interface.
+ *
+ * GET  /smart-locks/eufy/challenge?label=main   -> current status (image + id if pending)
+ * POST /smart-locks/eufy/challenge              -> { label, captchaCode?, verifyCode? }
+ */
+router.get("/eufy/challenge", async (req: Request, res: Response) => {
+  try {
+    const service = EufyClientService.getInstance();
+    const label = String(req.query.label || service.pendingChallengeAccount() || "");
+    if (!label) {
+      return res.json({ success: true, data: { status: "idle" } });
+    }
+    return res.json({ success: true, data: { label, ...service.getChallengeStatus(label) } });
+  } catch (error: any) {
+    logger.error("[Eufy] challenge status error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/eufy/challenge", async (req: Request, res: Response) => {
+  try {
+    const service = EufyClientService.getInstance();
+    const { label, captchaCode, verifyCode } = req.body || {};
+    const targetLabel = String(label || service.pendingChallengeAccount() || "");
+    if (!targetLabel) {
+      return res.status(400).json({
+        success: false,
+        message: "No pending Eufy challenge. Trigger a lock operation first, then submit.",
+      });
+    }
+    const consumed = service.submitChallengeResponse(targetLabel, { captchaCode, verifyCode });
+    if (!consumed) {
+      return res.status(409).json({
+        success: false,
+        message: `No matching challenge waiting on account "${targetLabel}".`,
+      });
+    }
+    return res.json({
+      success: true,
+      data: { label: targetLabel, status: service.getChallengeStatus(targetLabel) },
+    });
+  } catch (error: any) {
+    logger.error("[Eufy] challenge submit error:", error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 });
 

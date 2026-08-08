@@ -32,6 +32,7 @@ jobs:
           SCIENER_CLIENT_SECRET: ${{ secrets.SCIENER_CLIENT_SECRET }}
           TTLOCK_ACCOUNTS_JSON: ${{ secrets.TTLOCK_ACCOUNTS_JSON }}
           SCHLAGE_ACCOUNTS_JSON: ${{ secrets.SCHLAGE_ACCOUNTS_JSON }}
+          EUFY_ACCOUNTS_JSON: ${{ secrets.EUFY_ACCOUNTS_JSON }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
@@ -40,7 +41,7 @@ jobs:
           command_timeout: 40m
           # ssh-action only forwards variables named here — adding one to env:
           # above without listing it makes it silently empty on the box.
-          envs: REDDIT_CLIENT_ID,REDDIT_CLIENT_SECRET,REDDIT_REDIRECT_URI,ASSISTANT_ENABLED,ASSISTANT_PILOT_EMAILS,SEAM_API_KEY,SIFELY_CLIENT_ID,SIFELY_API_KEY,SIFELY_USERNAME,SIFELY_PASSWORD,SCIENER_CLIENT_ID,SCIENER_CLIENT_SECRET,TTLOCK_ACCOUNTS_JSON,SCHLAGE_ACCOUNTS_JSON
+          envs: REDDIT_CLIENT_ID,REDDIT_CLIENT_SECRET,REDDIT_REDIRECT_URI,ASSISTANT_ENABLED,ASSISTANT_PILOT_EMAILS,SEAM_API_KEY,SIFELY_CLIENT_ID,SIFELY_API_KEY,SIFELY_USERNAME,SIFELY_PASSWORD,SCIENER_CLIENT_ID,SCIENER_CLIENT_SECRET,TTLOCK_ACCOUNTS_JSON,SCHLAGE_ACCOUNTS_JSON,EUFY_ACCOUNTS_JSON
           script: |
             set -e
 
@@ -101,7 +102,7 @@ jobs:
             # is why lock automation kept silently reverting to unconfigured.
             # Each is upserted independently: a missing Seam key must not stop
             # Sifely locks from working, and vice versa.
-            for lock_var in SEAM_API_KEY SIFELY_CLIENT_ID SIFELY_API_KEY SIFELY_USERNAME SIFELY_PASSWORD SCIENER_CLIENT_ID SCIENER_CLIENT_SECRET TTLOCK_ACCOUNTS_JSON SCHLAGE_ACCOUNTS_JSON; do
+            for lock_var in SEAM_API_KEY SIFELY_CLIENT_ID SIFELY_API_KEY SIFELY_USERNAME SIFELY_PASSWORD SCIENER_CLIENT_ID SCIENER_CLIENT_SECRET TTLOCK_ACCOUNTS_JSON SCHLAGE_ACCOUNTS_JSON EUFY_ACCOUNTS_JSON; do
               eval "lock_val=\${$lock_var:-}"
               if [ -n "$lock_val" ]; then
                 echo ">>> Setting $lock_var"

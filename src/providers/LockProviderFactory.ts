@@ -3,6 +3,7 @@ import { SeamLockProvider } from "./SeamLockProvider";
 import { SifelyLockProvider } from "./SifelyLockProvider";
 import { SchlageLockProvider } from "./SchlageLockProvider";
 import { TTLockLockProvider } from "./TTLockLockProvider";
+import { EufyLockProvider } from "./EufyLockProvider";
 
 /**
  * Lock Provider Factory
@@ -37,6 +38,9 @@ export class LockProviderFactory {
       case "ttlock":
         provider = new TTLockLockProvider();
         break;
+      case "eufy":
+        provider = new EufyLockProvider();
+        break;
       default:
         throw new Error(`Unknown lock provider: ${providerName}`);
     }
@@ -51,7 +55,7 @@ export class LockProviderFactory {
    * the active set — per-device pricing was rejected for this fleet.
    */
   static getSupportedProviders(): string[] {
-    return ["sifely", "ttlock", "schlage"];
+    return ["sifely", "ttlock", "schlage", "eufy"];
   }
 
   static isProviderSupported(providerName: string): boolean {
