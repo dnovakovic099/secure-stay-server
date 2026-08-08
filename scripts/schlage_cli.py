@@ -164,6 +164,44 @@ def delete_code(api, device_id: str, external_code_id: str) -> None:
     code.delete()
 
 
+def update_code(
+    api,
+    device_id: str,
+    external_code_id: str,
+    code: str = None,
+    name: str = None,
+) -> dict:
+    locks = {lock.device_id: lock for lock in api.locks()}
+    lock = locks.get(device_id)
+    if not lock:
+        fail(f"Lock not found: {device_id}")
+    lock.refresh_access_codes()
+    existing = (lock.access_codes or {}).get(external_code_id)
+    if not existing:
+        fail(f"Access code not found on lock: {external_code_id}")
+
+    if name is not None:
+        existing.name = name
+    if code is not None:
+        existing.code = str(code)
+    existing.save()
+
+    starts_at = ends_at = None
+    schedule = existing.schedule
+    if schedule is not None and hasattr(schedule, "start") and hasattr(schedule, "end"):
+        starts_at = to_utc(schedule.start).isoformat()
+        ends_at = to_utc(schedule.end).isoformat()
+
+    return {
+        "externalCodeId": existing.access_code_id,
+        "code": existing.code,
+        "name": existing.name,
+        "status": "set" if not existing.disabled else "removed",
+        "startsAt": starts_at,
+        "endsAt": ends_at,
+    }
+
+
 def main() -> None:
     cmd = parse_cmd()
     action = cmd.get("action")
@@ -192,6 +230,16 @@ def main() -> None:
         if action == "delete_code":
             delete_code(api, cmd["deviceId"], cmd["externalCodeId"])
             ok({"deleted": True})
+        if action == "update_code":
+            ok(
+                update_code(
+                    api,
+                    cmd["deviceId"],
+                    cmd["externalCodeId"],
+                    cmd.get("code"),
+                    cmd.get("name"),
+                )
+            )
         if action == "ping":
             ok({"authenticated": True, "userId": api._auth.user_id})
         fail(f"Unknown action: {action}")

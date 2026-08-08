@@ -173,11 +173,40 @@ export class SchlageLockProvider implements ILockProvider {
 
   async updateAccessCode(
     externalCodeId: string,
-    _params: UpdateAccessCodeParams
+    params: UpdateAccessCodeParams
   ): Promise<ProviderAccessCode> {
-    throw new Error(
-      "Schlage access-code updates are not supported via this bridge. Delete and recreate the code instead."
-    );
+    // externalCodeId format: account:deviceId:accessCodeId
+    const parts = externalCodeId.split(":");
+    if (parts.length < 3) {
+      throw new Error(`Invalid Schlage code id "${externalCodeId}"`);
+    }
+    const [label, deviceId, ...rest] = parts;
+    const accessCodeId = rest.join(":");
+    const account = this.accounts().find((row) => row.label === label);
+    if (!account) throw new Error(`No Schlage credentials for account "${label}"`);
+
+    const result = await this.bridge.run<{
+      externalCodeId: string;
+      code: string;
+      name: string;
+      status: string;
+      startsAt?: string;
+      endsAt?: string;
+    }>(account, "update_code", {
+      deviceId,
+      externalCodeId: accessCodeId,
+      code: params.code,
+      name: params.name,
+    });
+
+    return {
+      externalCodeId: `${account.label}:${deviceId}:${result.externalCodeId}`,
+      code: result.code,
+      name: result.name,
+      status: result.status || "set",
+      startsAt: result.startsAt,
+      endsAt: result.endsAt,
+    };
   }
 
   async deleteAccessCode(externalCodeId: string): Promise<void> {
